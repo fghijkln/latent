@@ -22,7 +22,7 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_strings", "java_collections", "java_time", "java_nio",
-            "java_bigdecimal", "mixed_io", "classes"]
+            "java_bigdecimal", "mixed_io", "classes", "pipeline"]
 
 
 def run(cmd, cwd=None, timeout=60):

@@ -1,6 +1,6 @@
 # Latent 库 Cookbook
 
-`cookbook/` 里的每个 `.lt` 文件都是可运行的例子（12 个），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。跑法：
+`cookbook/` 里的每个 `.lt` 文件都是可运行的例子（13 个），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。跑法：
 
 ```bash
 python3 latent.py cookbook/py_json.lt -t py -o out --run
@@ -33,6 +33,7 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `java_bigdecimal.lt` | `BigDecimal` | 精确十进制：`0.1+0.2` 得 `0.3`；`divide` 的 scale/rounding 用位置参数传 |
 | `mixed_io.lt` | 混用 | Python `open()` 写文件，Java NIO 读回来——两个生态在同一个程序里 |
 | `classes.lt` | 类 | `Account` 存取款：`init`/`new`/方法/字段，`==` 为 identity |
+| `pipeline.lt` | 旗舰 demo | 双生态销售管道：Python 写 CSV → Java NIO 读 → re 解析 → try/catch 跳坏行 → numpy 均值 → BigDecimal 求和 → java.time 时间戳 |
 
 ## 互操作速查
 
