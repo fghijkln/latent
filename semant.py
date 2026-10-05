@@ -6,6 +6,7 @@ BUILTINS = {
     "__say": (1, 1), "len": (1, 1), "range": (1, 2), "str": (1, 1),
     "int": (1, 1), "push": (2, 2), "keys": (1, 1),
     "__wgetattr": (2, 2), "__wcall": (2, None), "__index": (2, 2),
+    "__wsetattr": (3, 3), "__wsetindex": (3, 3),
 }
 
 
@@ -20,16 +21,37 @@ def _err(node, msg):
 class Checker:
     def __init__(self):
         self.functions = {}   # name -> FnDef (top level)
+        self.classes = {}     # name -> ClassDef (top level)
         self.globals = set()
 
     def run(self, prog):
         for s in prog.stmts:
             if isinstance(s, FnDef):
-                if s.name in self.functions:
-                    _err(s, f"duplicate function {s.name!r}")
+                if s.name in self.functions or s.name in self.classes:
+                    _err(s, f"duplicate definition {s.name!r}")
                 if len(set(s.params)) != len(s.params):
                     _err(s, f"duplicate parameter in {s.name!r}")
                 self.functions[s.name] = s
+            if isinstance(s, ClassDef):
+                if s.name in self.functions or s.name in self.classes:
+                    _err(s, f"duplicate definition {s.name!r}")
+                seen = set()
+                for m in s.methods:
+                    if m.name in seen:
+                        _err(m, f"duplicate method {m.name!r} in class {s.name!r}")
+                    seen.add(m.name)
+                    if m.name == "new":
+                        _err(m, "'new' is reserved for construction "
+                                f"in class {s.name!r}")
+                    if len(set(m.params)) != len(m.params):
+                        _err(m, f"duplicate parameter in {s.name}.{m.name}")
+                self.classes[s.name] = s
+        # generated Java method names must not collide with user functions
+        for cname, cd in self.classes.items():
+            for m in cd.methods:
+                if f"{cname}_{m.name}" in self.functions:
+                    _err(m, f"method {cname}.{m.name} collides with "
+                            f"function {cname}_{m.name!r}")
         for s in prog.stmts:
             self.top_stmt(s, in_loop=0)
         return prog
@@ -38,6 +60,9 @@ class Checker:
     def top_stmt(self, s, in_loop):
         if isinstance(s, FnDef):
             self.fn_body(s)
+        elif isinstance(s, ClassDef):
+            for m in s.methods:
+                self.fn_body(m)
         elif isinstance(s, Assign):
             self.top_expr(s.value, in_loop)
             self.globals.add(s.name)
@@ -178,7 +203,7 @@ class Checker:
 
     def _resolve(self, e, ctx):
         name = e.id
-        if name in BUILTINS or name in self.functions:
+        if name in BUILTINS or name in self.functions or name in self.classes:
             return
         if ctx is not None:
             if name in ctx["params"] or name == ctx["fn"].name:

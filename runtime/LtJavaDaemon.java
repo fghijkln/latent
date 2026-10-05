@@ -101,6 +101,27 @@ public class LtJavaDaemon {
                         }
                         break;
                     }
+                    case "setitem": {
+                        Object target = decodeTarget(m.get("target"));
+                        Object k = decode(m.get("key"));
+                        Object v = decode(m.get("value"));
+                        Object o = (target instanceof JReflect.JObj)
+                            ? ((JReflect.JObj) target).o : null;
+                        if (o instanceof List) {
+                            @SuppressWarnings("unchecked")
+                            List<Object> l = (List<Object>) o;
+                            l.set(toIndex(k, l.size()), v);
+                        } else if (o instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<Object, Object> mp = (Map<Object, Object>) o;
+                            mp.put(k, v);
+                        } else {
+                            throw new RuntimeException("cannot index-assign " +
+                                (o == null ? "null" : o.getClass().getName()));
+                        }
+                        result = null;
+                        break;
+                    }
                     case "truthy":
                         result = Boolean.TRUE; // any live handle is truthy
                         break;

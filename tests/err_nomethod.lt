@@ -1,0 +1,6 @@
+class A:
+    fn init(self):
+        self.x = 1
+
+a = A.new()
+say a.bogus()

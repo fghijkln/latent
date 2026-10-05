@@ -1,0 +1,60 @@
+class Point:
+    fn init(self, x, y):
+        self.x = x
+        self.y = y
+
+    fn move(self, dx, dy):
+        self.x = self.x + dx
+        self.y = self.y + dy
+        return self
+
+    fn sumsq(self):
+        return self.x * self.x + self.y * self.y
+
+p = Point.new(3, 4)
+say p.sumsq()
+say p.x
+say p.y
+p.move(1, 1)
+say p.x
+say p.y
+
+# instances are independent
+q = Point.new(0, 0)
+say q.sumsq()
+say p.sumsq()
+
+# identity equality, reprs
+say p == p
+say p == q
+say p
+say Point
+
+# fields are dynamic
+p.z = 99
+say p.z
+
+# no init: empty object, but args are an error at runtime (see err_noinit)
+class Empty:
+    fn ping(self):
+        return "pong"
+
+e = Empty.new()
+say e.ping()
+
+# methods can call each other and use globals
+factor = 10
+
+class Scaler:
+    fn init(self, v):
+        self.v = v
+
+    fn scaled(self):
+        return self.v * factor
+
+    fn rescale(self, k):
+        self.v = self.scaled() * k
+
+s = Scaler.new(2)
+s.rescale(3)
+say s.v

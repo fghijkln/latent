@@ -84,18 +84,44 @@ class Parser:
             self.next()
             self.expect("NEWLINE")
             return Continue(line=t.line, col=t.col)
-        if t.kind == "NAME" and self.toks[self.pos + 1].kind == "=":
-            return self.assign()
+        if t.kind == "CLASS":
+            return self.classdef()
         e = self.expr()
+        if self.peek().kind == "=":
+            self.next()
+            v = self.expr()
+            self.expect("NEWLINE")
+            if isinstance(e, Name):
+                return Assign(e.id, v, line=e.line, col=e.col)
+            if isinstance(e, Dot):
+                return SetAttr(e.obj, e.attr, v, line=e.line, col=e.col)
+            if isinstance(e, Subscript):
+                return SetIndex(e.obj, e.index, v, line=e.line, col=e.col)
+            raise ParseError(f"{e.line}:{e.col}: cannot assign to this expression")
         self.expect("NEWLINE")
         return ExprStmt(e, line=e.line, col=e.col)
 
-    def assign(self):
+    def classdef(self):
+        t = self.expect("CLASS")
         name = self.expect("NAME")
-        self.expect("=")
-        e = self.expr()
+        self.expect(":")
         self.expect("NEWLINE")
-        return Assign(name.value, e, line=name.line, col=name.col)
+        self.expect("INDENT")
+        methods = []
+        while self.peek().kind != "DEDENT":
+            while self.peek().kind == "NEWLINE":
+                self.next()
+            if self.peek().kind == "DEDENT":
+                break
+            if self.peek().kind != "FN":
+                raise ParseError(
+                    f"{self.peek().line}:{self.peek().col}: "
+                    f"only fn definitions allowed in class body")
+            methods.append(self.fndef())
+        self.expect("DEDENT")
+        if not methods:
+            raise ParseError(f"{t.line}:{t.col}: class {name.value!r} has no methods")
+        return ClassDef(name.value, methods, line=t.line, col=t.col)
 
     def fndef(self):
         t = self.expect("FN")

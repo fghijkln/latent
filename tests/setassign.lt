@@ -1,0 +1,24 @@
+xs = [1, 2, 3]
+xs[0] = 99
+xs[-1] = 100
+say xs
+m = {"a": 1}
+m["a"] = 2
+m["b"] = 3
+say m
+say m["b"]
+s = "hi"
+# strings are immutable: no s[0] = ...
+class Box:
+    fn init(self):
+        self.items = []
+
+    fn add(self, x):
+        push(self.items, x)
+
+b = Box.new()
+b.add(1)
+b.add(2)
+say b.items
+b.items[0] = 7
+say b.items

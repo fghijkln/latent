@@ -1,4 +1,4 @@
-# Latent 语言规范 v0.2
+# Latent 语言规范 v0.3
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -24,18 +24,21 @@
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
 
-## 3. 语法（v0.2）
+## 3. 语法（v0.3）
 
 ```
 program  := stmt*
-stmt     := assign | fndef | ifstmt | whilestmt | forstmt
+stmt     := assign | fndef | classdef | ifstmt | whilestmt | forstmt
           | saystmt | exprstmt | returnstmt | breakstmt | continuestmt
 fndef    := "fn" NAME "(" [params] ")" ( "=>" expr | ":" block )
+classdef := "class" NAME ":" block        # v0.3 新增；block 内只能是 fndef
 ifstmt   := "if" expr ":" block ("elif" expr ":" block)* ("else" ":" block)?
 whilestmt:= "while" expr ":" block
 forstmt  := "for" NAME "in" expr ":" block
 saystmt  := "say" expr
 assign   := NAME "=" expr
+          | postfix "=" expr              # v0.3 新增：obj.attr = v / xs[i] = v
+                                          # （postfix 为 Name/Dot/Subscript 时）
 expr     := orexpr
 orexpr   := andexpr ("or" andexpr)*
 ...
@@ -53,7 +56,7 @@ index    := primary "[" expr "]"          # v0.2.1 新增：下标读
 - `fn` 单行形式：`fn add(a, b) => a + b`。
 - 函数末表达式即返回值（可省略 `return`）；`return` 用于提前返回。
 
-## 4. 语义（v0.2）
+## 4. 语义
 
 - **动态类型**，无类型声明。`+` 按操作数重载：数字相加、字符串拼接、列表拼接；
   其他混用为编译期/运行期错误。
@@ -69,7 +72,46 @@ index    := primary "[" expr "]"          # v0.2.1 新增：下标读
   `__wgetattr(h, "attr")` / `__wcall(h, "attr", args)`；运行时按句柄类型分发
   （py 句柄走 Python 语义，java 句柄走 Java 反射语义）。
 
-## 5. 按需加载 Python：`py`
+## 5. 类（v0.3 新增）
+
+```latent
+class Point:
+    fn init(self, x, y):   # 构造器；Point.new(args) 时自动调用
+        self.x = x
+        self.y = y
+
+    fn move(self, dx, dy):  # 方法：第一个参数收实例（按惯例叫 self）
+        self.x = self.x + dx
+        self.y = self.y + dy
+        return self
+
+p = Point.new(3, 4)   # 构造：与 java 互操作的 C.new(args) 同一套写法
+say p.move(1, 1).x    # 4（方法可链式，返回 self 即可）
+say p                 # <Point object>
+say Point             # <class Point>
+```
+
+语义保证：
+
+1. `class` 块内只能是 `fn` 定义；方法名 `new` 保留（构造专用）。
+2. `C.new(args)` 创建实例并调用 `init(self, ...)`（若定义了 `init`）；未定义
+   `init` 时 `C.new()` 得空对象，带参数则为运行期错误。
+3. 字段动态：`self.x = v` 即创建/赋值；`obj.x` 读字段，不存在为运行期错误。
+   方法只能通过 `obj.m(args)` 调用（`obj.m` 不调用时不返回值，属未定义行为，
+   不要依赖）。
+4. 实例是独立的值：`==` 为 identity；真值恒真；`say` 打印 `<Point object>`。
+5. 方法内名字规则与函数相同（参数、局部变量先读后写为编译期错误，可读全局）。
+6. **无继承**（v0.3 不做，见 §10）。
+
+`obj.attr = v` 与 `xs[i] = v`（v0.3 新增， desugar 为 `__wsetattr` /
+`__wsetindex`）：
+
+- Latent 实例：字段写；Latent 列表/映射：下标写（负索引可用，越界为运行期错误）。
+- py 句柄：走 daemon `setattr` / `setitem`；java 句柄：字段赋值走反射
+  `setField`，List/Map 句柄走 `set` / `put`。
+- 字符串不可写；映射用 `m[k] = v`，不要用 `m.k = v`。
+
+## 6. 按需加载 Python：`py`
 
 ```latent
 np = py "numpy"          # 懒加载：此时不 import、不启动解释器
@@ -98,7 +140,7 @@ say a                    # 打印远端对象：[1 2 3]
 7. **`==` 在远端对象上是 identity 比较**（同一句柄才相等），双后端一致；
    `<` 等比较不支持远端对象。
 
-## 6. 按需加载 Java：`java`
+## 7. 按需加载 Java：`java`
 
 ```latent
 A = java "java.util.ArrayList"   # 懒加载：此时不 Class.forName、不启动 JVM
@@ -140,7 +182,7 @@ for x in a:                      # Java List/数组可迭代
    java 句柄的真值恒为真（非空）。
 7. Java 出错 → 运行时异常（Java 后端直接抛；Python 后端带 Java 堆栈信息透出）。
 
-## 7. 内建函数（v0.2）
+## 8. 内建函数
 
 | 函数 | 说明 |
 |---|---|
@@ -152,7 +194,7 @@ for x in a:                      # Java List/数组可迭代
 | `push(xs, x)` | 列表末尾追加（原地），返回 `nil` |
 | `keys(m)` | 映射键列表 |
 
-## 8. 编译器架构
+## 9. 编译器架构
 
 纯 Python 标准库实现，四遍前端 + 双后端：
 
@@ -175,18 +217,17 @@ for x in a:                      # Java List/数组可迭代
   Java 后端直调、Python 后端经 `LtJavaDaemon` 调）、`ltpy.py`（Python 守护进程）、
   `LtJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
 
-## 9. v0.2 不做（已记录，不算遗漏）
+## 10. v0.3 不做（已记录，不算遗漏）
 
-- 类/对象字面量方法、闭包捕获、函数作值、异常处理（`try`）、模块系统（`import` 其他 .lt）。
-- 下标赋值（`xs[i] = v`）、关键字参数（`f(x=1)`）——v0.3 候选。
-- `py` 内联代码块（`py:` 多行 Python 源码）——v0.3 候选。
-- 字段赋值（`o.field = v`）——v0.3 候选（读/调方法/构造已覆盖绝大多数用库场景）。
+- 类的继承、`super`、类方法/静态方法、运算符重载——v0.4 候选。
+- 闭包捕获、函数作值、异常处理（`try`）、模块系统（`import` 其他 .lt）。
+- 关键字参数（`f(x=1)`）、`py` 内联代码块（`py:` 多行 Python 源码）——v0.4 候选。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
 
-## 10. 示例
+## 11. 示例
 
 ```latent
 # fib.lt

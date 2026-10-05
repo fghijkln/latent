@@ -18,7 +18,8 @@ BUILTIN_JAVA = {
     "__say": "LtRt.say", "len": "LtRt.len", "range": "LtRt.range",
     "str": "LtRt.strOf", "int": "LtRt.toInt", "push": "LtRt.push",
     "keys": "LtRt.keys", "__wgetattr": None, "__wcall": None,  # special-cased
-    "__index": "LtRt.index",
+    "__index": "LtRt.index", "__wsetattr": "LtRt.wsetattr",
+    "__wsetindex": "LtRt.wsetindex",
 }
 
 
@@ -79,7 +80,9 @@ class Gen:
 
     def generate(self, prog):
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
-        rest = [s for s in prog.stmts if not isinstance(s, FnDef)]
+        clss = [s for s in prog.stmts if isinstance(s, ClassDef)]
+        rest = [s for s in prog.stmts
+                if not isinstance(s, (FnDef, ClassDef))]
         gnames = []
         for s in rest:
             if isinstance(s, Assign) and s.name not in gnames:
@@ -92,6 +95,8 @@ class Gen:
             self.w(f"static Object {ident(g)};")
         if gnames:
             self.w("")
+        for cd in clss:
+            self.classfield(cd)
         self.w("public static void main(String[] args) {")
         self.ind += 1
         for s in rest:
@@ -102,9 +107,49 @@ class Gen:
         for fn in fns:
             self.w("")
             self.fndef(fn)
+        for cd in clss:
+            for m in cd.methods:
+                self.w("")
+                self.methoddef(cd, m)
         self.ind -= 1
         self.w("}")
         return "\n".join(self.out) + "\n"
+
+    def classfield(self, cd):
+        names = ", ".join(f'"{m.name}"' for m in cd.methods)
+        lambdas = ", ".join(
+            f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
+        self.w(f"static LtRt.LtClass {ident(cd.name)} = LtRt.makeClass(")
+        self.ind += 1
+        self.w(f'"{cd.name}",')
+        self.w(f"new String[]{{{names}}},")
+        self.w(f"new LtRt.LtMethod[]{{{lambdas}}});")
+        self.ind -= 1
+
+    def methoddef(self, cd, m):
+        params = m.params
+        selfname = ident(params[0]) if params else "self"
+        restp = params[1:] if params else []
+        self.w(f"static Object {cd.name}_{m.name}(Object {selfname}, Object[] args) " + "{")
+        self.ind += 1
+        self.w(f"if (args.length != {len(restp)})")
+        self.ind += 1
+        self.w(f'throw new RuntimeException("{m.name}() takes {len(restp)} '
+               f'arguments, got " + args.length);')
+        self.ind -= 1
+        for i, p in enumerate(restp):
+            self.w(f"Object {ident(p)} = args[{i}];")
+        assigned = set()
+        self._collect(m.body, assigned)
+        assigned -= set(params)
+        for name in sorted(assigned):
+            self.w(f"Object {ident(name)} = null; // local defaults to nil")
+        for s in m.body:
+            self.stmt(s)
+        if not self._always_returns(m.body):
+            self.w("return null;")
+        self.ind -= 1
+        self.w("}")
 
     def fndef(self, fn):
         params = ", ".join(f"Object {ident(p)}" for p in fn.params)

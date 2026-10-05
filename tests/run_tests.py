@@ -12,16 +12,17 @@ OUT = os.path.join(ROOT, "out")
 
 POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "str_interp", "py_basic", "py_numpy", "py_lazy",
-            "java_basic", "java_lazy", "mixed", "indexing"]
+            "java_basic", "java_lazy", "mixed", "indexing",
+            "class_basic", "setassign"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
-               "err_break"]
+               "err_break", "err_dupmethod", "err_assign_target"]
 NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
-               "err_index_key"]  # compiles fine, must fail at run on both
+               "err_index_key", "err_nomethod", "err_nofield"]
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_strings", "java_collections", "java_time", "java_nio",
-            "java_bigdecimal", "mixed_io"]
+            "java_bigdecimal", "mixed_io", "classes"]
 
 
 def run(cmd, cwd=None, timeout=60):

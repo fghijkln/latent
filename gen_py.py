@@ -48,6 +48,11 @@ def _wv_repr(v):
         return v
     if isinstance(v, _LazyMod):
         return "<module %s>" % v.__dict__["_name"]
+    if isinstance(v, _LtClass):
+        return "<class %s>" % v._name
+    if isinstance(v, _LtObj):
+        n = type(v).__name__
+        return "<%s object>" % (n[3:] if n.startswith("_C_") else n)
     if isinstance(v, _JClass):
         return "<class %s>" % v._name
     if isinstance(v, _JHandle):
@@ -295,6 +300,30 @@ class _JHandle:
         self._id = id
 
 
+class _LtObj:
+    """Instance of a Latent class. Fields live in the instance __dict__;
+    methods live on the generated _C_<Name> class."""
+
+
+class _LtClass:
+    """A Latent class value. Call _new() to construct (via __wcall 'new')."""
+    def __init__(self, name, cls):
+        self._name = name
+        self._cls = cls
+
+    def _new(self, *args):
+        o = self._cls.__new__(self._cls)
+        init = self._cls.__dict__.get("init")
+        if init is not None:
+            # Latent-level dispatch: values stay Latent (no _wv_pyarg;
+            # that int conversion is only for calling real Python functions)
+            init(o, *args)
+        elif args:
+            raise TypeError(
+                "%s.new() takes no arguments (no init defined)" % self._name)
+        return o
+
+
 def _jvm_encode(v):
     if isinstance(v, _JHandle):
         return {"__jref": v._id}
@@ -436,6 +465,12 @@ def _wv_wgetattr(h, attr):
     if isinstance(h, (_JClass, _JHandle)):
         jvm = _JVM.inst()
         return jvm.req({"op": "get", "target": jvm.target(h), "field": attr})
+    if isinstance(h, _LtObj):
+        if attr in h.__dict__:
+            return h.__dict__[attr]
+        raise AttributeError("no field %r" % attr)
+    if isinstance(h, _LtClass):
+        raise AttributeError("class %s has no fields" % h._name)
     return getattr(h, attr)
 
 
@@ -447,7 +482,55 @@ def _wv_wcall(h, attr, *args):
             return jvm.req({"op": "new", "class": h._name, "args": jargs})
         return jvm.req({"op": "call", "target": jvm.target(h),
                         "method": attr, "args": jargs})
+    if isinstance(h, _LtClass):
+        if attr == "new":
+            return h._new(*args)
+        raise AttributeError("no class-level method %r" % attr)
+    if isinstance(h, _LtObj):
+        m = type(h).__dict__.get(attr)
+        if m is None or not callable(m):
+            raise AttributeError("no method %r" % attr)
+        return m(h, *args)
     return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
+
+
+def _wv_wsetattr(h, attr, v):
+    if isinstance(h, _LtObj):
+        h.__dict__[attr] = v
+        return None
+    if isinstance(h, _LtClass):
+        raise AttributeError("cannot set attribute on a class")
+    if isinstance(h, (_JClass, _JHandle)):
+        jvm = _JVM.inst()
+        return jvm.req({"op": "set", "target": jvm.target(h),
+                        "field": attr, "value": _jvm_encode(v)})
+    if isinstance(h, _LazyMod):
+        raise AttributeError("cannot set attribute on a module")
+    setattr(h, attr, _wv_pyarg(v))
+    return None
+
+
+def _wv_wsetindex(h, k, v):
+    if isinstance(h, _JHandle):
+        jvm = _JVM.inst()
+        return jvm.req({"op": "setitem", "target": jvm.target(h),
+                        "key": _jvm_encode(k), "value": _jvm_encode(v)})
+    if isinstance(h, _LtObj):
+        raise TypeError("cannot index-assign an object; set a field instead")
+    if isinstance(h, list):
+        h[_wv_idx(k, len(h))] = v
+        return None
+    if isinstance(h, dict):
+        h[k] = v
+        return None
+    # exotic natives (e.g. an ndarray straight from a py call): best effort,
+    # mirroring _wv_index's read fallback so both backends agree
+    try:
+        h[int(k) if isinstance(k, float) else k] = _wv_pyarg(v)
+        return None
+    except (IndexError, KeyError, TypeError, AttributeError):
+        pass
+    raise TypeError("cannot index-assign " + _wv_repr(h))
 
 '''
 
@@ -455,7 +538,8 @@ BUILTIN_PY = {
     "__say": "_wv_say", "len": "_wv_len", "range": "_wv_range",
     "str": "_wv_str", "int": "_wv_int", "push": "_wv_push",
     "keys": "_wv_keys", "__wgetattr": "_wv_wgetattr", "__wcall": "_wv_wcall",
-    "__index": "_wv_index",
+    "__index": "_wv_index", "__wsetattr": "_wv_wsetattr",
+    "__wsetindex": "_wv_wsetindex",
 }
 
 
@@ -470,10 +554,15 @@ class Gen:
     def generate(self, prog):
         self.w(PRELUDE.strip("\n"))
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
-        rest = [s for s in prog.stmts if not isinstance(s, FnDef)]
+        clss = [s for s in prog.stmts if isinstance(s, ClassDef)]
+        rest = [s for s in prog.stmts
+                if not isinstance(s, (FnDef, ClassDef))]
         for fn in fns:
             self.w("")
             self.fndef(fn)
+        for cd in clss:
+            self.w("")
+            self.classdef(cd)
         if rest:
             self.w("")
             self.w('if __name__ == "__main__":')
@@ -482,6 +571,14 @@ class Gen:
                 self.stmt(s)
             self.indent -= 1
         return "\n".join(self.out) + "\n"
+
+    def classdef(self, cd):
+        self.w(f"class _C_{cd.name}(_LtObj):")
+        self.indent += 1
+        for m in cd.methods:
+            self.fndef(m)
+        self.indent -= 1
+        self.w(f'{cd.name} = _LtClass("{cd.name}", _C_{cd.name})')
 
     def fndef(self, fn):
         # locals default to nil (matches Java backend)

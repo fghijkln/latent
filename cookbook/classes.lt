@@ -1,0 +1,35 @@
+# classes.lt -- Latent classes: state + behavior in one value.
+#   class Name:
+#       fn init(self, ...): ...      # constructor, called by Name.new(...)
+#       fn method(self, ...): ...    # called as obj.method(...)
+
+class Account:
+    fn init(self, owner, balance):
+        self.owner = owner
+        self.balance = balance
+
+    fn deposit(self, amount):
+        self.balance = self.balance + amount
+        return self
+
+    fn withdraw(self, amount):
+        if amount > self.balance:
+            return "denied"
+        self.balance = self.balance - amount
+        return self.balance
+
+    fn show(self):
+        return "${self.owner}: ${self.balance}"
+
+a = Account.new("ann", 100)
+a.deposit(50).withdraw(30)
+say a.show()
+
+b = Account.new("bob", 0)
+say b.withdraw(10)
+say b.show()
+
+# each instance keeps its own fields
+say a.balance
+say a == b
+say a

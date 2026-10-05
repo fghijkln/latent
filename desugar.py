@@ -69,24 +69,23 @@ def _split_interp(s, line, col):
     return parts
 
 
-def _desugar_str(node):
-    parts = _split_interp(node.value, node.line, node.col)
-    if not parts or (len(parts) == 1 and parts[0][0] == "str"):
-        return node
-    expr = None
-    for kind, text in parts:
-        if kind == "str":
-            piece = Str(text, line=node.line, col=node.col)
-        else:
-            piece = Call(Name("str", line=node.line, col=node.col),
-                         [_parse_expr(text, node.line, node.col)],
-                         line=node.line, col=node.col)
-        expr = piece if expr is None else BinOp("+", expr, piece,
-                                               line=node.line, col=node.col)
-    return expr
-
-
 class Desugar:
+    def _desugar_str(self, node):
+        parts = _split_interp(node.value, node.line, node.col)
+        if not parts or (len(parts) == 1 and parts[0][0] == "str"):
+            return node
+        expr = None
+        for kind, text in parts:
+            if kind == "str":
+                piece = Str(text, line=node.line, col=node.col)
+            else:
+                piece = Call(Name("str", line=node.line, col=node.col),
+                             [self.expr(_parse_expr(text, node.line, node.col))],
+                             line=node.line, col=node.col)
+            expr = piece if expr is None else BinOp("+", expr, piece,
+                                                   line=node.line, col=node.col)
+        return expr
+
     def run(self, prog):
         return Program([self.stmt(s) for s in prog.stmts],
                        line=0, col=0)
@@ -107,6 +106,25 @@ class Desugar:
     def stmt(self, s):
         if isinstance(s, Assign):
             return Assign(s.name, self.expr(s.value), line=s.line, col=s.col)
+        if isinstance(s, SetAttr):
+            return ExprStmt(
+                Call(Name("__wsetattr", line=s.line, col=s.col),
+                     [self.expr(s.obj), Str(s.attr, line=s.line, col=s.col),
+                      self.expr(s.value)], line=s.line, col=s.col),
+                line=s.line, col=s.col)
+        if isinstance(s, SetIndex):
+            return ExprStmt(
+                Call(Name("__wsetindex", line=s.line, col=s.col),
+                     [self.expr(s.obj), self.expr(s.index),
+                      self.expr(s.value)], line=s.line, col=s.col),
+                line=s.line, col=s.col)
+        if isinstance(s, ClassDef):
+            methods = []
+            for m in s.methods:
+                dm = self.stmt(m)
+                assert isinstance(dm, FnDef)
+                methods.append(dm)
+            return ClassDef(s.name, methods, line=s.line, col=s.col)
         if isinstance(s, FnDef):
             body = self._implicit_return([self.stmt(x) for x in s.body])
             return FnDef(s.name, s.params, body, line=s.line, col=s.col)
@@ -139,7 +157,7 @@ class Desugar:
         if isinstance(e, (Num, Bool, Nil, Name)):
             return e
         if isinstance(e, Str):
-            return _desugar_str(e)
+            return self._desugar_str(e)
         if isinstance(e, List):
             return List([self.expr(x) for x in e.elts], line=e.line, col=e.col)
         if isinstance(e, Map):

@@ -186,7 +186,46 @@ fn f():
 
 ---
 
-## 8. `py`：按需加载 Python
+## 8. 类
+
+```latent
+class Point:
+    fn init(self, x, y):
+        self.x = x
+        self.y = y
+
+    fn move(self, dx, dy):
+        self.x = self.x + dx
+        self.y = self.y + dy
+        return self
+
+    fn sumsq(self):
+        return self.x * self.x + self.y * self.y
+
+p = Point.new(3, 4)
+say p.sumsq()   # 25
+p.move(1, 1)
+say p.x         # 4
+say p           # <Point object>
+```
+
+- `init` 是构造器，`Point.new(...)` 会自动调它；没写 `init` 时 `Point.new()` 得到空对象。
+- 方法第一个参数收实例，按惯例叫 `self`（和 Python 一样是显式的）。
+- 字段是动态的：`self.z = 1` 随时加；`==` 比的是 identity；暂无继承。
+
+属性写和下标写也是 v0.3 新加的：
+
+```latent
+p.x = 10        # 字段赋值
+xs = [1, 2, 3]
+xs[0] = 99      # 下标赋值（负索引可用）
+m = {"a": 1}
+m["b"] = 2
+```
+
+更多例子见 [cookbook/classes.lt](cookbook/classes.lt)。
+
+## 9. `py`：按需加载 Python
 
 ```latent
 np = py "numpy"                # ① 这里什么都不发生
@@ -211,7 +250,7 @@ say np.pi                      # 3.141592653589793
 只创建不使用的 `py` 句柄的程序依然能正常运行——
 因为解释器从未被需要过。
 
-## 9. `java`：按需加载 Java
+## 10. `java`：按需加载 Java
 
 和 `py` 完全对称：
 
@@ -251,7 +290,7 @@ a.add(np.sqrt(2))
 say a          # [1.4142135623730951]
 ```
 
-## 10. 双后端是怎么回事
+## 11. 双后端是怎么回事
 
 ```
 .lt → 词法 → 语法 → 脱糖 → 语义检查 → gen_py.py  → .py
@@ -266,9 +305,9 @@ say a          # [1.4142135623730951]
 
 两条铁律：**同一份源码双后端输出一致**；**用不上的那一端运行时根本不启动**。
 
-## 11. 已知限制（v0.2）
+## 12. 已知限制（v0.3）
 
-- 无类、无闭包捕获、无 `try`、无模块系统（`import` 其他 `.lt` 文件）。
+- 无继承、无闭包捕获、无 `try`、无模块系统（`import` 其他 `.lt` 文件）。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持字段赋值（`o.field = v`）、不支持基本类型类名（`java "int"` 不行）。
 - 调用只有位置参数，没有关键字参数；函数不能当作值传递。
@@ -291,4 +330,4 @@ say a          # [1.4142135623730951]
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（34 个测试，双后端对拍）
+- 跑测试：`python3 tests/run_tests.py`（41 个测试，双后端对拍）

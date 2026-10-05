@@ -1,0 +1,4 @@
+fn f(x):
+    return x
+
+f(1) = 2

@@ -21,6 +21,35 @@ class Assign(Node):
         self.value = value
 
 
+class SetAttr(Node):
+    """Attribute write statement: obj.attr = value. Desugar rewrites to
+    __wsetattr(obj, "attr", value)."""
+    def __init__(self, obj, attr, value, **kw):
+        super().__init__(**kw)
+        self.obj = obj
+        self.attr = attr
+        self.value = value
+
+
+class SetIndex(Node):
+    """Index write statement: obj[key] = value. Desugar rewrites to
+    __wsetindex(obj, key, value)."""
+    def __init__(self, obj, index, value, **kw):
+        super().__init__(**kw)
+        self.obj = obj
+        self.index = index
+        self.value = value
+
+
+class ClassDef(Node):
+    """Class definition. methods is a list of FnDef; the first parameter
+    of each method receives the instance (self, by convention)."""
+    def __init__(self, name, methods, **kw):
+        super().__init__(**kw)
+        self.name = name
+        self.methods = methods
+
+
 class FnDef(Node):
     def __init__(self, name, params, body, **kw):
         super().__init__(**kw)

@@ -128,6 +128,15 @@ def main():
                     resp = {"value": encode(tgt[k])}
                 except (IndexError, KeyError, TypeError) as e:
                     resp = {"error": "index failed: %s" % e}
+            elif op == "setattr":
+                setattr(tgt, req["attr"], _pyarg(req["value"]))
+                resp = {"value": None}
+            elif op == "setitem":
+                try:
+                    tgt[_pyarg(req["key"])] = _pyarg(req["value"])
+                    resp = {"value": None}
+                except (IndexError, KeyError, TypeError) as e:
+                    resp = {"error": "index-assign failed: %s" % e}
             elif op == "truthy":
                 resp = {"value": bool(tgt)}
             else:

@@ -107,6 +107,8 @@ public class LtRt {
         if (a == null || b == null) return a == b;
         // remote / opaque handles: identity, matches Python backend
         if (a instanceof PyHandle || b instanceof PyHandle) return a == b;
+        if (a instanceof LtObj || b instanceof LtObj) return a == b;
+        if (a instanceof LtClass || b instanceof LtClass) return a == b;
         if (a instanceof JReflect.JClass || b instanceof JReflect.JClass) return a == b;
         if (a instanceof JReflect.JObj || b instanceof JReflect.JObj) return a == b;
         if (a instanceof Double && b instanceof Double) {
@@ -188,6 +190,8 @@ public class LtRt {
         if (v instanceof Double) return numStr((Double) v);
         if (v instanceof String) return (String) v;
         if (v instanceof PyHandle) return Daemon.inst().repr((PyHandle) v);
+        if (v instanceof LtClass) return "<class " + ((LtClass) v).name + ">";
+        if (v instanceof LtObj) return "<" + ((LtObj) v).cls.name + " object>";
         if (v instanceof JReflect.JClass || v instanceof JReflect.JObj)
             return JReflect.repr(v);
         if (v instanceof List) {
@@ -310,6 +314,35 @@ public class LtRt {
         boolean isModule() { return module != null; }
     }
 
+    // ---------------- Latent classes (v0.3) ----------------
+    /** A Latent method: uniform (self, args) shape so LtClass can hold
+    a name -> implementation table without reflection. */
+    public interface LtMethod {
+        Object call(Object self, Object[] args);
+    }
+
+    public static class LtClass {
+        public final String name;
+        public final Map<String, LtMethod> methods;
+        LtClass(String name, Map<String, LtMethod> methods) {
+            this.name = name;
+            this.methods = methods;
+        }
+    }
+
+    public static class LtObj {
+        public final LtClass cls;
+        public final Map<String, Object> fields = new LinkedHashMap<>();
+        LtObj(LtClass cls) { this.cls = cls; }
+    }
+
+    public static LtClass makeClass(String name, String[] names,
+                                    LtMethod[] methods) {
+        Map<String, LtMethod> m = new LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) m.put(names[i], methods[i]);
+        return new LtClass(name, m);
+    }
+
     public static Object pymod(Object name) {
         if (!(name instanceof String))
             throw new RuntimeException("py module name must be a string");
@@ -339,6 +372,14 @@ public class LtRt {
     /** Unified attribute access: py handles and java handles. */
     public static Object wgetattr(Object h, String attr) {
         if (h instanceof PyHandle) return pyget(h, attr);
+        if (h instanceof LtObj) {
+            Map<String, Object> f = ((LtObj) h).fields;
+            if (!f.containsKey(attr))
+                throw new RuntimeException("no field '" + attr + "'");
+            return f.get(attr);
+        }
+        if (h instanceof LtClass)
+            throw new RuntimeException("cannot read fields on a class");
         if (h instanceof JReflect.JClass)
             return JReflect.getField((JReflect.JClass) h, attr);
         if (h instanceof JReflect.JObj)
@@ -349,6 +390,28 @@ public class LtRt {
     /** Unified call: py handles, java static/instance methods, C.new() constructors. */
     public static Object wcall(Object h, String attr, Object... args) {
         if (h instanceof PyHandle) return pycall(h, attr, args);
+        if (h instanceof LtClass) {
+            LtClass c = (LtClass) h;
+            if (attr.equals("new")) {
+                LtObj o = new LtObj(c);
+                LtMethod init = c.methods.get("init");
+                if (init != null) init.call(o, args);
+                else if (args.length > 0)
+                    throw new RuntimeException("no init defined for class " +
+                        c.name + ", but " + args.length + " args given");
+                return o;
+            }
+            throw new RuntimeException("no class-level method '" + attr +
+                "' on class " + c.name);
+        }
+        if (h instanceof LtObj) {
+            LtObj o = (LtObj) h;
+            LtMethod m = o.cls.methods.get(attr);
+            if (m == null)
+                throw new RuntimeException("no method '" + attr +
+                    "' on " + o.cls.name);
+            return m.call(o, args);
+        }
         if (h instanceof JReflect.JClass) {
             if (attr.equals("new"))
                 return JReflect.construct((JReflect.JClass) h, args);
@@ -357,6 +420,50 @@ public class LtRt {
         if (h instanceof JReflect.JObj)
             return JReflect.call((JReflect.JObj) h, attr, args);
         throw new RuntimeException("call on non-handle value: " + typeName(h));
+    }
+
+    public static Object wsetattr(Object h, String attr, Object v) {
+        if (h instanceof LtObj) {
+            ((LtObj) h).fields.put(attr, v);
+            return null;
+        }
+        if (h instanceof PyHandle)
+            return Daemon.inst().setattr((PyHandle) h, attr, v);
+        if (h instanceof JReflect.JObj)
+            return JReflect.setField((JReflect.JObj) h, attr, v);
+        if (h instanceof JReflect.JClass)
+            return JReflect.setField((JReflect.JClass) h, attr, v);
+        throw new RuntimeException("cannot set attribute on " + typeName(h));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Object wsetindex(Object o, Object k, Object v) {
+        if (o instanceof PyHandle)
+            return Daemon.inst().setitem((PyHandle) o, k, v);
+        if (o instanceof JReflect.JObj) {
+            Object u = ((JReflect.JObj) o).o;
+            if (u instanceof List) {
+                List<Object> l = (List<Object>) u;
+                l.set(toIndex(k, l.size()), v);
+                return null;
+            }
+            if (u instanceof Map) {
+                ((Map<Object, Object>) u).put(k, v);
+                return null;
+            }
+            throw new RuntimeException("cannot index-assign java value of type " +
+                u.getClass().getName());
+        }
+        if (o instanceof List) {
+            List<Object> l = (List<Object>) o;
+            l.set(toIndex(k, l.size()), v);
+            return null;
+        }
+        if (o instanceof Map) {
+            ((Map<Object, Object>) o).put(k, v);
+            return null;
+        }
+        throw new RuntimeException("cannot index-assign " + typeName(o));
     }
 
     /** Indexing: xs[i] / m[k] / s[i]. Negative indices count from the end. */
@@ -531,6 +638,16 @@ public class LtRt {
         Object getitem(PyHandle h, Object key) {
             return exchange("{\"op\":\"getitem\",\"target\":" + targetJson(h) +
                 ",\"key\":" + encodeArg(key) + "}");
+        }
+
+        Object setattr(PyHandle h, String attr, Object v) {
+            return exchange("{\"op\":\"setattr\",\"target\":" + targetJson(h) +
+                ",\"attr\":" + Json.str(attr) + ",\"value\":" + encodeArg(v) + "}");
+        }
+
+        Object setitem(PyHandle h, Object key, Object v) {
+            return exchange("{\"op\":\"setitem\",\"target\":" + targetJson(h) +
+                ",\"key\":" + encodeArg(key) + ",\"value\":" + encodeArg(v) + "}");
         }
 
         Object binop(String dunder, Object... args) {
