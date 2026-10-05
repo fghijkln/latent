@@ -86,6 +86,13 @@ class Parser:
             return Continue(line=t.line, col=t.col)
         if t.kind == "CLASS":
             return self.classdef()
+        if t.kind == "TRY":
+            return self.trystmt()
+        if t.kind == "THROW":
+            self.next()
+            v = self.expr()
+            self.expect("NEWLINE")
+            return Throw(v, line=t.line, col=t.col)
         e = self.expr()
         if self.peek().kind == "=":
             self.next()
@@ -169,6 +176,16 @@ class Parser:
         self.expect(":")
         body = self.block()
         return While(cond, body, line=t.line, col=t.col)
+
+    def trystmt(self):
+        t = self.expect("TRY")
+        self.expect(":")
+        body = self.block()
+        self.expect("CATCH")
+        var = self.expect("NAME")
+        self.expect(":")
+        handler = self.block()
+        return Try(body, var.value, handler, line=t.line, col=t.col)
 
     def forstmt(self):
         t = self.expect("FOR")

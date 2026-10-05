@@ -13,7 +13,7 @@ OUT = os.path.join(ROOT, "out")
 POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "str_interp", "py_basic", "py_numpy", "py_lazy",
             "java_basic", "java_lazy", "mixed", "indexing",
-            "class_basic", "setassign"]
+            "class_basic", "setassign", "try_basic"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target"]
 NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",

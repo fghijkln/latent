@@ -61,11 +61,12 @@ def render_error(path, src, kind, raw_msg):
     return f"{path}: {kind} error: {raw_msg}"
 
 
-def _needs_more(lines):
-    """True if the last line opens an indented block (ends with ':').
-    The language has no multi-line brackets, so a blank line always
-    ends the current input."""
-    return lines[-1].strip().endswith(":")
+def _needs_more(buf):
+    """True while the buffer holds an open block. In Latent a physical
+    line ending with ':' is always a block header (fn/if/while/for/try/
+    catch/elif/else/class), so any such line means: keep reading until
+    a blank line ends the block."""
+    return any(line.strip().endswith(":") for line in buf)
 
 
 def _exec_chunk(chunk, ns, checker):

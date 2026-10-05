@@ -1,0 +1,69 @@
+# try_basic.lt -- try/catch/throw on both backends.
+# NOTE: only Latent-level error messages are asserted; interop errors
+# carry the other runtime's raw text (with stack traces) and differ.
+
+# 1. catch a Latent runtime error; e is the message string
+try:
+    xs = [1]
+    say xs[5]
+catch e:
+    say "caught: $e"
+
+# 2. missing map key
+m = {"a": 1}
+try:
+    say m["zz"]
+catch e:
+    say "k=$e"
+
+# 3. throw and catch a custom message
+fn check(n):
+    if n < 0:
+        throw "negative!"
+    return n * 2
+
+try:
+    say check(-1)
+catch e:
+    say "e=$e"
+
+# 4. no error -> handler skipped, e stays nil
+try:
+    say "no error"
+catch e:
+    say "should not print"
+
+# 5. normal path still works
+say check(21)
+
+# 6. try inside function, return from both branches
+fn f(x):
+    try:
+        return 10 / x
+    catch e:
+        return -1
+
+say f(2)
+say f(0)
+
+# 7. nested try, rethrow with context
+try:
+    try:
+        throw "inner"
+    catch e:
+        throw "outer: $e"
+catch e:
+    say "n=$e"
+
+# 8. interop errors are catchable (message not asserted)
+try:
+    I = java "java.lang.Integer"
+    I.parseInt("abc")
+catch e:
+    say "javaerr"
+
+try:
+    mm = py "nonexistent_module_xyz"
+    mm.foo()
+catch e:
+    say "pyerr"

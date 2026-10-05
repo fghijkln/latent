@@ -87,6 +87,24 @@ class Say(Node):
         self.value = value
 
 
+class Throw(Node):
+    """Throw statement: throw <expr>. The value is stringified; catch
+    receives the message string."""
+    def __init__(self, value, **kw):
+        super().__init__(**kw)
+        self.value = value
+
+
+class Try(Node):
+    """Try/catch statement: try: body catch var: handler. var receives
+    the error message string."""
+    def __init__(self, body, var, handler, **kw):
+        super().__init__(**kw)
+        self.body = body      # list of stmts
+        self.var = var        # str: catch variable name
+        self.handler = handler  # list of stmts
+
+
 class Return(Node):
     def __init__(self, value, **kw):
         super().__init__(**kw)

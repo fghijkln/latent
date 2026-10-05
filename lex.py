@@ -3,7 +3,7 @@
 KEYWORDS = {
     "fn", "if", "elif", "else", "while", "for", "in", "and", "or", "not",
     "true", "false", "nil", "py", "java", "say", "return", "break", "continue",
-    "class",
+    "class", "try", "catch", "throw",
 }
 
 

@@ -84,11 +84,7 @@ class Gen:
         rest = [s for s in prog.stmts
                 if not isinstance(s, (FnDef, ClassDef))]
         gnames = []
-        for s in rest:
-            if isinstance(s, Assign) and s.name not in gnames:
-                gnames.append(s.name)
-            elif isinstance(s, For) and s.var not in gnames:
-                gnames.append(s.var)
+        self._collect_top(rest, gnames)
         self.w(f"public class {self.cls} " + "{")
         self.ind += 1
         for g in gnames:
@@ -176,7 +172,34 @@ class Gen:
         if isinstance(last, If) and last.else_body:
             return (self._always_returns(last.then_body) and
                     self._always_returns(last.else_body))
+        if isinstance(last, Try):
+            return (self._always_returns(last.body) and
+                    self._always_returns(last.handler))
         return False
+
+    def _collect_top(self, stmts, out):
+        """Ordered collection of top-level assigned names, descending into
+        blocks (if/while/for/try). FnDef/ClassDef bodies are separate
+        scopes and never appear here."""
+        for s in stmts:
+            if isinstance(s, Assign):
+                if s.name not in out:
+                    out.append(s.name)
+            elif isinstance(s, For):
+                if s.var not in out:
+                    out.append(s.var)
+                self._collect_top(s.body, out)
+            elif isinstance(s, If):
+                self._collect_top(s.then_body, out)
+                if s.else_body:
+                    self._collect_top(s.else_body, out)
+            elif isinstance(s, While):
+                self._collect_top(s.body, out)
+            elif isinstance(s, Try):
+                if s.var not in out:
+                    out.append(s.var)
+                self._collect_top(s.body, out)
+                self._collect_top(s.handler, out)
 
     def _collect(self, stmts, out):
         for s in stmts:
@@ -191,6 +214,10 @@ class Gen:
                     self._collect(s.else_body, out)
             elif isinstance(s, While):
                 self._collect(s.body, out)
+            elif isinstance(s, Try):
+                out.add(s.var)
+                self._collect(s.body, out)
+                self._collect(s.handler, out)
 
     def stmt(self, s):
         if isinstance(s, Assign):
@@ -225,6 +252,22 @@ class Gen:
             self.w("break;")
         elif isinstance(s, Continue):
             self.w("continue;")
+        elif isinstance(s, Try):
+            v = ident(s.var)
+            self.w("try {")
+            self.suite(s.body)
+            self.w("} catch (Exception _lt_e) {")
+            self.ind += 1
+            self.w("String _lt_m = _lt_e.getMessage();")
+            self.w("if (_lt_m == null) _lt_m = _lt_e.toString();")
+            self.w(f"{v} = _lt_m;")
+            for x in s.handler:
+                self.stmt(x)
+            self.ind -= 1
+            self.w("}")
+        elif isinstance(s, Throw):
+            self.w(f"throw new RuntimeException("
+                   f"(String) LtRt.strOf({self.expr(s.value)}));")
         else:
             raise Exception(f"java backend: unexpected {type(s).__name__}")
 

@@ -24,14 +24,17 @@
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
 
-## 3. 语法（v0.3）
+## 3. 语法（v0.4）
 
 ```
 program  := stmt*
 stmt     := assign | fndef | classdef | ifstmt | whilestmt | forstmt
           | saystmt | exprstmt | returnstmt | breakstmt | continuestmt
+          | trystmt | throwstmt
 fndef    := "fn" NAME "(" [params] ")" ( "=>" expr | ":" block )
 classdef := "class" NAME ":" block        # v0.3 新增；block 内只能是 fndef
+trystmt  := "try" ":" block "catch" NAME ":" block   # v0.4 新增
+throwstmt:= "throw" expr                              # v0.4 新增
 ifstmt   := "if" expr ":" block ("elif" expr ":" block)* ("else" ":" block)?
 whilestmt:= "while" expr ":" block
 forstmt  := "for" NAME "in" expr ":" block
@@ -111,7 +114,30 @@ say Point             # <class Point>
   `setField`，List/Map 句柄走 `set` / `put`。
 - 字符串不可写；映射用 `m[k] = v`，不要用 `m.k = v`。
 
-## 6. 按需加载 Python：`py`
+## 6. 错误处理（v0.4 新增）
+
+```latent
+try:
+    risky()
+catch e:
+    say "failed: $e"   # e 是错误消息字符串
+
+throw "boom"           # 主动抛错；catch 到的 e 就是 "boom"
+```
+
+语义保证：
+
+1. `catch` 接住一切：Latent 运行期错误（下标越界、缺 key、读不到字段/方法）、
+   `py` 调用的 Python 异常、`java` 调用的 Java 异常。
+2. `e` 统一为**消息字符串**：Latent 自身错误的文案双后端一致
+   （如 `index out of range: 5`）；跨生态异常的 `e` 是对方运行时的原文
+   （可能带堆栈），两端不保证一致——测试断言时只断言固定字符串。
+3. `catch` 变量在 `try` 前默认为 `nil`；未触发过 handler 时读取 `e`
+   得 `nil`（双后端一致）。
+4. `throw` 的值经字符串化后抛出；可出现在任何语句位置，可嵌套，
+   handler 里可以再 `throw`。
+
+## 7. 按需加载 Python：`py`
 
 ```latent
 np = py "numpy"          # 懒加载：此时不 import、不启动解释器
@@ -140,7 +166,7 @@ say a                    # 打印远端对象：[1 2 3]
 7. **`==` 在远端对象上是 identity 比较**（同一句柄才相等），双后端一致；
    `<` 等比较不支持远端对象。
 
-## 7. 按需加载 Java：`java`
+## 8. 按需加载 Java：`java`
 
 ```latent
 A = java "java.util.ArrayList"   # 懒加载：此时不 Class.forName、不启动 JVM
@@ -182,7 +208,7 @@ for x in a:                      # Java List/数组可迭代
    java 句柄的真值恒为真（非空）。
 7. Java 出错 → 运行时异常（Java 后端直接抛；Python 后端带 Java 堆栈信息透出）。
 
-## 8. 内建函数
+## 9. 内建函数
 
 | 函数 | 说明 |
 |---|---|
@@ -194,7 +220,7 @@ for x in a:                      # Java List/数组可迭代
 | `push(xs, x)` | 列表末尾追加（原地），返回 `nil` |
 | `keys(m)` | 映射键列表 |
 
-## 9. 编译器架构
+## 10. 编译器架构
 
 纯 Python 标准库实现，四遍前端 + 双后端：
 
@@ -217,17 +243,17 @@ for x in a:                      # Java List/数组可迭代
   Java 后端直调、Python 后端经 `LtJavaDaemon` 调）、`ltpy.py`（Python 守护进程）、
   `LtJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
 
-## 10. v0.3 不做（已记录，不算遗漏）
+## 11. v0.4 不做（已记录，不算遗漏）
 
 - 类的继承、`super`、类方法/静态方法、运算符重载——v0.4 候选。
-- 闭包捕获、函数作值、异常处理（`try`）、模块系统（`import` 其他 .lt）。
+- 闭包捕获、函数作值、模块系统（`import` 其他 .lt）。
 - 关键字参数（`f(x=1)`）、`py` 内联代码块（`py:` 多行 Python 源码）——v0.4 候选。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
 
-## 11. 示例
+## 12. 示例
 
 ```latent
 # fib.lt

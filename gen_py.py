@@ -608,6 +608,10 @@ class Gen:
                     self._collect(s.else_body, out)
             elif isinstance(s, While):
                 self._collect(s.body, out)
+            elif isinstance(s, Try):
+                out.add(s.var)
+                self._collect(s.body, out)
+                self._collect(s.handler, out)
 
     def stmt(self, s):
         if isinstance(s, Assign):
@@ -633,6 +637,23 @@ class Gen:
             self.w("break")
         elif isinstance(s, Continue):
             self.w("continue")
+        elif isinstance(s, Try):
+            # catch var defaults to nil so reading it outside the handler
+            # is nil on both backends (not NameError vs javac error)
+            self.w(f"{s.var} = None")
+            self.w("try:")
+            self.suite(s.body)
+            self.w("except Exception as _lt_e:")
+            self.indent += 1
+            # KeyError str() adds quotes; args[0] is the clean message
+            self.w("_lt_m = _lt_e.args[0] if _lt_e.args and "
+                   "isinstance(_lt_e.args[0], str) else str(_lt_e)")
+            self.w(f"{s.var} = _lt_m")
+            for x in s.handler:
+                self.stmt(x)
+            self.indent -= 1
+        elif isinstance(s, Throw):
+            self.w(f"raise Exception(_wv_repr({self.expr(s.value)}))")
         else:
             raise Exception(f"py backend: unexpected {type(s).__name__}")
 

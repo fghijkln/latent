@@ -128,6 +128,12 @@ class Desugar:
         if isinstance(s, FnDef):
             body = self._implicit_return([self.stmt(x) for x in s.body])
             return FnDef(s.name, s.params, body, line=s.line, col=s.col)
+        if isinstance(s, Try):
+            return Try([self.stmt(x) for x in s.body], s.var,
+                       [self.stmt(x) for x in s.handler],
+                       line=s.line, col=s.col)
+        if isinstance(s, Throw):
+            return Throw(self.expr(s.value), line=s.line, col=s.col)
         if isinstance(s, If):
             return If(self.expr(s.cond),
                       [self.stmt(x) for x in s.then_body],

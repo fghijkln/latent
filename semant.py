@@ -85,6 +85,14 @@ class Checker:
         elif isinstance(s, ExprStmt):
             self.top_expr(s.expr, in_loop)
             self._check_exprstmt(s)
+        elif isinstance(s, Try):
+            for x in s.body:
+                self.top_stmt(x, in_loop)
+            self.globals.add(s.var)
+            for x in s.handler:
+                self.top_stmt(x, in_loop)
+        elif isinstance(s, Throw):
+            self.top_expr(s.value, in_loop)
         elif isinstance(s, Return):
             _err(s, "return outside function")
         elif isinstance(s, (Break, Continue)):
@@ -119,6 +127,10 @@ class Checker:
                     self._collect_assigned(s.else_body, out)
             elif isinstance(s, While):
                 self._collect_assigned(s.body, out)
+            elif isinstance(s, Try):
+                out.add(s.var)
+                self._collect_assigned(s.body, out)
+                self._collect_assigned(s.handler, out)
             elif isinstance(s, FnDef):
                 _err(s, "nested functions not supported in v0.1")
 
@@ -147,6 +159,15 @@ class Checker:
         elif isinstance(s, ExprStmt):
             self._expr(s.expr, ctx, in_loop)
             self._check_exprstmt(s)
+        elif isinstance(s, Try):
+            for x in s.body:
+                self.fn_stmt(x, ctx, in_loop)
+            ctx["assigned"].add(s.var)
+            ctx["done"].add(s.var)
+            for x in s.handler:
+                self.fn_stmt(x, ctx, in_loop)
+        elif isinstance(s, Throw):
+            self._expr(s.value, ctx, in_loop)
         elif isinstance(s, Return):
             if s.value is not None:
                 self._expr(s.value, ctx, in_loop)
