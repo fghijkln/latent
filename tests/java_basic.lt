@@ -1,0 +1,15 @@
+A = java "java.util.ArrayList"
+say A
+a = A.new()
+a.add("hi")
+a.add(42)
+say a
+say a.size()
+say a.get(0)
+M = java "java.lang.Math"
+say M.sqrt(2)
+say M.PI
+S = java "java.lang.System"
+say S.currentTimeMillis() > 0
+for x in a:
+    say x

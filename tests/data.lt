@@ -1,0 +1,15 @@
+m = {"name": "latent", "v": 0.1}
+say m
+say [1, "two", [3], {"four": 4}]
+say str(42)
+say int(3.99)
+say int(-3.99)
+say 1 == 1.0
+say [1, 2] == [1, 2]
+say {"a": 1} == {"a": 1}
+say [1, 2] != [1, 3]
+say nil
+for c in "hey":
+    say c
+for k in {"a": 1, "b": 2}:
+    say k

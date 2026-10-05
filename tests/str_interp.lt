@@ -1,0 +1,7 @@
+name = "latent"
+n = 41
+say "hello $name"
+say "n+1=${n + 1}"
+say "$$ not interp"
+say "${[1, 2]}"
+say 'single $name quotes'

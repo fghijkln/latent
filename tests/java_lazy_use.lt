@@ -1,0 +1,3 @@
+C = java "no.such.Class"
+c = C.new()
+say c

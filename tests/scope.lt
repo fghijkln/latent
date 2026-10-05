@@ -1,0 +1,13 @@
+x = 10
+fn f():
+    say x
+    y = x + 1
+    say y
+f()
+say x
+fn g(c):
+    if c:
+        z = 1
+    say z
+g(false)
+g(true)

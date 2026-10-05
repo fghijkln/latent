@@ -1,0 +1,5 @@
+m = py "math"
+say m.sqrt(2)
+say m.pi
+say (py "math").floor(3.7)
+say m.floor(3.2) + m.ceil(3.2)

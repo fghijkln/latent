@@ -1,0 +1,666 @@
+import java.util.*;
+import java.io.*;
+import java.lang.reflect.Array;
+
+/**
+ * Latent Java-backend runtime.
+ *
+ * Value model: every Latent value is an Object
+ *   num    -> Double      (the language has a single float64 number type)
+ *   str    -> String
+ *   bool   -> Boolean
+ *   nil    -> null
+ *   list   -> ArrayList<Object>
+ *   map    -> LinkedHashMap<String, Object>
+ *   py handle -> PyHandle (lazy: python3 starts on first actual use)
+ */
+public class LtRt {
+
+    // ---------------- truthiness ----------------
+    public static boolean truthy(Object v) {
+        if (v == null) return false;
+        if (v instanceof Boolean) return (Boolean) v;
+        if (v instanceof Double) {
+            double d = (Double) v;
+            return d != 0.0 && !Double.isNaN(d);
+        }
+        if (v instanceof String) return !((String) v).isEmpty();
+        if (v instanceof List) return !((List<?>) v).isEmpty();
+        if (v instanceof Map) return !((Map<?, ?>) v).isEmpty();
+        if (v instanceof PyHandle) return Daemon.inst().truthy((PyHandle) v);
+        return true;
+    }
+
+    static double num(Object v, String op) {
+        if (v instanceof Double) return (Double) v;
+        throw new RuntimeException("bad " + op + " operand: " + typeName(v));
+    }
+
+    static String typeName(Object v) {
+        if (v == null) return "nil";
+        if (v instanceof Double) return "num";
+        if (v instanceof String) return "str";
+        if (v instanceof Boolean) return "bool";
+        if (v instanceof List) return "list";
+        if (v instanceof Map) return "map";
+        if (v instanceof PyHandle) return "py";
+        if (v instanceof JReflect.JClass) return "java class";
+        if (v instanceof JReflect.JObj) return "java obj";
+        return v.getClass().getSimpleName();
+    }
+
+    // ---------------- arithmetic ----------------
+    public static Object add(Object a, Object b) {
+        if (a instanceof PyHandle || b instanceof PyHandle)
+            return Daemon.inst().binop("__add__", a, b);
+        if (a instanceof Double && b instanceof Double) return (Double) a + (Double) b;
+        if (a instanceof String && b instanceof String) return (String) a + (String) b;
+        if (a instanceof List && b instanceof List) {
+            List<Object> r = new ArrayList<>((List<?>) a);
+            r.addAll((List<?>) b);
+            return r;
+        }
+        throw new RuntimeException("bad + operands: " + typeName(a) + ", " + typeName(b));
+    }
+
+    public static Object sub(Object a, Object b) {
+        if (a instanceof PyHandle || b instanceof PyHandle)
+            return Daemon.inst().binop("__sub__", a, b);
+        return num(a, "-") - num(b, "-");
+    }
+
+    public static Object mul(Object a, Object b) {
+        if (a instanceof PyHandle || b instanceof PyHandle)
+            return Daemon.inst().binop("__mul__", a, b);
+        return num(a, "*") * num(b, "*");
+    }
+
+    public static Object div(Object a, Object b) {
+        if (a instanceof PyHandle || b instanceof PyHandle)
+            return Daemon.inst().binop("__truediv__", a, b);
+        double x = num(a, "/"), y = num(b, "/");
+        if (y == 0) throw new RuntimeException("division by zero");
+        return x / y;
+    }
+
+    public static Object mod(Object a, Object b) {
+        if (a instanceof PyHandle || b instanceof PyHandle)
+            return Daemon.inst().binop("__mod__", a, b);
+        double x = num(a, "%"), y = num(b, "%");
+        if (y == 0) throw new RuntimeException("division by zero");
+        return x - y * Math.floor(x / y); // floored, matches Python backend
+    }
+
+    public static Object pow(Object a, Object b) {
+        if (a instanceof PyHandle || b instanceof PyHandle)
+            return Daemon.inst().binop("__pow__", a, b);
+        return Math.pow(num(a, "**"), num(b, "**"));
+    }
+
+    public static Object neg(Object a) {
+        if (a instanceof PyHandle) return Daemon.inst().binop("__neg__", a);
+        return -num(a, "unary -");
+    }
+
+    // ---------------- comparison ----------------
+    public static boolean eq(Object a, Object b) {
+        if (a == null || b == null) return a == b;
+        // remote / opaque handles: identity, matches Python backend
+        if (a instanceof PyHandle || b instanceof PyHandle) return a == b;
+        if (a instanceof JReflect.JClass || b instanceof JReflect.JClass) return a == b;
+        if (a instanceof JReflect.JObj || b instanceof JReflect.JObj) return a == b;
+        if (a instanceof Double && b instanceof Double) {
+            double x = (Double) a, y = (Double) b;
+            if (Double.isNaN(x) || Double.isNaN(y)) return false;
+            return x == y;
+        }
+        if (a instanceof String && b instanceof String) return a.equals(b);
+        if (a instanceof Boolean && b instanceof Boolean) return a.equals(b);
+        if (a instanceof List && b instanceof List) {
+            List<?> la = (List<?>) a, lb = (List<?>) b;
+            if (la.size() != lb.size()) return false;
+            for (int i = 0; i < la.size(); i++)
+                if (!eq(la.get(i), lb.get(i))) return false;
+            return true;
+        }
+        if (a instanceof Map && b instanceof Map) {
+            Map<?, ?> ma = (Map<?, ?>) a, mb = (Map<?, ?>) b;
+            if (!ma.keySet().equals(mb.keySet())) return false;
+            for (Object k : ma.keySet())
+                if (!eq(ma.get(k), mb.get(k))) return false;
+            return true;
+        }
+        return false;
+    }
+
+    static int cmp(Object a, Object b, String op) {
+        if (a instanceof Double && b instanceof Double)
+            return Double.compare((Double) a, (Double) b);
+        if (a instanceof String && b instanceof String)
+            return ((String) a).compareTo((String) b);
+        throw new RuntimeException("bad " + op + " operands: " + typeName(a) + ", " + typeName(b));
+    }
+
+    public static boolean lt(Object a, Object b) { return cmp(a, b, "<") < 0; }
+    public static boolean lte(Object a, Object b) { return cmp(a, b, "<=") <= 0; }
+    public static boolean gt(Object a, Object b) { return cmp(a, b, ">") > 0; }
+    public static boolean gte(Object a, Object b) { return cmp(a, b, ">=") >= 0; }
+
+    // ---------------- repr / say ----------------
+    /** Shortest-roundtrip float formatting, Python-repr style. */
+    static String numStr(double d) {
+        if (Double.isNaN(d)) return "nan";
+        if (Double.isInfinite(d)) return d > 0 ? "inf" : "-inf";
+        if (d == Math.rint(d) && Math.abs(d) < 1e16) return Long.toString((long) d);
+        String s = Double.toString(d); // 3.14 | 1.0E16 | 1.234E-7
+        int e = s.indexOf('E');
+        if (e < 0) return s;
+        String m = s.substring(0, e);
+        if (m.endsWith(".0")) m = m.substring(0, m.length() - 2);
+        String exp = s.substring(e + 1);
+        boolean neg = exp.startsWith("-");
+        String digits = neg ? exp.substring(1) : exp;
+        while (digits.length() < 2) digits = "0" + digits;
+        return m + "e" + (neg ? "-" : "+") + digits;
+    }
+
+    static String escape(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\t': sb.append("\\t"); break;
+                case '\r': sb.append("\\r"); break;
+                default:
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    public static String repr(Object v) {
+        if (v == null) return "nil";
+        if (v instanceof Boolean) return (Boolean) v ? "true" : "false";
+        if (v instanceof Double) return numStr((Double) v);
+        if (v instanceof String) return (String) v;
+        if (v instanceof PyHandle) return Daemon.inst().repr((PyHandle) v);
+        if (v instanceof JReflect.JClass || v instanceof JReflect.JObj)
+            return JReflect.repr(v);
+        if (v instanceof List) {
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (Object x : (List<?>) v) {
+                if (!first) sb.append(", ");
+                sb.append(reprQ(x));
+                first = false;
+            }
+            return sb.append("]").toString();
+        }
+        if (v instanceof Map) {
+            StringBuilder sb = new StringBuilder("{");
+            boolean first = true;
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                if (!first) sb.append(", ");
+                sb.append(reprQ(e.getKey())).append(": ").append(reprQ(e.getValue()));
+                first = false;
+            }
+            return sb.append("}").toString();
+        }
+        return String.valueOf(v);
+    }
+
+    static String reprQ(Object v) {
+        if (v instanceof String) return "\"" + escape((String) v) + "\"";
+        return repr(v);
+    }
+
+    public static Object say(Object v) {
+        System.out.println(repr(v));
+        return null;
+    }
+
+    // ---------------- builtins ----------------
+    public static Object len(Object x) {
+        if (x instanceof List) return (double) ((List<?>) x).size();
+        if (x instanceof Map) return (double) ((Map<?, ?>) x).size();
+        if (x instanceof String) return (double) ((String) x).length();
+        throw new RuntimeException("len() of " + typeName(x));
+    }
+
+    public static Object range(Object n) { return range(0.0, n); }
+
+    public static Object range(Object a, Object b) {
+        double lo = num(a, "range"), hi = num(b, "range");
+        List<Object> r = new ArrayList<>();
+        for (long i = (long) lo; i < (long) hi; i++) r.add((double) i);
+        return r;
+    }
+
+    public static Object strOf(Object x) { return repr(x); }
+
+    public static Object toInt(Object x) {
+        if (x instanceof Boolean) return (Boolean) x ? 1.0 : 0.0;
+        if (x instanceof Double) {
+            double d = (Double) x;
+            return d >= 0 ? Math.floor(d) : Math.ceil(d);
+        }
+        if (x instanceof String) {
+            try { return (double) Long.parseLong(((String) x).trim()); }
+            catch (NumberFormatException e) {
+                throw new RuntimeException("int() of " + repr(x));
+            }
+        }
+        throw new RuntimeException("int() of " + typeName(x));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Object push(Object xs, Object x) {
+        if (!(xs instanceof List)) throw new RuntimeException("push() target must be a list");
+        ((List<Object>) xs).add(x);
+        return null;
+    }
+
+    public static Object keys(Object m) {
+        if (!(m instanceof Map)) throw new RuntimeException("keys() of non-map");
+        return new ArrayList<>(((Map<?, ?>) m).keySet());
+    }
+
+    public static Object listOf(Object... xs) {
+        return new ArrayList<>(Arrays.asList(xs));
+    }
+
+    public static Object mapOf(Object... kvs) {
+        LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i < kvs.length; i += 2) m.put((String) kvs[i], kvs[i + 1]);
+        return m;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<Object> iter(Object x) {
+        if (x instanceof List) return (List<Object>) x;
+        if (x instanceof String) {
+            String s = (String) x;
+            List<Object> r = new ArrayList<>();
+            for (int i = 0; i < s.length(); i++) r.add(String.valueOf(s.charAt(i)));
+            return r;
+        }
+        if (x instanceof Map) return new ArrayList<>(((Map<?, ?>) x).keySet());
+        if (x instanceof JReflect.JObj) { // java List / array
+            Object o = ((JReflect.JObj) x).o;
+            if (o instanceof List || o.getClass().isArray()) {
+                Object w = JReflect.deepWrap(o);
+                @SuppressWarnings("unchecked")
+                List<Object> r = (List<Object>) w;
+                return r;
+            }
+        }
+        throw new RuntimeException("cannot iterate " + typeName(x));
+    }
+
+    // ---------------- py interop ----------------
+    public static class PyHandle {
+        final String module; // non-null for `py "mod"` handles
+        final long id;       // remote object id, -1 for module handles
+        PyHandle(String module) { this.module = module; this.id = -1; }
+        PyHandle(long id) { this.module = null; this.id = id; }
+        boolean isModule() { return module != null; }
+    }
+
+    public static Object pymod(Object name) {
+        if (!(name instanceof String))
+            throw new RuntimeException("py module name must be a string");
+        return new PyHandle((String) name); // lazy: nothing starts yet
+    }
+
+    static PyHandle asHandle(Object h) {
+        if (h instanceof PyHandle) return (PyHandle) h;
+        throw new RuntimeException("attribute access on non-py value");
+    }
+
+    public static Object pyget(Object h, String attr) {
+        return Daemon.inst().get(asHandle(h), attr);
+    }
+
+    public static Object pycall(Object h, String attr, Object... args) {
+        return Daemon.inst().call(asHandle(h), attr, args);
+    }
+
+    // ---------------- java interop ----------------
+    public static Object jclass(Object name) {
+        if (!(name instanceof String))
+            throw new RuntimeException("java class name must be a string");
+        return new JReflect.JClass((String) name); // lazy: Class.forName on first use
+    }
+
+    /** Unified attribute access: py handles and java handles. */
+    public static Object wgetattr(Object h, String attr) {
+        if (h instanceof PyHandle) return pyget(h, attr);
+        if (h instanceof JReflect.JClass)
+            return JReflect.getField((JReflect.JClass) h, attr);
+        if (h instanceof JReflect.JObj)
+            return JReflect.getField((JReflect.JObj) h, attr);
+        throw new RuntimeException("attribute access on non-handle value: " + typeName(h));
+    }
+
+    /** Unified call: py handles, java static/instance methods, C.new() constructors. */
+    public static Object wcall(Object h, String attr, Object... args) {
+        if (h instanceof PyHandle) return pycall(h, attr, args);
+        if (h instanceof JReflect.JClass) {
+            if (attr.equals("new"))
+                return JReflect.construct((JReflect.JClass) h, args);
+            return JReflect.callStatic((JReflect.JClass) h, attr, args);
+        }
+        if (h instanceof JReflect.JObj)
+            return JReflect.call((JReflect.JObj) h, attr, args);
+        throw new RuntimeException("call on non-handle value: " + typeName(h));
+    }
+
+    public static void shutdown() {
+        Daemon.shutdown();
+    }
+
+    // ---------------- lazy python daemon ----------------
+    static class Daemon {
+        private static Daemon instance;
+        private Process proc;
+        private BufferedWriter out;
+        private BufferedReader in;
+
+        static synchronized Daemon inst() {
+            if (instance == null) {
+                instance = new Daemon();
+                instance.start();
+            }
+            return instance;
+        }
+
+        static synchronized void shutdown() {
+            if (instance != null) {
+                instance.close();
+                instance = null;
+            }
+        }
+
+        private void start() {
+            String script = findScript();
+            try {
+                ProcessBuilder pb = new ProcessBuilder("python3", "-u", script);
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                proc = pb.start();
+                out = new BufferedWriter(new OutputStreamWriter(proc.getOutputStream(), "UTF-8"));
+                in = new BufferedReader(new InputStreamReader(proc.getInputStream(), "UTF-8"));
+            } catch (IOException e) {
+                throw new RuntimeException(
+                    "cannot start python3 (needed for py ...): " + e.getMessage());
+            }
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try { Daemon.shutdown(); } catch (Exception ignored) {}
+            }));
+        }
+
+        private static String findScript() {
+            String p = System.getProperty("latent.pydaemon");
+            if (p != null) return p;
+            p = System.getenv("LATENT_PY");
+            if (p != null && !p.isEmpty()) return p;
+            try {
+                String loc = LtRt.class.getProtectionDomain().getCodeSource()
+                        .getLocation().toURI().getPath();
+                File dir = new File(loc);
+                if (dir.isFile()) dir = dir.getParentFile();
+                File f = new File(dir, "ltpy.py");
+                if (f.isFile()) return f.getAbsolutePath();
+            } catch (Exception ignored) {}
+            File cwd = new File("ltpy.py");
+            if (cwd.isFile()) return cwd.getAbsolutePath();
+            throw new RuntimeException(
+                "ltpy.py not found: set LATENT_PY env or -Dlatent.pydaemon=<path>");
+        }
+
+        private void close() {
+            try { sendRaw("{\"op\":\"quit\"}"); } catch (Exception ignored) {}
+            try { if (out != null) out.close(); } catch (Exception ignored) {}
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            if (proc != null) proc.destroy();
+            proc = null;
+        }
+
+        private void sendRaw(String s) throws IOException {
+            out.write(s);
+            out.write("\n");
+            out.flush();
+        }
+
+        /** One request -> decoded "value", or throws on daemon error. */
+        private synchronized Object exchange(String req) {
+            try {
+                sendRaw(req);
+                String line = in.readLine();
+                if (line == null) throw new RuntimeException("python daemon died");
+                Object resp = Json.parse(line);
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = (Map<String, Object>) resp;
+                if (m.containsKey("error"))
+                    throw new RuntimeException("python error: " + m.get("error"));
+                return decodeValue(m.get("value"));
+            } catch (IOException e) {
+                throw new RuntimeException("python daemon io error: " + e.getMessage());
+            }
+        }
+
+        private static String targetJson(PyHandle h) {
+            if (h.isModule()) return "{\"mod\":" + Json.str(h.module) + "}";
+            return "{\"id\":" + h.id + "}";
+        }
+
+        Object get(PyHandle h, String attr) {
+            return exchange("{\"op\":\"get\",\"target\":" + targetJson(h) +
+                            ",\"attr\":" + Json.str(attr) + "}");
+        }
+
+        Object call(PyHandle h, String attr, Object[] args) {
+            StringBuilder sb = new StringBuilder(
+                "{\"op\":\"call\",\"target\":" + targetJson(h) +
+                ",\"attr\":" + Json.str(attr) + ",\"args\":[");
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(encodeArg(args[i]));
+            }
+            return exchange(sb.append("]}").toString());
+        }
+
+        String repr(PyHandle h) {
+            Object r = exchange("{\"op\":\"repr\",\"target\":" + targetJson(h) + "}");
+            return r == null ? "nil" : String.valueOf(r);
+        }
+
+        Object binop(String dunder, Object... args) {
+            StringBuilder sb = new StringBuilder(
+                "{\"op\":\"binop\",\"name\":" + Json.str(dunder) + ",\"args\":[");
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(encodeArg(args[i]));
+            }
+            return exchange(sb.append("]}").toString());
+        }
+
+        boolean truthy(PyHandle h) {
+            Object r = exchange("{\"op\":\"truthy\",\"target\":" + targetJson(h) + "}");
+            return r instanceof Boolean && (Boolean) r;
+        }
+
+        private static String encodeArg(Object v) {
+            if (v instanceof PyHandle) {
+                PyHandle h = (PyHandle) v;
+                return h.isModule() ? "{\"__mod\":" + Json.str(h.module) + "}"
+                                    : "{\"__ref\":" + h.id + "}";
+            }
+            return Json.encode(v);
+        }
+
+        @SuppressWarnings("unchecked")
+        private static Object decodeValue(Object v) {
+            if (v instanceof Map) {
+                Map<String, Object> m = (Map<String, Object>) v;
+                if (m.containsKey("__ref"))
+                    return new PyHandle(((Double) m.get("__ref")).longValue());
+                if (m.containsKey("__num")) {
+                    String k = (String) m.get("__num");
+                    if (k.equals("nan")) return Double.NaN;
+                    if (k.equals("inf")) return Double.POSITIVE_INFINITY;
+                    return Double.NEGATIVE_INFINITY;
+                }
+                LinkedHashMap<String, Object> r = new LinkedHashMap<>();
+                for (Map.Entry<String, Object> e : m.entrySet())
+                    r.put(e.getKey(), decodeValue(e.getValue()));
+                return r;
+            }
+            if (v instanceof List) {
+                List<Object> r = new ArrayList<>();
+                for (Object x : (List<?>) v) r.add(decodeValue(x));
+                return r;
+            }
+            return v; // Double, String, Boolean, null
+        }
+    }
+
+    // ---------------- minimal JSON ----------------
+    static class Json {
+        static String str(String s) {
+            StringBuilder sb = new StringBuilder("\"");
+            for (int i = 0; i < s.length(); i++) {
+                char c = s.charAt(i);
+                switch (c) {
+                    case '"': sb.append("\\\""); break;
+                    case '\\': sb.append("\\\\"); break;
+                    case '\n': sb.append("\\n"); break;
+                    case '\t': sb.append("\\t"); break;
+                    case '\r': sb.append("\\r"); break;
+                    default:
+                        if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                        else sb.append(c);
+                }
+            }
+            return sb.append("\"").toString();
+        }
+
+        static String encode(Object v) {
+            if (v == null) return "null";
+            if (v instanceof Boolean) return v.toString();
+            if (v instanceof Double) {
+                double d = (Double) v;
+                if (Double.isNaN(d)) return "{\"__num\":\"nan\"}";
+                if (Double.isInfinite(d))
+                    return "{\"__num\":\"" + (d > 0 ? "inf" : "-inf") + "\"}";
+                return numStr(d);
+            }
+            if (v instanceof String) return str((String) v);
+            if (v instanceof List) {
+                StringBuilder sb = new StringBuilder("[");
+                boolean first = true;
+                for (Object x : (List<?>) v) {
+                    if (!first) sb.append(",");
+                    sb.append(encode(x));
+                    first = false;
+                }
+                return sb.append("]").toString();
+            }
+            if (v instanceof Map) {
+                StringBuilder sb = new StringBuilder("{");
+                boolean first = true;
+                for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                    if (!first) sb.append(",");
+                    sb.append(str(String.valueOf(e.getKey()))).append(":")
+                      .append(encode(e.getValue()));
+                    first = false;
+                }
+                return sb.append("}").toString();
+            }
+            throw new RuntimeException("cannot send to python: " + typeName(v));
+        }
+
+        static Object parse(String s) { return new P(s).value(); }
+
+        static class P {
+            final String s;
+            int i;
+            P(String s) { this.s = s; }
+            void ws() { while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++; }
+            Object value() {
+                ws();
+                if (i >= s.length()) throw new RuntimeException("bad json");
+                char c = s.charAt(i);
+                if (c == '{') return obj();
+                if (c == '[') return arr();
+                if (c == '"') return string();
+                if (c == 't') { i += 4; return Boolean.TRUE; }
+                if (c == 'f') { i += 5; return Boolean.FALSE; }
+                if (c == 'n') { i += 4; return null; }
+                return number();
+            }
+            Map<String, Object> obj() {
+                LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                i++; // {
+                ws();
+                if (s.charAt(i) == '}') { i++; return m; }
+                while (true) {
+                    ws();
+                    String k = string();
+                    ws();
+                    i++; // :
+                    m.put(k, value());
+                    ws();
+                    char c = s.charAt(i++);
+                    if (c == '}') return m;
+                }
+            }
+            List<Object> arr() {
+                List<Object> l = new ArrayList<>();
+                i++; // [
+                ws();
+                if (s.charAt(i) == ']') { i++; return l; }
+                while (true) {
+                    l.add(value());
+                    ws();
+                    char c = s.charAt(i++);
+                    if (c == ']') return l;
+                }
+            }
+            String string() {
+                StringBuilder sb = new StringBuilder();
+                i++; // "
+                while (true) {
+                    char c = s.charAt(i++);
+                    if (c == '"') return sb.toString();
+                    if (c == '\\') {
+                        char e = s.charAt(i++);
+                        switch (e) {
+                            case '"': sb.append('"'); break;
+                            case '\\': sb.append('\\'); break;
+                            case '/': sb.append('/'); break;
+                            case 'n': sb.append('\n'); break;
+                            case 't': sb.append('\t'); break;
+                            case 'r': sb.append('\r'); break;
+                            case 'u':
+                                sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16));
+                                i += 4;
+                                break;
+                            default: sb.append(e);
+                        }
+                    } else sb.append(c);
+                }
+            }
+            Double number() {
+                int j = i;
+                while (j < s.length() && "-+0123456789.eE".indexOf(s.charAt(j)) >= 0) j++;
+                double d = Double.parseDouble(s.substring(i, j));
+                i = j;
+                return d;
+            }
+        }
+    }
+}

@@ -1,0 +1,9 @@
+np = py "numpy"
+a = np.arange(6).reshape(2, 3)
+say a
+say np.sum(a)
+b = a + a
+say b
+say b == b
+say b == a
+say np.sqrt(2.0)

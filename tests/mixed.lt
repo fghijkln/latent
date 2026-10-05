@@ -1,0 +1,7 @@
+np = py "numpy"
+A = java "java.util.ArrayList"
+a = A.new()
+a.add(np.sqrt(2))
+say a
+say a.size()
+say np.pi

@@ -1,0 +1,18 @@
+if 0:
+    say "bad"
+else:
+    say "zero falsy"
+if "":
+    say "bad"
+elif []:
+    say "bad"
+else:
+    say "empty falsy"
+say not nil
+say nil or "dflt"
+say 0 or 5
+say "a" and "b"
+n = 3
+while n > 0:
+    say n
+    n = n - 1

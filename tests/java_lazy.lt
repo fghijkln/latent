@@ -1,0 +1,2 @@
+C = java "no.such.Class"
+say "lazy ok"

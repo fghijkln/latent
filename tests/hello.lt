@@ -1,0 +1,11 @@
+say "hello latent"
+name = "world"
+say "hi $name, ${1 + 2 * 3}"
+say 1 + 2 * 3
+say 7 / 2
+say 7 % 3
+say 2 ** 10
+say "ab" + "cd"
+say [1, 2] + [3]
+say -5
+say not true

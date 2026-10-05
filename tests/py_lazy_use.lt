@@ -1,0 +1,2 @@
+m = py "no_such_module_xyz_123"
+say m.foo
