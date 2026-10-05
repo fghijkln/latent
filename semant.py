@@ -5,7 +5,7 @@ from nodes import *
 BUILTINS = {
     "__say": (1, 1), "len": (1, 1), "range": (1, 2), "str": (1, 1),
     "int": (1, 1), "push": (2, 2), "keys": (1, 1),
-    "__wgetattr": (2, 2), "__wcall": (2, None),
+    "__wgetattr": (2, 2), "__wcall": (2, None), "__index": (2, 2),
 }
 
 

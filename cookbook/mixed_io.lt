@@ -1,0 +1,14 @@
+# mixed_io.lt -- both ecosystems in one program:
+# Python writes a file, Java reads it back.
+
+builtins = py "builtins"
+f = builtins.open("/tmp/latent_cookbook_mixed.txt", "w")
+f.write("written by python, read by java\n")
+f.close()
+
+Files = java "java.nio.file.Files"
+Paths = java "java.nio.file.Paths"
+say Files.readString(Paths.get("/tmp/latent_cookbook_mixed.txt"))
+
+Files.deleteIfExists(Paths.get("/tmp/latent_cookbook_mixed.txt"))
+say "cleaned"

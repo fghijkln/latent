@@ -42,9 +42,14 @@ orexpr   := andexpr ("or" andexpr)*
 primary  := NUMBER | STRING | "true" | "false" | "nil"
           | NAME | list | map | call | "py" expr | "java" expr | "(" expr ")"
 call     := primary "(" [args] ")" | primary "." NAME "(" [args] ")"
+index    := primary "[" expr "]"          # v0.2.1 新增：下标读
 ```
 
-- `for x in xs`：`xs` 为列表（或字符串，逐字符）。
+- `for x in xs`：`xs` 为列表（或字符串，逐字符；或 Java List/数组）。
+- `xs[i]` / `m[k]` / `s[i]`：下标**读**。整数索引（负数从末尾数，越界为运行期错误）；
+  映射按 key 取值（key 不存在为运行期错误）；字符串取单字符。
+  对 py 句柄走 daemon `getitem`，对 java 句柄若内含 List/Map 同理；只读，不支持 `xs[i] = v`。
+
 - `fn` 单行形式：`fn add(a, b) => a + b`。
 - 函数末表达式即返回值（可省略 `return`）；`return` 用于提前返回。
 
@@ -82,7 +87,9 @@ say a                    # 打印远端对象：[1 2 3]
      后续调用复用）；模块在守护进程内按需 `import` 并缓存。
 3. 远端值：Java 后端下 Python 返回的非 JSON 值（ndarray、自定义对象等）
    以**不透明句柄**表示，可继续在其上调用/取属性/`say`（走远端 repr）。
-   JSON 可直接表示的值（数字/字符串/布尔/nil/列表/映射）在两端自动转回本地值。
+   JSON 可直接表示的值（数字/字符串/布尔/nil/**精确类型**的 list/dict）在两端
+   自动转回本地值；dict/list 的**子类实例**（如 `Counter`、`defaultdict`、
+   `namedtuple`）保持为句柄以免方法丢失；tuple 转为 list（两端 `say` 一致）。
 4. Python 出错 → Java 端抛运行时异常（带 Python 堆栈信息）；Python 后端直接透出。
 5. **互操作数值规则**：调用 Python 时，整数值（`3.0`）以 `int` 传入、
    非整数值保持 `float`（numpy 等库要求真正的 int；双后端一致）。
@@ -113,8 +120,8 @@ for x in a:                      # Java List/数组可迭代
    嵌套类用 `Outer$Inner` 写法）。
 2. 在句柄上第一次做属性访问/调用之前，**不发生任何加载动作**。
    - Java 后端：`Class.forName` 推迟到第一次构造/调用/读字段；直接反射，无守护进程。
-   - Python 后端：`java`（JVM）进程在第一次 java 调用时才启动（`LatentJavaDaemon`，
-     JSON 行协议，与 `latentpy.py` 对称）；类在守护进程内按需加载。
+   - Python 后端：`java`（JVM）进程在第一次 java 调用时才启动（`LtJavaDaemon`，
+     JSON 行协议，与 `ltpy.py` 对称）；类在守护进程内按需加载。
 3. `C.new(args)` → 构造器；`C.m(args)` → 静态方法；`C.f` → 静态字段；
    `o.m(args)` / `o.f` → 实例方法/字段。重载按“名字+参数个数+可转换”
    消解（含变长参数）；找不到匹配时报运行时错误。
@@ -126,6 +133,7 @@ for x in a:                      # Java List/数组可迭代
      `boolean`→`Boolean`、`char`→单字符字符串、`void`/`null`→`nil`；
      **其他一切 Java 对象（List/Map/数组/普通对象）保持为不透明句柄**，
      可继续在其上调方法/读字段/`say`（走 Java 侧格式化）/`for` 迭代。
+     例外：`BigDecimal`/`BigInteger` 存在的意义就是不当 double，保留为句柄。
 5. `say` Java 句柄：类句柄打印 `<class com.foo.Bar>`；对象句柄尽量按
    Latent 风格打印（List/Map/数组展开元素），否则走 `toString()`。
 6. **`==` 在 java 句柄上是 identity 比较**（同一对象才相等），与 py 句柄一致；
@@ -161,15 +169,16 @@ for x in a:                      # Java List/数组可迭代
 - `gen_py.py`：直译 + prelude（懒模块类、JVM 客户端、repr、远端语义对齐）。
 - `gen_java.py`：全 `Object` 值模型 + `LtRt` 运行时；
   顶层变量→`static Object` 字段，函数→`static Object` 方法；
-  py 互操作→`LtRt` 懒启动 `latentpy.py` 守护进程（JSON 行协议）；
+  py 互操作→`LtRt` 懒启动 `ltpy.py` 守护进程（JSON 行协议）；
   java 互操作→`JReflect` 直接反射（`Class.forName` 懒加载，无守护进程）。
 - `runtime/`：`LtRt.java`（Java 后端运行时）、`JReflect.java`（Java 反射互操作核心，
-  Java 后端直调、Python 后端经 `LatentJavaDaemon` 调）、`latentpy.py`（Python 守护进程）、
-  `LatentJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
+  Java 后端直调、Python 后端经 `LtJavaDaemon` 调）、`ltpy.py`（Python 守护进程）、
+  `LtJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
 
 ## 9. v0.2 不做（已记录，不算遗漏）
 
 - 类/对象字面量方法、闭包捕获、函数作值、异常处理（`try`）、模块系统（`import` 其他 .lt）。
+- 下标赋值（`xs[i] = v`）、关键字参数（`f(x=1)`）——v0.3 候选。
 - `py` 内联代码块（`py:` 多行 Python 源码）——v0.3 候选。
 - 字段赋值（`o.field = v`）——v0.3 候选（读/调方法/构造已覆盖绝大多数用库场景）。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持

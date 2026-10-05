@@ -156,13 +156,14 @@ public class JReflect {
     }
 
     static Object coerceOne(Object v, Class<?> t) {
+        // Unwrap java handles first: a bridge method like compareTo(Object)
+        // must receive the raw object, never the JObj wrapper.
+        if (v instanceof JObj) v = ((JObj) v).o;
         if (v == null) return t.isPrimitive() ? CONV_FAIL : null;
         if (t == Object.class) return v;
-        if (v instanceof JObj) {
-            Object o = ((JObj) v).o;
-            return t.isInstance(o) ? o : CONV_FAIL;
-        }
         if (v instanceof JClass) return CONV_FAIL;
+        // already the right reference type (covers unwrapped java handles)
+        if (!t.isPrimitive() && t.isInstance(v)) return v;
         if (t == String.class) return (v instanceof String) ? v : CONV_FAIL;
         if (t.isAssignableFrom(String.class) && v instanceof String) return v;
         if (t == boolean.class || t == Boolean.class)
@@ -211,6 +212,10 @@ public class JReflect {
         if (v == null) return null;
         if (v instanceof Double || v instanceof String || v instanceof Boolean)
             return v;
+        // BigDecimal/BigInteger exist precisely to NOT be doubles;
+        // keep them as opaque objects so their methods keep working.
+        if (v instanceof java.math.BigDecimal || v instanceof java.math.BigInteger)
+            return new JObj(v);
         if (v instanceof Number) return ((Number) v).doubleValue();
         if (v instanceof Character) return String.valueOf((char) (Character) v);
         if (v instanceof JObj || v instanceof JClass) return v;

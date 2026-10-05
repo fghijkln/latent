@@ -155,6 +155,10 @@ class Desugar:
             return Call(Name("__wgetattr", line=e.line, col=e.col),
                         [obj, Str(e.attr, line=e.line, col=e.col)],
                         line=e.line, col=e.col)
+        if isinstance(e, Subscript):
+            return Call(Name("__index", line=e.line, col=e.col),
+                        [self.expr(e.obj), self.expr(e.index)],
+                        line=e.line, col=e.col)
         if isinstance(e, Call):
             func = self.expr(e.func)
             args = [self.expr(a) for a in e.args]

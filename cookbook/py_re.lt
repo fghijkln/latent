@@ -1,0 +1,13 @@
+# py_re.lt -- regular expressions. Match objects are opaque
+# handles; pull out what you need with .group() / .groups().
+
+re = py "re"
+m = re.match("(\\d+)-(\\d+)", "2026-10")
+say m.group(0)
+say m.group(1)
+say m.group(2)
+say re.search("\\d+", "abc123").group(0)
+say re.findall("\\d+", "a1b22c333")
+say re.findall("\\d+", "a1b22c333")[0]
+say re.sub("\\s+", " ", "a  b   c")
+say re.split(",", "a,b,c")

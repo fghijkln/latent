@@ -1,0 +1,15 @@
+xs = [10, 20, 30]
+say xs[0]
+say xs[2]
+say xs[-1]
+say xs[0] + xs[-1]
+m = {"a": 1, "b": 2}
+say m["a"]
+say m["b"]
+s = "hello"
+say s[0]
+say s[1]
+say s[-1]
+say len(s)
+t = [[1, 2], [3, 4]]
+say t[1][0]

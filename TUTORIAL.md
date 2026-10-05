@@ -122,6 +122,20 @@ for c in "hi":
     say c        # h / i（各占一行）
 ```
 
+下标读值：`xs[i]`、`m[k]`、`s[i]`，负索引从末尾数：
+
+```latent
+xs = [10, 20, 30]
+say xs[0]        # 10
+say xs[-1]       # 30
+m = {"name": "latent"}
+say m["name"]    # latent
+say "hello"[1]   # e
+```
+
+下标同样适用于库返回的东西：`json.loads(s)["tags"]`、`re.findall(p, t)[0]`、
+Java 的 `ArrayList` 也能 `xs[0]`。只有读没有写（`xs[0] = v` 不支持）。
+
 ## 6. 控制流
 
 ```latent
@@ -257,8 +271,19 @@ say a          # [1.4142135623730951]
 - 无类、无闭包捕获、无 `try`、无模块系统（`import` 其他 `.lt` 文件）。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持字段赋值（`o.field = v`）、不支持基本类型类名（`java "int"` 不行）。
+- 调用只有位置参数，没有关键字参数；函数不能当作值传递。
+- 下标只有读（`xs[0]`），没有写（`xs[0] = v`）。
 - 数字只有 float64 一种类型。
 - 性能只求正确：Java 后端全装箱，跨语言调用走 JSON 行协议。够用，不快。
+
+---
+
+## 库 cookbook
+
+`cookbook/` 里有 11 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
+`BigDecimal`）常用库，外加一个双生态混用的例子。每个都在双后端验证过输出一致，
+说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
 
 ---
 
@@ -266,4 +291,4 @@ say a          # [1.4142135623730951]
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（20 个测试，双后端对拍）
+- 跑测试：`python3 tests/run_tests.py`（34 个测试，双后端对拍）

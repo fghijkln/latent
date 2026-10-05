@@ -53,9 +53,11 @@ def _wv_repr(v):
     if isinstance(v, _JHandle):
         jvm = _JVM.inst()
         return jvm.req({"op": "repr", "target": jvm.target(v)})
-    if isinstance(v, list):
+    if type(v) is list or type(v) is tuple:
+        # tuple prints as a list: over the interop boundary a tuple
+        # arrives as a list anyway, so both backends agree.
         return "[" + ", ".join(_wv_repr_q(x) for x in v) + "]"
-    if isinstance(v, dict):
+    if type(v) is dict:
         return "{" + ", ".join(_wv_repr_q(k) + ": " + _wv_repr_q(x)
                                for k, x in v.items()) + "}"
     try:
@@ -214,6 +216,38 @@ def _wv_keys(m):
     return list(m.keys())
 
 
+def _wv_idx(k, n):
+    if isinstance(k, bool) or not isinstance(k, float) or not k.is_integer():
+        raise TypeError("index must be an integer")
+    i = int(k)
+    if i < 0:
+        i += n
+    if i < 0 or i >= n:
+        raise IndexError("index out of range: " + str(int(k)))
+    return i
+
+
+def _wv_index(v, k):
+    # xs[i] / m[k] / s[i]; negative indices count from the end.
+    if isinstance(v, _JHandle):
+        jvm = _JVM.inst()
+        return jvm.req({"op": "getitem", "target": jvm.target(v),
+                        "key": _jvm_encode(k)})
+    if isinstance(v, list):
+        return v[_wv_idx(k, len(v))]
+    if isinstance(v, dict):
+        if k in v:
+            return v[k]
+        raise KeyError("key not found: " + _wv_repr(k))
+    if isinstance(v, str):
+        return v[_wv_idx(k, len(v))]
+    # exotic natives (e.g. a tuple straight from a py call): best effort
+    try:
+        return v[int(k)] if isinstance(k, float) else v[k]
+    except (IndexError, KeyError, TypeError):
+        raise TypeError("cannot index " + _wv_repr(v))
+
+
 def _wv_iter(x):
     if isinstance(x, list):
         return x
@@ -321,11 +355,17 @@ class _JVM:
 
     @staticmethod
     def _ensure_compiled(cp):
-        if _os.path.exists(_os.path.join(cp, "LtJavaDaemon.class")):
-            return
-        javac = _shutil.which("javac")
+        cls = _os.path.join(cp, "LtJavaDaemon.class")
         srcs = [s for s in ("LtJavaDaemon.java", "JReflect.java", "LtRt.java")
                 if _os.path.exists(_os.path.join(cp, s))]
+        if _os.path.exists(cls) and srcs:
+            # recompile when any runtime source is newer than the class
+            # (stale classes silently ignore runtime fixes otherwise)
+            cls_mtime = _os.path.getmtime(cls)
+            if all(_os.path.getmtime(_os.path.join(cp, s)) <= cls_mtime
+                   for s in srcs):
+                return
+        javac = _shutil.which("javac")
         if javac and srcs:
             r = _subprocess.run(
                 [javac, "-d", cp, "-cp", cp] +
@@ -415,6 +455,7 @@ BUILTIN_PY = {
     "__say": "_wv_say", "len": "_wv_len", "range": "_wv_range",
     "str": "_wv_str", "int": "_wv_int", "push": "_wv_push",
     "keys": "_wv_keys", "__wgetattr": "_wv_wgetattr", "__wcall": "_wv_wcall",
+    "__index": "_wv_index",
 }
 
 

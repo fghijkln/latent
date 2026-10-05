@@ -18,6 +18,7 @@ BUILTIN_JAVA = {
     "__say": "LtRt.say", "len": "LtRt.len", "range": "LtRt.range",
     "str": "LtRt.strOf", "int": "LtRt.toInt", "push": "LtRt.push",
     "keys": "LtRt.keys", "__wgetattr": None, "__wcall": None,  # special-cased
+    "__index": "LtRt.index",
 }
 
 

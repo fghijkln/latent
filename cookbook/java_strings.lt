@@ -1,0 +1,19 @@
+# java_strings.lt -- java.lang.String, StringBuilder, Integer, Math.
+
+S = java "java.lang.String"
+say S.join(", ", ["a", "b", "c"])
+say S.format("%.2f", 3.14159)
+
+# Latent strings are native values, not Java objects: instance methods
+# like "hi".toUpperCase() don't dispatch. Use statics, or StringBuilder.
+sb = (java "java.lang.StringBuilder").new()
+sb.append("hello").append(" ").append("latent")
+say sb.toString()
+
+Integer = java "java.lang.Integer"
+say Integer.parseInt("42")
+say Integer.toHexString(255)
+
+Math = java "java.lang.Math"
+say Math.pow(2, 10)
+say Math.hypot(3, 4)

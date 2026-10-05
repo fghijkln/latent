@@ -24,6 +24,9 @@ _mods = {}
 
 
 def encode(v):
+    # Interop rule: only exact-type JSON natives cross the boundary.
+    # Subclass instances (Counter, defaultdict, namedtuple, ...) stay
+    # opaque handles so their methods keep working.
     if v is None or isinstance(v, (bool, str)):
         return v
     if isinstance(v, int) and not isinstance(v, bool):
@@ -36,9 +39,9 @@ def encode(v):
         if v == float("-inf"):
             return {"__num": "-inf"}
         return v
-    if isinstance(v, (list, tuple)):
+    if type(v) is list or type(v) is tuple:
         return [encode(x) for x in v]
-    if isinstance(v, dict):
+    if type(v) is dict:
         return {str(k): encode(x) for k, x in v.items()}
     i = _next_id[0]
     _next_id[0] += 1
@@ -69,15 +72,17 @@ def getmod(name):
 
 def _pyarg(v):
     """Interop rule: integral floats go into Python as int (e.g. numpy
-    needs real ints); everything else passes through."""
+    needs real ints); everything else passes through. Exact-type checks
+    so subclass instances (e.g. a Counter fetched back by __ref) are not
+    flattened into plain containers."""
     v = decode(v)
     if isinstance(v, bool):
         return v
     if isinstance(v, float) and v.is_integer() and abs(v) < 1e18:
         return int(v)
-    if isinstance(v, list):
+    if type(v) is list or type(v) is tuple:
         return [_pyarg(x) for x in v]
-    if isinstance(v, dict):
+    if type(v) is dict:
         return {k: _pyarg(x) for k, x in v.items()}
     return v
 
@@ -115,6 +120,14 @@ def main():
                 resp = {"value": encode(fn(*[_pyarg(a) for a in req.get("args", [])]))}
             elif op == "repr":
                 resp = {"value": str(tgt)}
+            elif op == "getitem":
+                # xs[i] / m[k] from the Java backend; integral floats -> int
+                # so list indices work, string keys pass through as-is
+                k = _pyarg(req["key"])
+                try:
+                    resp = {"value": encode(tgt[k])}
+                except (IndexError, KeyError, TypeError) as e:
+                    resp = {"error": "index failed: %s" % e}
             elif op == "truthy":
                 resp = {"value": bool(tgt)}
             else:

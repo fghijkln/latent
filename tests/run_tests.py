@@ -12,10 +12,16 @@ OUT = os.path.join(ROOT, "out")
 
 POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "str_interp", "py_basic", "py_numpy", "py_lazy",
-            "java_basic", "java_lazy", "mixed"]
+            "java_basic", "java_lazy", "mixed", "indexing"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break"]
-NEG_RUNTIME = ["py_lazy_use", "java_lazy_use"]  # compiles fine, must fail at run on both
+NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
+               "err_index_key"]  # compiles fine, must fail at run on both
+
+COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
+COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
+            "java_strings", "java_collections", "java_time", "java_nio",
+            "java_bigdecimal", "mixed_io"]
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -27,8 +33,8 @@ def run(cmd, cwd=None, timeout=60):
         return "timeout", "", ""
 
 
-def compile_and_run(name, target):
-    src = os.path.join(TESTS, name + ".lt")
+def compile_and_run(name, target, srcdir=TESTS):
+    src = os.path.join(srcdir, name + ".lt")
     outdir = os.path.join(OUT, "t_" + name + "_" + target)
     os.makedirs(outdir, exist_ok=True)
     rc, so, se = run([sys.executable, LATENTC, src, "-t", target, "-o", outdir])
@@ -84,8 +90,19 @@ def main():
             print(f"  py:   rc={py[0]} err={py[2][-300:]}")
             print(f"  java: rc={jv[0]} err={jv[2][-300:]}")
 
-    print(f"\n{len(POSITIVE) + len(NEG_COMPILE) + len(NEG_RUNTIME) - fails} passed, "
-          f"{fails} failed")
+    print("== cookbook: py vs java must produce identical stdout, exit 0 ==")
+    for name in COOKBOOK:
+        py = compile_and_run(name, "py", COOKBOOK_DIR)
+        jv = compile_and_run(name, "java", COOKBOOK_DIR)
+        ok = (py[0] == 0 and jv[0] == 0 and py[1] == jv[1])
+        print(("PASS " if ok else "FAIL ") + "cookbook/" + name)
+        if not ok:
+            fails += 1
+            print(f"  py:   rc={py[0]} out={py[1]!r} err={py[2][-500:]}")
+            print(f"  java: rc={jv[0]} out={jv[1]!r} err={jv[2][-500:]}")
+
+    total = len(POSITIVE) + len(NEG_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK)
+    print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 
 

@@ -242,6 +242,11 @@ class Parser:
                 self.next()
                 attr = self.expect("NAME")
                 e = Dot(e, attr.value, line=attr.line, col=attr.col)
+            elif self.peek().kind == "[":
+                t = self.next()
+                idx = self.expr()
+                self.expect("]")
+                e = Subscript(e, idx, line=t.line, col=t.col)
             else:
                 return e
 

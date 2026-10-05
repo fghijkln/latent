@@ -359,6 +359,56 @@ public class LtRt {
         throw new RuntimeException("call on non-handle value: " + typeName(h));
     }
 
+    /** Indexing: xs[i] / m[k] / s[i]. Negative indices count from the end. */
+    public static Object index(Object o, Object k) {
+        if (o instanceof PyHandle)
+            return Daemon.inst().getitem((PyHandle) o, k);
+        if (o instanceof JReflect.JObj) {
+            Object u = ((JReflect.JObj) o).o;
+            if (u instanceof List) {
+                List<?> l = (List<?>) u;
+                return JReflect.wrap(l.get(toIndex(k, l.size())));
+            }
+            if (u instanceof Map) {
+                Map<?, ?> mp = (Map<?, ?>) u;
+                if (!mp.containsKey(k))
+                    throw new RuntimeException("key not found: " + repr(k));
+                return JReflect.wrap(mp.get(k));
+            }
+            throw new RuntimeException("cannot index java value of type " +
+                u.getClass().getName());
+        }
+        if (o instanceof List) {
+            List<?> l = (List<?>) o;
+            return l.get(toIndex(k, l.size()));
+        }
+        if (o instanceof Map) {
+            Map<?, ?> mp = (Map<?, ?>) o;
+            if (!mp.containsKey(k))
+                throw new RuntimeException("key not found: " + repr(k));
+            return mp.get(k);
+        }
+        if (o instanceof String) {
+            String s = (String) o;
+            int i = toIndex(k, s.length());
+            return s.substring(i, i + 1);
+        }
+        throw new RuntimeException("cannot index " + typeName(o));
+    }
+
+    static int toIndex(Object k, int n) {
+        if (k instanceof Boolean || !(k instanceof Number))
+            throw new RuntimeException("index must be an integer");
+        double d = ((Number) k).doubleValue();
+        if (d != Math.rint(d))
+            throw new RuntimeException("index must be an integer");
+        int i = (int) d;
+        if (i < 0) i += n;
+        if (i < 0 || i >= n)
+            throw new RuntimeException("index out of range: " + (int) d);
+        return i;
+    }
+
     public static void shutdown() {
         Daemon.shutdown();
     }
@@ -476,6 +526,11 @@ public class LtRt {
         String repr(PyHandle h) {
             Object r = exchange("{\"op\":\"repr\",\"target\":" + targetJson(h) + "}");
             return r == null ? "nil" : String.valueOf(r);
+        }
+
+        Object getitem(PyHandle h, Object key) {
+            return exchange("{\"op\":\"getitem\",\"target\":" + targetJson(h) +
+                ",\"key\":" + encodeArg(key) + "}");
         }
 
         Object binop(String dunder, Object... args) {

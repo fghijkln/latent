@@ -82,6 +82,25 @@ public class LtJavaDaemon {
                                 (o == null ? "null" : o.getClass().getName()));
                         break;
                     }
+                    case "getitem": {
+                        Object target = decodeTarget(m.get("target"));
+                        Object k = decode(m.get("key"));
+                        Object o = (target instanceof JReflect.JObj)
+                            ? ((JReflect.JObj) target).o : null;
+                        if (o instanceof List) {
+                            List<?> l = (List<?>) o;
+                            result = JReflect.wrap(l.get(toIndex(k, l.size())));
+                        } else if (o instanceof Map) {
+                            Map<?, ?> mp = (Map<?, ?>) o;
+                            if (!mp.containsKey(k))
+                                throw new RuntimeException("key not found: " + k);
+                            result = JReflect.wrap(mp.get(k));
+                        } else {
+                            throw new RuntimeException("cannot index " +
+                                (o == null ? "null" : o.getClass().getName()));
+                        }
+                        break;
+                    }
                     case "truthy":
                         result = Boolean.TRUE; // any live handle is truthy
                         break;
@@ -108,6 +127,20 @@ public class LtJavaDaemon {
         return o;
     }
 
+    /** Shared integer-index rule: integral numbers only, negatives from the end. */
+    static int toIndex(Object k, int n) {
+        if (!(k instanceof Number))
+            throw new RuntimeException("index must be a number");
+        double d = ((Number) k).doubleValue();
+        if (d != Math.rint(d))
+            throw new RuntimeException("index must be an integer");
+        int i = (int) d;
+        if (i < 0) i += n;
+        if (i < 0 || i >= n)
+            throw new RuntimeException("index out of range: " + (int) d);
+        return i;
+    }
+
     static Object[] decodeArgs(List<?> l) {
         if (l == null) return new Object[0];
         Object[] out = new Object[l.size()];
@@ -119,8 +152,15 @@ public class LtJavaDaemon {
     static Object decode(Object v) {
         if (v instanceof Map) {
             Map<?, ?> m = (Map<?, ?>) v;
-            if (m.containsKey("__jref"))
-                return decodeTarget(m);
+            if (m.containsKey("__jref")) {
+                // handle arriving as an argument (request envelopes use
+                // the "id" spelling via decodeTarget instead)
+                Number id = (Number) m.get("__jref");
+                JReflect.JObj o = objs.get(id.longValue());
+                if (o == null)
+                    throw new RuntimeException("stale java ref: " + id);
+                return o;
+            }
             if (m.containsKey("__jclass"))
                 return new JReflect.JClass((String) m.get("__jclass"));
             Map<String, Object> r = new LinkedHashMap<>();

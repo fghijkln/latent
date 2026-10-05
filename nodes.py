@@ -156,6 +156,15 @@ class Dot(Node):
         self.attr = attr
 
 
+class Subscript(Node):
+    """Indexing. xs[i] / m[k] / s[i]. Desugar rewrites to __index(obj, key);
+    the runtime dispatches on the value type (list/map/string/handles)."""
+    def __init__(self, obj, index, **kw):
+        super().__init__(**kw)
+        self.obj = obj
+        self.index = index
+
+
 class JavaImport(Node):
     def __init__(self, class_expr, **kw):
         super().__init__(**kw)

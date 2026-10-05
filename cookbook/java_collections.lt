@@ -1,0 +1,34 @@
+# java_collections.lt -- ArrayList, HashMap, HashSet, Collections.
+# Java collections stay opaque handles; drive them with methods.
+
+AL = java "java.util.ArrayList"
+xs = AL.new()
+xs.add(3)
+xs.add(1)
+xs.add(2)
+Collections = java "java.util.Collections"
+Collections.sort(xs)
+say xs.toString()
+say xs[0]
+say xs[-1]
+say xs.size()
+
+HM = java "java.util.HashMap"
+m = HM.new()
+m.put("name", "latent")
+m.put("n", 3)
+say m.get("name")
+say m.containsKey("n")
+say m.size()
+
+HS = java "java.util.HashSet"
+s = HS.new()
+s.add("x")
+s.add("x")
+s.add("y")
+say s.size()
+say s.contains("y")
+
+# Java lists/arrays are directly iterable with for
+for x in xs:
+    say x
