@@ -77,7 +77,7 @@ def main():
         if not ok:
             fails += 1
         else:
-            print(f"  msg: {(so + se).strip().splitlines()[-1]}")
+            print(f"  msg: {(so + se).strip().splitlines()[0]}")
 
     print("== negative runtime: must fail on both backends ==")
     for name in NEG_RUNTIME:

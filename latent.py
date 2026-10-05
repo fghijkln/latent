@@ -2,14 +2,17 @@
 """latent - the Latent compiler.  latent prog.lt -t py|java [-o OUTDIR] [--run]"""
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import lex
+import nodes
 import parse as parse_mod
 import desugar
 import semant
@@ -18,26 +21,156 @@ import gen_java
 
 
 def compile_src(src, path="<src>"):
+    """Returns (prog, None) on success, (None, (kind, raw_msg)) on failure.
+    kind is one of lex/parse/desugar/semant; raw_msg starts with 'line:col: '."""
     try:
         toks = lex.lex(src)
     except lex.LexError as e:
-        return None, f"lex error: {e}"
+        return None, ("lex", str(e))
     try:
         prog = parse_mod.parse(toks)
     except parse_mod.ParseError as e:
-        return None, f"parse error: {e}"
+        return None, ("parse", str(e))
     try:
         prog = desugar.desugar(prog)
     except desugar.DesugarError as e:
-        return None, f"desugar error: {e}"
+        return None, ("desugar", str(e))
     try:
         prog = semant.check(prog)
     except semant.SemantError as e:
-        return None, f"semant error: {e}"
+        return None, ("semant", str(e))
     return prog, None
 
 
+_ERR_HEAD = re.compile(r"^(\d+):(\d+):\s*(.*)$", re.DOTALL)
+
+
+def render_error(path, src, kind, raw_msg):
+    """Render a compile error with the offending source line and a caret."""
+    m = _ERR_HEAD.match(raw_msg)
+    if m:
+        line, col, msg = int(m.group(1)), int(m.group(2)), m.group(3)
+        srclines = src.split("\n")
+        if 1 <= line <= len(srclines):
+            text = srclines[line - 1]
+            gutter = f"    {line} | "
+            caret = " " * (len(gutter) + min(col, len(text) + 1) - 1) + "^"
+            return (f"{path}:{line}:{col}: {kind} error: {msg}\n"
+                    f"{gutter}{text}\n{caret}")
+    # no position info (shouldn't happen for the four stages): plain fallback
+    return f"{path}: {kind} error: {raw_msg}"
+
+
+def _needs_more(lines):
+    """True if the last line opens an indented block (ends with ':').
+    The language has no multi-line brackets, so a blank line always
+    ends the current input."""
+    return lines[-1].strip().endswith(":")
+
+
+def _exec_chunk(chunk, ns, checker):
+    """Compile one REPL chunk (py backend) and exec it in ns."""
+    prog = None
+    try:  # a bare expression: auto-print its value
+        toks = lex.lex(chunk)
+        p = parse_mod.Parser(toks)
+        e = p.expr()
+        if p.peek().kind in ("NEWLINE", "EOF"):
+            prog = nodes.Program([nodes.Say(e, line=e.line, col=e.col)],
+                                 line=e.line, col=e.col)
+    except (lex.LexError, parse_mod.ParseError):
+        prog = None
+    if prog is None:
+        try:
+            prog = parse_mod.parse(lex.lex(chunk))
+        except lex.LexError as e:
+            print(render_error("<repl>", chunk, "lex", str(e)),
+                  file=sys.stderr)
+            return
+        except parse_mod.ParseError as e:
+            print(render_error("<repl>", chunk, "parse", str(e)),
+                  file=sys.stderr)
+            return
+    try:
+        prog = desugar.desugar(prog)
+    except desugar.DesugarError as e:
+        print(render_error("<repl>", chunk, "desugar", str(e)),
+              file=sys.stderr)
+        return
+    # REPL allows redefinition: forget previous defs from this chunk first
+    for s in prog.stmts:
+        if isinstance(s, (nodes.FnDef, nodes.ClassDef)):
+            checker.functions.pop(s.name, None)
+            checker.classes.pop(s.name, None)
+            checker.globals.discard(s.name)
+    try:
+        checker.run(prog)
+    except semant.SemantError as e:
+        print(render_error("<repl>", chunk, "semant", str(e)),
+              file=sys.stderr)
+        return
+    g = gen_py.Gen()
+    for s in prog.stmts:
+        if isinstance(s, nodes.FnDef):
+            g.fndef(s)
+        elif isinstance(s, nodes.ClassDef):
+            g.classdef(s)
+        else:
+            g.stmt(s)
+    try:
+        exec(compile("\n".join(g.out) + "\n", "<repl>", "exec"), ns)
+    except Exception:
+        traceback.print_exc()
+
+
+def run_repl():
+    try:
+        import readline  # noqa: F401  (history + line editing)
+    except ImportError:
+        pass
+    ns = {}
+    checker = semant.Checker()
+
+    def reset():
+        ns.clear()
+        exec(gen_py.PRELUDE, ns)
+        checker.__init__()
+
+    reset()
+    print("Latent REPL (python backend). Blank line ends a block; "
+          ":reset clears; :quit exits.")
+    buf = []
+    while True:
+        try:
+            line = input("lt> " if not buf else "... ")
+        except EOFError:
+            print()
+            return 0
+        except KeyboardInterrupt:
+            print()
+            buf = []
+            continue
+        stripped = line.strip()
+        if not buf and stripped in (":quit", ":q", "exit"):
+            return 0
+        if not buf and stripped == ":reset":
+            reset()
+            print("(state cleared)")
+            continue
+        if stripped == "":
+            if buf:
+                chunk, buf = "\n".join(buf), []
+                _exec_chunk(chunk, ns, checker)
+            continue
+        buf.append(line)
+        if not _needs_more(buf):
+            chunk, buf = "\n".join(buf), []
+            _exec_chunk(chunk, ns, checker)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "repl":
+        return run_repl()
     ap = argparse.ArgumentParser(prog="latent", description="Latent compiler")
     ap.add_argument("src", help=".lt source file")
     ap.add_argument("-t", "--target", choices=["py", "java"], default="py")
@@ -49,7 +182,8 @@ def main():
         src = f.read()
     prog, err = compile_src(src, args.src)
     if err:
-        print(f"{args.src}: {err}", file=sys.stderr)
+        kind, raw = err
+        print(render_error(args.src, src, kind, raw), file=sys.stderr)
         return 1
 
     stem = os.path.splitext(os.path.basename(args.src))[0]

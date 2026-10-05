@@ -23,7 +23,7 @@ A = java "java.util.ArrayList"    # 借用 Java 生态
 
 - Python 3.8+（编译器本身用 Python 写；`-t py` 目标也需要它）
 - JDK 17+（只在用 `-t java` 时需要）
-- `numpy`（可选，只在第 6 节的例子里用）
+- `numpy`（可选，只在第 10 节的例子里用）
 
 ```bash
 git clone https://github.com/fghijkln/latent.git
@@ -62,12 +62,48 @@ hello latent
 ```
 
 `say` 是打印语句，不需要括号。这是全教程最重要的约定：**同一份源码，
-`-t py` 和 `-t java` 的运行结果一致**。编译器自带 20 个测试，
+`-t py` 和 `-t java` 的运行结果一致**。编译器自带 41 个测试，
 每次都在双后端之间逐字节对拍输出。
 
 ---
 
-## 3. 变量与数字
+## 3. REPL：交互式
+
+不想写文件？直接进交互式：
+
+```bash
+$ python3 latent.py repl
+Latent REPL (python backend). Blank line ends a block; :reset clears; :quit exits.
+lt> 1 + 2
+3
+lt> x = 10
+lt> x * 3
+30
+lt> fn add(a, b):
+...     return a + b
+...
+lt> add(3, 4)
+7
+```
+
+- 裸表达式自动打印值，不用写 `say`；`say` 照常输出。
+- `fn` / `class` / `if` 这些块，写完后**空一行**表示结束。
+- 函数、类、变量的定义跨行保持；`:reset` 清空状态，`:quit`（或 Ctrl-D）退出。
+
+报错会指到源码行（写 `.lt` 文件编译时也一样）：
+
+```
+lt> f(1, 2)
+<repl>:1:1: semant error: undefined name 'f'
+    1 | f(1, 2)
+        ^
+```
+
+格式是 `文件:行:列: 阶段 error: 消息`，下面跟出错行和一个 `^`。
+
+---
+
+## 4. 变量与数字
 
 ```latent
 x = 3
@@ -86,7 +122,7 @@ say 2 ** 10      # 1024
 say int(3.9)     # 3（向零截断）
 ```
 
-## 4. 字符串与插值
+## 5. 字符串与插值
 
 ```latent
 name = "latent"
@@ -97,7 +133,7 @@ say "a" + "b"                # ab（字符串拼接）
 
 `$name` 插入变量，`${expr}` 插入任意表达式的值。
 
-## 5. 列表与映射
+## 6. 列表与映射
 
 ```latent
 xs = [1, 2, 3]
@@ -136,7 +172,7 @@ say "hello"[1]   # e
 下标同样适用于库返回的东西：`json.loads(s)["tags"]`、`re.findall(p, t)[0]`、
 Java 的 `ArrayList` 也能 `xs[0]`。只有读没有写（`xs[0] = v` 不支持）。
 
-## 6. 控制流
+## 7. 控制流
 
 ```latent
 n = 7
@@ -158,7 +194,7 @@ while i < 3:
 `break` / `continue` 和你想的一样。真值规则同 Python：
 `nil`、`false`、`0`、`""`、`[]`、`{}` 为假，其余为真。
 
-## 7. 函数
+## 8. 函数
 
 ```latent
 fn fib(n):
@@ -186,7 +222,7 @@ fn f():
 
 ---
 
-## 8. 类
+## 9. 类
 
 ```latent
 class Point:
@@ -225,7 +261,7 @@ m["b"] = 2
 
 更多例子见 [cookbook/classes.lt](cookbook/classes.lt)。
 
-## 9. `py`：按需加载 Python
+## 10. `py`：按需加载 Python
 
 ```latent
 np = py "numpy"                # ① 这里什么都不发生
@@ -250,7 +286,7 @@ say np.pi                      # 3.141592653589793
 只创建不使用的 `py` 句柄的程序依然能正常运行——
 因为解释器从未被需要过。
 
-## 10. `java`：按需加载 Java
+## 11. `java`：按需加载 Java
 
 和 `py` 完全对称：
 
@@ -290,7 +326,7 @@ a.add(np.sqrt(2))
 say a          # [1.4142135623730951]
 ```
 
-## 11. 双后端是怎么回事
+## 12. 双后端是怎么回事
 
 ```
 .lt → 词法 → 语法 → 脱糖 → 语义检查 → gen_py.py  → .py
@@ -305,13 +341,12 @@ say a          # [1.4142135623730951]
 
 两条铁律：**同一份源码双后端输出一致**；**用不上的那一端运行时根本不启动**。
 
-## 12. 已知限制（v0.3）
+## 13. 已知限制（v0.3）
 
 - 无继承、无闭包捕获、无 `try`、无模块系统（`import` 其他 `.lt` 文件）。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
-- `java` 不支持字段赋值（`o.field = v`）、不支持基本类型类名（`java "int"` 不行）。
+- `java` 不支持基本类型类名（`java "int"` 不行）。
 - 调用只有位置参数，没有关键字参数；函数不能当作值传递。
-- 下标只有读（`xs[0]`），没有写（`xs[0] = v`）。
 - 数字只有 float64 一种类型。
 - 性能只求正确：Java 后端全装箱，跨语言调用走 JSON 行协议。够用，不快。
 
@@ -319,7 +354,7 @@ say a          # [1.4142135623730951]
 
 ## 库 cookbook
 
-`cookbook/` 里有 11 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`cookbook/` 里有 12 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
 `os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
 `BigDecimal`）常用库，外加一个双生态混用的例子。每个都在双后端验证过输出一致，
 说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
