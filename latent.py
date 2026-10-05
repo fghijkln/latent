@@ -65,12 +65,17 @@ def main():
         # (at latent time if javac exists, otherwise on first use by the .py)
         for rt in ("LtJavaDaemon.java", "JReflect.java", "LtRt.java"):
             shutil.copy(os.path.join(HERE, "runtime", rt), outdir)
-        r = subprocess.run(
-            ["javac", "-d", outdir, "-cp", outdir] +
-            [os.path.join(outdir, s) for s in
-             ("LtJavaDaemon.java", "JReflect.java", "LtRt.java")],
-            capture_output=True, text=True)
-        if r.returncode != 0:
+        r = None
+        try:
+            r = subprocess.run(
+                ["javac", "-d", outdir, "-cp", outdir] +
+                [os.path.join(outdir, s) for s in
+                 ("LtJavaDaemon.java", "JReflect.java", "LtRt.java")],
+                capture_output=True, text=True)
+        except OSError:
+            r = None  # no javac at all: pure-python output still works;
+                      # the JVM daemon compiles on first `java` use instead
+        if r is None or r.returncode != 0:
             print("note: javac unavailable/failed; the JVM daemon will be "
                   "compiled on first `java` use if javac exists then",
                   file=sys.stderr)
@@ -88,10 +93,15 @@ def main():
         shutil.copy(os.path.join(HERE, "runtime", "JReflect.java"), outdir)
         shutil.copy(os.path.join(HERE, "runtime", "ltpy.py"), outdir)
         print(f"wrote {main_java} (+ LtRt.java, JReflect.java, ltpy.py)")
-        r = subprocess.run(["javac", "-d", outdir, "-cp", outdir,
-                            main_java, os.path.join(outdir, "LtRt.java"),
-                            os.path.join(outdir, "JReflect.java")],
-                           capture_output=True, text=True)
+        try:
+            r = subprocess.run(["javac", "-d", outdir, "-cp", outdir,
+                                main_java, os.path.join(outdir, "LtRt.java"),
+                                os.path.join(outdir, "JReflect.java")],
+                               capture_output=True, text=True)
+        except OSError:
+            print("error: javac not found; the java target needs a JDK to "
+                  "compile. Install one, or use -t py.", file=sys.stderr)
+            return 1
         if r.returncode != 0:
             print(r.stdout, r.stderr, file=sys.stderr)
             return 1
