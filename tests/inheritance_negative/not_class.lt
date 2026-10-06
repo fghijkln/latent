@@ -1,0 +1,6 @@
+fn Factory(x):
+    x
+
+class Child(Factory):
+    fn marker(self):
+        "child"

@@ -62,8 +62,8 @@ hello latent
 ```
 
 `say` 是打印语句，不需要括号。这是全教程最重要的约定：**同一份源码，
-`-t py` 和 `-t java` 的运行结果一致**。编译器的 51 项测试覆盖正例、编译错误、
-运行错误与 cookbook；每次都验证双后端输出或相应的失败诊断。
+`-t py` 和 `-t java` 的运行结果一致**。编译器的 82 项测试覆盖单文件/模块正例、
+编译错误、运行错误与 cookbook；每次都验证双后端输出或相应的失败诊断。
 
 ---
 
@@ -248,7 +248,33 @@ say p           # <Point object>
 
 - `init` 是构造器，`Point.new(...)` 会自动调它；没写 `init` 时 `Point.new()` 得到空对象。
 - 方法第一个参数收实例，按惯例叫 `self`（和 Python 一样是显式的）。
-- 字段是动态的：`self.z = 1` 随时加；`==` 比的是 identity；暂无继承。
+- 字段是动态的：`self.z = 1` 随时加；`==` 比的是 identity。
+
+Latent 类只支持**单继承**。子类覆盖方法时，普通方法的参数数量要和父类实现一致；构造器 `init` 可以增加参数。父类构造器不会自动运行，子类要显式调用它：
+
+```latent
+class Animal:
+    fn init(self, name):
+        self.name = name
+
+    fn describe(self):
+        "animal:${self.name}"
+
+class Dog(Animal):
+    fn init(self, name, breed):
+        super.init(self, name)       # 只从直接父类开始查找；继承链上最近的 init 会运行一次
+        self.breed = breed
+
+    fn describe(self):
+        super.describe(self) + " (${self.breed})"
+
+dog = Dog.new("Milo", "shiba")
+say dog.describe()                  # animal:Milo (shiba)
+```
+
+`super.method(self, ...)` 只在实例方法里有效，且必须把当前接收者作为第一个参数；它从当前类的直接父类开始找实现，不会按运行时子类重新分派。子类没有定义 `init` 时，会继承最近祖先的构造器。父类可在同一文件中稍后声明；模块也可用公开类作父类，例如 `class Worker(models.Base):`。
+
+多继承、Java 类继承、类/静态方法和运算符重载不在本版本范围内。
 
 属性写和下标写从 v0.3 起已支持：
 
@@ -366,9 +392,55 @@ say a          # [1.4142135623730951]
 
 两条铁律：**同一份源码双后端输出一致**；**用不上的那一端运行时根本不启动**。
 
-## 14. 已知限制（v0.5）
+## 14. 多文件模块（P2）
 
-- 无继承、无闭包捕获、无模块系统（`import` 其他 `.lt` 文件）。
+把可复用代码放在单独的 `.lt` 文件中，再用显式别名导入。示例目录：
+
+```text
+app.lt
+module_parts/
+  greeting.lt
+```
+
+`app.lt`：
+
+```latent
+import "module_parts/greeting.lt" as greeting
+
+name = "Latent"
+say greeting.message(name)   # Hello Latent
+say greeting.prefix          # Hello
+```
+
+`module_parts/greeting.lt`：
+
+```latent
+prefix = "Hello"
+fn message(name):
+    "$prefix $name"
+```
+
+从项目目录可用两个后端运行同一份程序：
+
+```bash
+python3 latent.py cookbook/modules.lt -t py -o out/py --run
+python3 latent.py cookbook/modules.lt -t java -o out/java --run
+```
+
+两个命令都输出 `Hello Latent`。完整示例在 [cookbook/modules.lt](cookbook/modules.lt)，包含的库文件是 [cookbook/module_parts/greeting.lt](cookbook/module_parts/greeting.lt)。
+
+规则：
+
+- 写法只有 `import "相对路径.lt" as 名称`；每个文件的所有导入必须位于最前面，不可嵌在函数、类或控制流中。
+- 路径相对**当前声明导入的 `.lt` 文件**解析，不看启动程序时所在的当前目录；路径必须相对且以 `.lt` 结尾。
+- 通过 `别名.名字` 访问模块顶层变量、函数和类；例如函数写作 `lib.add(1)`，类用 `lib.Point.new(1, 2)` 构造。导入不会把模块内部名字泄漏到当前文件。
+- 顶层以下划线开头的名字不可从其他模块访问；导入成员是只读的。需要更改模块状态时，应导出一个函数。
+- 同一个文件即使使用不同路径写法和别名导入，也只初始化一次；被导入模块先于当前模块执行。循环导入会在编译期报错。
+- 当前仅支持本地静态 `.lt` 文件导入，不支持通配符、动态导入或包管理。公开模块类可以作为父类，详见 §9。
+
+## 15. 已知限制（v0.6.0）
+
+- 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。仍无闭包捕获；模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持基本类型类名（`java "int"` 不行）。
 - 调用只有位置参数，没有关键字参数；函数不能当作值传递。
@@ -379,7 +451,7 @@ say a          # [1.4142135623730951]
 
 ## 库 cookbook
 
-`cookbook/` 里有 13 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`cookbook/` 里有 15 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
 `os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
 `BigDecimal`）常用库，外加一个双生态混用的例子。每个都在双后端验证过输出一致，
 说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
@@ -390,5 +462,5 @@ say a          # [1.4142135623730951]
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（51 项：17 正例、7 编译负例、14 运行负例、
-  13 cookbook；正例/cookbook 双后端对拍）
+- 跑测试：`python3 tests/run_tests.py`（82 项：21 正例、30 编译负例、16 运行负例、
+  15 cookbook；正例/cookbook 双后端对拍）

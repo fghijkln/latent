@@ -77,23 +77,33 @@ class Gen:
         self.source_path = source_path
         self.source_map = {}
 
-    def w(self, s="", source_line=None):
+    def w(self, s="", source_line=None, source_path=None):
         generated_line = len(self.out) + 1
         self.out.append("    " * self.ind + s)
         if source_line:
-            self.source_map[generated_line] = source_line
+            self.source_map[generated_line] = (source_path or self.source_path,
+                                               source_line)
 
     def generate(self, prog):
+        modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
-        clss = [s for s in prog.stmts if isinstance(s, ClassDef)]
+        clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
         rest = [s for s in prog.stmts
-                if not isinstance(s, (FnDef, ClassDef))]
+                if not isinstance(s, (FnDef, ClassDef, ModuleInit))]
         gnames = []
-        self._collect_top(rest, gnames)
+        if modules:
+            for module in modules:
+                for name in module.globals:
+                    if name not in gnames:
+                        gnames.append(name)
+        else:
+            self._collect_top(rest, gnames)
         self.w(f"public class {self.cls} " + "{")
         self.ind += 1
         for g in gnames:
             self.w(f"static Object {ident(g)};")
+        for module in modules:
+            self.w(f"private static int {module.state_name};")
         if gnames:
             self.w("")
         for cd in clss:
@@ -102,8 +112,12 @@ class Gen:
         self.ind += 1
         self.w("try {")
         self.ind += 1
-        for s in rest:
-            self.stmt(s)
+        if modules:
+            root = next(m for m in modules if m.root)
+            self.w(f"{root.init_name}();")
+        else:
+            for s in rest:
+                self.stmt(s)
         self.ind -= 1
         self.w("} catch (Exception _lt_error) {")
         self.ind += 1
@@ -126,6 +140,9 @@ class Gen:
             for m in cd.methods:
                 self.w("")
                 self.methoddef(cd, m)
+        for module in modules:
+            self.w("")
+            self.module_init(module, modules)
         self.w("")
         self.w("private static final String _LT_SOURCE_FILE = " +
                java_str(self.source_path) + ";")
@@ -133,9 +150,20 @@ class Gen:
         self.ind += 1
         self.w("switch (generatedLine) {")
         self.ind += 1
-        for generated_line, source_line in sorted(self.source_map.items()):
-            self.w(f"case {generated_line}: return {source_line};")
+        for generated_line, source_loc in sorted(self.source_map.items()):
+            self.w(f"case {generated_line}: return {source_loc[1]};")
         self.w("default: return 0;")
+        self.ind -= 1
+        self.w("}")
+        self.ind -= 1
+        self.w("}")
+        self.w("private static String _lt_sourceFile(int generatedLine) {")
+        self.ind += 1
+        self.w("switch (generatedLine) {")
+        self.ind += 1
+        for generated_line, source_loc in sorted(self.source_map.items()):
+            self.w(f"case {generated_line}: return {java_str(source_loc[0])};")
+        self.w(f"default: return {java_str(self.source_path)};")
         self.ind -= 1
         self.w("}")
         self.ind -= 1
@@ -161,7 +189,7 @@ class Gen:
         self.w("System.err.println(\"Latent traceback (most recent call last):\");")
         self.ind -= 1
         self.w("}")
-        self.w("System.err.println(\"  at \" + _LT_SOURCE_FILE + \":\" + "
+        self.w("System.err.println(\"  at \" + _lt_sourceFile(frame.getLineNumber()) + \":\" + "
                "sourceLine + \" in \" + frame.getMethodName());")
         self.w("mappedFrames++;")
         self.ind -= 1
@@ -179,13 +207,40 @@ class Gen:
         self.w("}")
         return "\n".join(self.out) + "\n"
 
+    def module_init(self, module, modules):
+        self.w(f"private static void {module.init_name}() throws Exception " + "{")
+        self.ind += 1
+        self.w(f"if ({module.state_name} == 2) return;")
+        self.w(f"if ({module.state_name} == 1) "
+               "throw new RuntimeException(\"cyclic module initialization\");")
+        self.w(f"{module.state_name} = 1;")
+        self.w("try {")
+        self.ind += 1
+        by_id = {m.module_id: m for m in modules}
+        for dep_id in module.deps:
+            self.w(f"{by_id[dep_id].init_name}();")
+        for stmt in module.body:
+            self.stmt(stmt)
+        self.w(f"{module.state_name} = 2;")
+        self.ind -= 1
+        self.w("} catch (Exception _lt_module_error) {")
+        self.ind += 1
+        self.w(f"{module.state_name} = 0;")
+        self.w("throw _lt_module_error;")
+        self.ind -= 1
+        self.w("}")
+        self.ind -= 1
+        self.w("}")
+
     def classfield(self, cd):
-        names = ", ".join(f'"{m.name}"' for m in cd.methods)
+        names = ", ".join(java_str(m.name) for m in cd.methods)
         lambdas = ", ".join(
             f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
+        parent = ident(cd.parent.name) if cd.parent else "null"
         self.w(f"static LtRt.LtClass {ident(cd.name)} = LtRt.makeClass(")
         self.ind += 1
-        self.w(f'"{cd.name}",')
+        self.w(f"{java_str(cd.source_name)},")
+        self.w(f"{parent},")
         self.w(f"new String[]{{{names}}},")
         self.w(f"new LtRt.LtMethod[]{{{lambdas}}});")
         self.ind -= 1
@@ -195,7 +250,7 @@ class Gen:
         selfname = ident(params[0]) if params else "self"
         restp = params[1:] if params else []
         self.w(f"static Object {cd.name}_{m.name}(Object {selfname}, Object[] args) " + "{",
-               m.line)
+               m.line, m.source_path)
         self.ind += 1
         self.w(f"if (args.length != {len(restp)})")
         self.ind += 1
@@ -218,7 +273,8 @@ class Gen:
 
     def fndef(self, fn):
         params = ", ".join(f"Object {ident(p)}" for p in fn.params)
-        self.w(f"static Object {ident(fn.name)}({params}) " + "{", fn.line)
+        self.w(f"static Object {ident(fn.name)}({params}) " + "{",
+               fn.line, fn.source_path)
         self.ind += 1
         assigned = set()
         self._collect(fn.body, assigned)
@@ -290,25 +346,28 @@ class Gen:
 
     def stmt(self, s):
         if isinstance(s, Assign):
-            self.w(f"{ident(s.name)} = {self.expr(s.value)};", s.line)
+            self.w(f"{ident(s.name)} = {self.expr(s.value)};", s.line,
+                   s.source_path)
         elif isinstance(s, ExprStmt):
-            self.w(f"{self.expr(s.expr)};", s.line)
+            self.w(f"{self.expr(s.expr)};", s.line, s.source_path)
         elif isinstance(s, If):
-            self.w(f"if (LtRt.truthy({self.expr(s.cond)})) " + "{", s.line)
+            self.w(f"if (LtRt.truthy({self.expr(s.cond)})) " + "{", s.line,
+                   s.source_path)
             self.suite(s.then_body)
             if s.else_body:
                 self.w("} else {")
                 self.suite(s.else_body)
             self.w("}")
         elif isinstance(s, While):
-            self.w(f"while (LtRt.truthy({self.expr(s.cond)})) " + "{", s.line)
+            self.w(f"while (LtRt.truthy({self.expr(s.cond)})) " + "{", s.line,
+                   s.source_path)
             self.suite(s.body)
             self.w("}")
         elif isinstance(s, For):
             t = f"wv$it{self.tmp}"
             self.tmp += 1
             self.w(f"for (Object {t} : LtRt.iter({self.expr(s.iter)})) " + "{",
-                   s.line)
+                   s.line, s.source_path)
             self.ind += 1
             self.w(f"{ident(s.var)} = {t};")
             for x in s.body:
@@ -317,14 +376,14 @@ class Gen:
             self.w("}")
         elif isinstance(s, Return):
             self.w(f"return {self.expr(s.value)};" if s.value is not None
-                   else "return null;", s.line)
+                   else "return null;", s.line, s.source_path)
         elif isinstance(s, Break):
-            self.w("break;", s.line)
+            self.w("break;", s.line, s.source_path)
         elif isinstance(s, Continue):
-            self.w("continue;", s.line)
+            self.w("continue;", s.line, s.source_path)
         elif isinstance(s, Try):
             v = ident(s.var)
-            self.w("try {", s.line)
+            self.w("try {", s.line, s.source_path)
             self.suite(s.body)
             self.w("} catch (Exception _lt_e) {")
             self.ind += 1
@@ -337,7 +396,8 @@ class Gen:
             self.w("}")
         elif isinstance(s, Throw):
             self.w(f"throw new RuntimeException("
-                   f"(String) LtRt.strOf({self.expr(s.value)}));", s.line)
+                   f"(String) LtRt.strOf({self.expr(s.value)}));", s.line,
+                   s.source_path)
         else:
             raise Exception(f"java backend: unexpected {type(s).__name__}")
 
@@ -373,6 +433,12 @@ class Gen:
             return f"LtRt.neg({a})" if e.op == "-" else f"(!LtRt.truthy({a}))"
         if isinstance(e, Call):
             return self.call(e)
+        if isinstance(e, SuperCall):
+            receiver = self.expr(e.args[0])
+            args = [self.expr(a) for a in e.args[1:]]
+            rendered = ", ".join([receiver, ident(e.owner.name),
+                                    java_str(e.method)] + args)
+            return f"LtRt.superCall({rendered})"
         if isinstance(e, PyImport):
             return f"LtRt.pymod({self.expr(e.module_expr)})"
         if isinstance(e, JavaImport):

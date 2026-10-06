@@ -1,0 +1,2 @@
+import "does_not_exist.lt" as missing
+say missing.value

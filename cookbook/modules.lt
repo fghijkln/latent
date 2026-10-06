@@ -1,0 +1,4 @@
+import "module_parts/greeting.lt" as greeting
+
+name = "Latent"
+say greeting.message(name)

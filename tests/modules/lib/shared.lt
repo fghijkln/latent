@@ -1,0 +1,11 @@
+import "nested/factor.lt" as factor
+
+say "shared init"
+offset = 2
+fn value():
+    factor.times(4) + offset
+class Box:
+    fn init(self, x):
+        self.x = x
+    fn read(self):
+        self.x + offset

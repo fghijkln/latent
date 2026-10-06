@@ -1,0 +1,4 @@
+import "lib.lt" as lib
+class Child(lib.answer):
+    fn marker(self):
+        "child"

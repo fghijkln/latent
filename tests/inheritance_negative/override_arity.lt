@@ -1,0 +1,7 @@
+class Base:
+    fn run(self, value):
+        return value
+
+class Child(Base):
+    fn run(self):
+        return "child"

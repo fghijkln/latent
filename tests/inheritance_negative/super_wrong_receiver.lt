@@ -1,0 +1,7 @@
+class Base:
+    fn run(self):
+        return
+
+class Child(Base):
+    fn call(self):
+        super.run(nil)

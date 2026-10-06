@@ -1,13 +1,13 @@
 # Latent 库 Cookbook
 
-`cookbook/` 里的每个 `.lt` 文件都是可运行的例子（13 个），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。跑法：
+`cookbook/` 有 15 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。运行方式：
 
 ```bash
 python3 latent.py cookbook/py_json.lt -t py -o out --run
 python3 latent.py cookbook/py_json.lt -t java -o out --run
 ```
 
-`tests/run_tests.py` 会把全部 13 个例子自动双后端对拍。
+`tests/run_tests.py` 会把全部 15 个例子自动双后端对拍。
 
 ## Python 生态
 
@@ -22,9 +22,9 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `py_os.lt` | `collections` | `Counter.most_common()`、`deque.appendleft()`（dict 子类不再被拍扁，方法保留） |
 | `py_os.lt` | `random`、`itertools` | 记得 `seed()` 保证确定性；`chain/count/islice/accumulate` 配 `builtins.list` 物化 |
 
-## Java 生态
+## Java 生态与双生态
 
-| 文件 | 类 | 要点 |
+| 文件 | 类/生态 | 要点 |
 |---|---|---|
 | `java_strings.lt` | `String`、`StringBuilder`、`Integer`、`Math` | `S.join/S.format` 静态方法；`StringBuilder` 链式 `append`；`parseInt/toHexString`；`pow/hypot` |
 | `java_collections.lt` | `ArrayList/HashMap/HashSet`、`Collections` | 集合是句柄，用方法驱动；`Collections.sort(xs)` 原地排序；Java List 可直接 `for` 和 `xs[0]` |
@@ -32,8 +32,20 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `java_nio.lt` | `Paths`、`Files` | `writeString/readString/size/exists/deleteIfExists`，一行读写文件 |
 | `java_bigdecimal.lt` | `BigDecimal` | 精确十进制：`0.1+0.2` 得 `0.3`；`divide` 的 scale/rounding 用位置参数传 |
 | `mixed_io.lt` | 混用 | Python `open()` 写文件，Java NIO 读回来——两个生态在同一个程序里 |
-| `classes.lt` | 类 | `Account` 存取款：`init`/`new`/方法/字段，`==` 为 identity |
+| `classes.lt` | Latent 类 | `Account` 存取款：`init`/`new`/方法/字段，`==` 为 identity |
+| `inheritance.lt` | Latent 单继承 | `Dog(Animal)`、显式 `super.init`、覆盖方法与继承分派 |
 | `pipeline.lt` | 旗舰 demo | 双生态销售管道：Python 写 CSV → Java NIO 读 → re 解析 → try/catch 跳坏行 → numpy 均值 → BigDecimal 求和 → java.time 时间戳 |
+
+## 本地 `.lt` 模块
+
+`modules.lt` 导入相对路径 `module_parts/greeting.lt`，再经别名访问公开函数和顶层变量：
+
+```bash
+python3 latent.py cookbook/modules.lt -t py -o out/py --run
+python3 latent.py cookbook/modules.lt -t java -o out/java --run
+```
+
+两个后端均输出 `Hello Latent`。导入路径以声明它的 `.lt` 文件为基准，而不是生成产物的当前工作目录。模块细节与首版边界见 [SPEC.md §11](../SPEC.md#11-模块系统p2-v060) 和 [P2_MODULES_DESIGN.md](../P2_MODULES_DESIGN.md)。模块导入的公开类可作为继承父类；示例见 `inheritance.lt` 与 [P3_INHERITANCE_DESIGN.md](../P3_INHERITANCE_DESIGN.md)。
 
 ## 互操作速查
 
@@ -48,5 +60,6 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 1. **Latent 字符串是原生值，不是 Java 对象**：`"hi".toUpperCase()` 调不动。用 `S.join` / `S.format` 这类静态方法，或 `StringBuilder` 做拼接。
 2. **内建函数不是一等值**：`collections.defaultdict(int)` 写不出来（`int` 传不进去）。v0.2 不支持把函数当值传。
 3. **下标写支持范围**：Latent 列表/映射、py 句柄，以及 Java `List`/`Map` 句柄都支持 `xs[0] = v` / `m["k"] = v`；字符串仍不可写。负索引适用于序列。
-4. **Java 方法重载按"第一个能对上"的来**：`coerce` 会把 Latent 数字转成 `int/long/double` 等，歧义时别依赖重载解析。
+4. **Java 方法重载按“第一个能对上”的来**：`coerce` 会把 Latent 数字转成 `int/long/double` 等，歧义时别依赖重载解析。
 5. **跨边界有 JSON 行协议开销**：循环里逐个调 Java/Python 方法优先保证正确，不保证性能。真要快，把循环写进对端的一次调用里。
+6. **`.lt` 模块是静态子集**：只支持本地显式别名导入；不支持循环、通配/动态导入、包管理或写入导入模块的成员。

@@ -1,0 +1,7 @@
+import "../lib/shared.lt" as shared
+import "../lib/nested/../shared.lt" as shared_again
+
+say shared.value()
+say shared_again.offset
+box = shared.Box.new(7)
+say box.read()

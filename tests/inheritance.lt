@@ -1,0 +1,45 @@
+# Single inheritance dispatch, explicit constructor chaining, and shared fields.
+class Leaf(Middle):
+    fn init(self, value, tag):
+        super.init(self, value)
+        self.tag = tag
+
+    fn route(self):
+        super.route(self) + "-leaf"
+
+    fn describe(self):
+        super.describe(self) + ":" + self.tag
+
+class Middle(Root):
+    fn route(self):
+        super.route(self) + "-middle"
+
+class Root:
+    fn init(self, value):
+        say "root-init"
+        self.value = value
+
+    fn route(self):
+        "root"
+
+    fn describe(self):
+        "value:${self.value}"
+
+class Isolated:
+    fn route(self):
+        "isolated"
+
+class Empty:
+    fn marker(self):
+        "empty"
+
+middle = Middle.new("inherited")
+leaf = Leaf.new("shared", "field")
+say middle.describe()
+say leaf.route()
+say leaf.describe()
+say Isolated.new().route()
+say Empty.new().marker()
+say leaf == leaf
+say leaf == middle
+say leaf

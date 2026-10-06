@@ -323,9 +323,11 @@ public class LtRt {
 
     public static class LtClass {
         public final String name;
+        public final LtClass parent;
         public final Map<String, LtMethod> methods;
-        LtClass(String name, Map<String, LtMethod> methods) {
+        LtClass(String name, LtClass parent, Map<String, LtMethod> methods) {
             this.name = name;
+            this.parent = parent;
             this.methods = methods;
         }
     }
@@ -336,11 +338,34 @@ public class LtRt {
         LtObj(LtClass cls) { this.cls = cls; }
     }
 
-    public static LtClass makeClass(String name, String[] names,
-                                    LtMethod[] methods) {
+    public static LtClass makeClass(String name, LtClass parent,
+                                    String[] names, LtMethod[] methods) {
         Map<String, LtMethod> m = new LinkedHashMap<>();
         for (int i = 0; i < names.length; i++) m.put(names[i], methods[i]);
-        return new LtClass(name, m);
+        return new LtClass(name, parent, m);
+    }
+
+    static LtMethod findMethod(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent) {
+            LtMethod method = c.methods.get(name);
+            if (method != null) return method;
+        }
+        return null;
+    }
+
+    /** Dispatch a Latent method beginning at the current class's parent. */
+    public static Object superCall(Object receiver, LtClass owner,
+                                   String method, Object... args) {
+        if (!(receiver instanceof LtObj) || owner == null)
+            throw new RuntimeException("super call requires a Latent instance and class");
+        LtClass actual = ((LtObj) receiver).cls;
+        while (actual != null && actual != owner) actual = actual.parent;
+        if (actual == null || owner.parent == null)
+            throw new RuntimeException("super call owner is not in the instance inheritance chain");
+        LtMethod target = findMethod(owner.parent, method);
+        if (target == null)
+            throw new RuntimeException("no parent method '" + method + "' on class " + owner.name);
+        return target.call(receiver, args);
     }
 
     public static Object pymod(Object name) {
@@ -394,7 +419,7 @@ public class LtRt {
             LtClass c = (LtClass) h;
             if (attr.equals("new")) {
                 LtObj o = new LtObj(c);
-                LtMethod init = c.methods.get("init");
+                LtMethod init = findMethod(c, "init");
                 if (init != null) init.call(o, args);
                 else if (args.length > 0)
                     throw new RuntimeException("no init defined for class " +
@@ -406,7 +431,7 @@ public class LtRt {
         }
         if (h instanceof LtObj) {
             LtObj o = (LtObj) h;
-            LtMethod m = o.cls.methods.get(attr);
+            LtMethod m = findMethod(o.cls, attr);
             if (m == null)
                 throw new RuntimeException("no method '" + attr +
                     "' on " + o.cls.name);

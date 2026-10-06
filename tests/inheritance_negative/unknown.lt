@@ -1,0 +1,3 @@
+class Child(Missing):
+    fn marker(self):
+        "child"

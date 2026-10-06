@@ -1,0 +1,9 @@
+class Base:
+    fn init(self, value):
+        self.value = value
+
+class Child(Base):
+    fn marker(self):
+        "child"
+
+child = Child.new()

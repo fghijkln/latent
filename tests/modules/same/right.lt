@@ -1,0 +1,7 @@
+label = "right"
+amount = 22
+fn value():
+    amount
+class Item:
+    fn read(self):
+        label

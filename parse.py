@@ -64,6 +64,13 @@ class Parser:
     # ---- statements ----
     def stmt(self):
         t = self.peek()
+        if t.kind == "IMPORT":
+            self.next()
+            path = self.expect("STR")
+            self.expect("AS")
+            alias = self.expect("NAME")
+            self.expect("NEWLINE")
+            return ImportStmt(path.value, alias.value, line=t.line, col=t.col)
         if t.kind == "FN":
             return self.fndef()
         if t.kind == "IF":
@@ -111,6 +118,17 @@ class Parser:
     def classdef(self):
         t = self.expect("CLASS")
         name = self.expect("NAME")
+        parent = None
+        if self.match("("):
+            p = self.expect("NAME")
+            alias = None
+            parent_name = p.value
+            if self.match("."):
+                alias = parent_name
+                p = self.expect("NAME")
+                parent_name = p.value
+            parent = ClassRef(parent_name, alias, line=p.line, col=p.col)
+            self.expect(")")
         self.expect(":")
         self.expect("NEWLINE")
         self.expect("INDENT")
@@ -128,7 +146,8 @@ class Parser:
         self.expect("DEDENT")
         if not methods:
             raise ParseError(f"{t.line}:{t.col}: class {name.value!r} has no methods")
-        return ClassDef(name.value, methods, line=t.line, col=t.col)
+        return ClassDef(name.value, methods, parent=parent,
+                        line=t.line, col=t.col)
 
     def fndef(self):
         t = self.expect("FN")
@@ -313,6 +332,9 @@ class Parser:
         if t.kind == "NAME":
             self.next()
             return Name(t.value, line=t.line, col=t.col)
+        if t.kind == "SUPER":
+            self.next()
+            return Super(line=t.line, col=t.col)
         if t.kind == "PY":
             self.next()
             mod = self.primary()

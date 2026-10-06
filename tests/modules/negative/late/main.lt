@@ -1,0 +1,2 @@
+say "too late"
+import "lib.lt" as lib

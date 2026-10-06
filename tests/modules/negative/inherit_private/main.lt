@@ -1,0 +1,4 @@
+import "lib.lt" as lib
+class Child(lib._Hidden):
+    fn marker(self):
+        "child"

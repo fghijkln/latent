@@ -1,0 +1,9 @@
+class Base:
+    fn init(self, name):
+        self.name = name
+
+    fn speak(self):
+        "base:${self.name}"
+
+fn normalize(name):
+    name

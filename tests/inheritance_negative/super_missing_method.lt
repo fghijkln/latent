@@ -1,0 +1,7 @@
+class Base:
+    fn init(self):
+        return
+
+class Child(Base):
+    fn run(self):
+        super.missing(self)

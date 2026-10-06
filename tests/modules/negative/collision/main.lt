@@ -1,0 +1,3 @@
+import "lib.lt" as item
+item = 3
+say item

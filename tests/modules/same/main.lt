@@ -1,0 +1,8 @@
+import "left.lt" as left
+import "right.lt" as right
+
+say left.value() + right.value()
+say left.label
+say right.label
+say left.Item.new().read()
+say right.Item.new().read()

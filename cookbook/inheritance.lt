@@ -1,0 +1,19 @@
+# Single inheritance with explicit constructor chaining and super dispatch.
+class Animal:
+    fn init(self, name):
+        self.name = name
+
+    fn describe(self):
+        "animal:${self.name}"
+
+class Dog(Animal):
+    fn init(self, name, breed):
+        super.init(self, name)
+        self.breed = breed
+
+    fn describe(self):
+        super.describe(self) + " (${self.breed})"
+
+dog = Dog.new("Milo", "shiba")
+say dog.describe()
+say dog

@@ -1,0 +1,2 @@
+import "a.lt" as a
+say a.value

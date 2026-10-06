@@ -14,10 +14,13 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 
 代价是真实的：两套后端、跨语言对象让调试和错误处理更难。为此编译器用
 机制而不是运气来还债：`tests/run_tests.py` 每次都在双后端之间逐字节
-对拍输出（51 项测试），两端行为不一致即失败。
+对拍输出（82 项测试），两端行为不一致即失败。
 
 - 教程：[TUTORIAL.md](TUTORIAL.md)
 - 语言规范：[SPEC.md](SPEC.md)
+- P2 模块语义：[P2_MODULES_DESIGN.md](P2_MODULES_DESIGN.md)
+- P3 继承语义：[P3_INHERITANCE_DESIGN.md](P3_INHERITANCE_DESIGN.md)
+- 发布记录：[CHANGELOG.md](CHANGELOG.md)
 
 ## 用法
 
@@ -65,17 +68,18 @@ say java "java.lang.Math".sqrt(2)  # 静态方法直接调：1.4142135623730951
 ## 工程
 
 - 纯 Python 标准库实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 测试：`python3 tests/run_tests.py` —— 17 个正例、7 个编译期负例、
-  14 个运行期负例、13 个 cookbook（51/51 通过）；正例与 cookbook 双后端
+- 测试：`python3 tests/run_tests.py` —— 21 个正例、30 个编译期负例、
+  16 个运行期负例、15 个 cookbook（82/82 通过）；正例与 cookbook 双后端
   输出逐字节对拍，运行期负例验证两端失败状态与 `.lt` 源码位置。
 - 编译期错误显示 `文件:行:列`、源码行和 `^`；未捕获的运行期错误在
   Python/Java 后端显示 `.lt` 文件、行号和 Latent 调用栈。无法映射时回退到
   原生 traceback/Java 堆栈；运行期暂不显示列号。
 
-## 已知边界（v0.5）
+## 已知边界（v0.6.0）
 
-有类（无继承）、`try`/`catch`/`throw`、属性与下标读写；未捕获的运行期错误
-已映射到 `.lt` 文件和行号。仍无闭包捕获和 `.lt` 模块系统；`py` 只支持模块句柄，
+支持 Latent 单继承、`super`、`try`/`catch`/`throw`、属性与下标读写；未捕获的运行期错误
+已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承均随 v0.6.0 发布；模块导入仍只支持本地显式别名、无循环导入和包管理。仍无多继承、闭包捕获；
+`py` 只支持模块句柄，
 不支持内联 Python 代码块；`java` 不支持基本类型类名（`java "int"`）；调用只有
 位置参数；数字只有 float64 一种类型。
 

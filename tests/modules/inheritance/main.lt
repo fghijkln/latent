@@ -1,0 +1,7 @@
+import "../inheritance_parts/child.lt" as child
+import "../inheritance_parts/right.lt" as right
+
+item = child.Derived.new("module")
+say item.speak()
+say right.Base.new().speak()
+say child.Derived

@@ -1,0 +1,3 @@
+class Plain:
+    fn run(self):
+        super.run(self)

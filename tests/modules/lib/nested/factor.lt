@@ -1,0 +1,4 @@
+say "factor init"
+scale = 10
+fn times(x):
+    x * scale

@@ -55,8 +55,7 @@ def _wv_repr(v):
     if isinstance(v, _LtClass):
         return "<class %s>" % v._name
     if isinstance(v, _LtObj):
-        n = type(v).__name__
-        return "<%s object>" % (n[3:] if n.startswith("_C_") else n)
+        return "<%s object>" % v._lt_class._name
     if isinstance(v, _JClass):
         return "<class %s>" % v._name
     if isinstance(v, _JHandle):
@@ -305,19 +304,33 @@ class _JHandle:
 
 
 class _LtObj:
-    """Instance of a Latent class. Fields live in the instance __dict__;
-    methods live on the generated _C_<Name> class."""
+    """Latent instance with one shared field store and explicit class metadata."""
+    __slots__ = ("_lt_class", "_lt_fields")
+
+    def __init__(self, cls):
+        self._lt_class = cls
+        self._lt_fields = {}
 
 
 class _LtClass:
-    """A Latent class value. Call _new() to construct (via __wcall 'new')."""
-    def __init__(self, name, cls):
+    """A Latent class with its own method table and an optional parent."""
+    def __init__(self, name, parent, methods):
         self._name = name
-        self._cls = cls
+        self._parent = parent
+        self._methods = methods
+
+    def _find_method(self, name):
+        cls = self
+        while cls is not None:
+            method = cls._methods.get(name)
+            if method is not None:
+                return method
+            cls = cls._parent
+        return None
 
     def _new(self, *args):
-        o = self._cls.__new__(self._cls)
-        init = self._cls.__dict__.get("init")
+        o = _LtObj(self)
+        init = self._find_method("init")
         if init is not None:
             # Latent-level dispatch: values stay Latent (no _wv_pyarg;
             # that int conversion is only for calling real Python functions)
@@ -470,8 +483,8 @@ def _wv_wgetattr(h, attr):
         jvm = _JVM.inst()
         return jvm.req({"op": "get", "target": jvm.target(h), "field": attr})
     if isinstance(h, _LtObj):
-        if attr in h.__dict__:
-            return h.__dict__[attr]
+        if attr in h._lt_fields:
+            return h._lt_fields[attr]
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)
@@ -491,16 +504,31 @@ def _wv_wcall(h, attr, *args):
             return h._new(*args)
         raise AttributeError("no class-level method %r" % attr)
     if isinstance(h, _LtObj):
-        m = type(h).__dict__.get(attr)
-        if m is None or not callable(m):
+        m = h._lt_class._find_method(attr)
+        if m is None:
             raise AttributeError("no method %r" % attr)
         return m(h, *args)
     return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
 
 
+def _wv_supercall(receiver, owner, attr, *args):
+    if not isinstance(receiver, _LtObj) or not isinstance(owner, _LtClass):
+        raise TypeError("super call requires a Latent instance and class")
+    cls = receiver._lt_class
+    while cls is not None and cls is not owner:
+        cls = cls._parent
+    if cls is None or owner._parent is None:
+        raise TypeError("super call owner is not in the instance inheritance chain")
+    method = owner._parent._find_method(attr)
+    if method is None:
+        raise AttributeError("no parent method %r on class %s" %
+                             (attr, owner._name))
+    return method(receiver, *args)
+
+
 def _wv_wsetattr(h, attr, v):
     if isinstance(h, _LtObj):
-        h.__dict__[attr] = v
+        h._lt_fields[attr] = v
         return None
     if isinstance(h, _LtClass):
         raise AttributeError("cannot set attribute on a class")
@@ -552,10 +580,14 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
             filename = frame.f_code.co_filename
             if (filename == generated_file or
                     _os.path.abspath(filename) == generated_abs):
-                source_line = source_map.get(tb.tb_lineno)
-                if source_line:
+                source_loc = source_map.get(tb.tb_lineno)
+                if source_loc:
+                    if isinstance(source_loc, tuple):
+                        source_file, source_line = source_loc
+                    else:  # compatibility with single-file generated programs
+                        source_file, source_line = source_file, source_loc
                     name = frame.f_code.co_name
-                    mapped.append((source_line,
+                    mapped.append((source_file, source_line,
                                    "main" if name == "<module>" else name))
             tb = tb.tb_next
         if not mapped:
@@ -566,8 +598,8 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
         detail = type(exc).__name__ + (": " + message if message else "")
         print("Latent runtime error: " + detail, file=_sys.stderr)
         print("Latent traceback (most recent call last):", file=_sys.stderr)
-        for line, name in mapped:
-            print(f"  at {source_file}:{line} in {name}", file=_sys.stderr)
+        for filename, line, name in mapped:
+            print(f"  at {filename}:{line} in {name}", file=_sys.stderr)
     except Exception:
         # Diagnostics must never replace the original failure.
         try:
@@ -593,17 +625,57 @@ class Gen:
         self.indent = 0
         self.source_path = source_path
         self.source_map = {}
+        self._used_internal_names = set()
+        self._reserved_nodes = set()
 
-    def w(self, s="", source_line=None):
+    def _reserve_source_names(self, value):
+        if isinstance(value, Node):
+            if id(value) in self._reserved_nodes:
+                return
+            self._reserved_nodes.add(id(value))
+            if isinstance(value, Name):
+                self._used_internal_names.add(value.id)
+            elif isinstance(value, (FnDef, ClassDef, Assign)):
+                self._used_internal_names.add(value.name)
+                if isinstance(value, ClassDef):
+                    self._used_internal_names.add(value.source_name)
+            if isinstance(value, ClassRef):
+                self._used_internal_names.add(value.name)
+                if value.alias:
+                    self._used_internal_names.add(value.alias)
+            if isinstance(value, (For, Try)):
+                self._used_internal_names.add(value.var)
+            if isinstance(value, ImportStmt):
+                self._used_internal_names.add(value.alias)
+            if isinstance(value, ModuleInit):
+                self._used_internal_names.update(value.globals)
+            for child in vars(value).values():
+                self._reserve_source_names(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                self._reserve_source_names(child)
+
+    def _fresh_internal(self, base):
+        name = base
+        while name in self._used_internal_names:
+            name = "_" + name
+        self._used_internal_names.add(name)
+        return name
+
+    def w(self, s="", source_line=None, source_path=None):
         physical_line = len(self.out) + 1 + sum(x.count("\n") for x in self.out)
         self.out.append("    " * self.indent + s)
         if source_line:
-            self.source_map[physical_line] = source_line
+            self.source_map[physical_line] = (source_path or self.source_path,
+                                              source_line)
 
     def generate(self, prog):
+        self._reserve_source_names(prog)
+        if any(isinstance(s, ModuleInit) for s in prog.stmts):
+            return self.generate_modules(prog)
         self.w(PRELUDE.strip("\n"))
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
-        clss = [s for s in prog.stmts if isinstance(s, ClassDef)]
+        clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
         rest = [s for s in prog.stmts
                 if not isinstance(s, (FnDef, ClassDef))]
         for fn in fns:
@@ -635,20 +707,102 @@ class Gen:
         self.out[source_map_line] = f"_WV_SOURCE_MAP = {self.source_map!r}"
         return "\n".join(self.out) + "\n"
 
+    def generate_modules(self, prog):
+        self.w(PRELUDE.strip("\n"))
+        modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
+        fns = [s for s in prog.stmts if isinstance(s, FnDef)]
+        clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
+        root = next(m for m in modules if m.root)
+        root_path = prog.module_sources[root.module_id]
+        all_globals = []
+        for module in modules:
+            for name in module.globals:
+                if name not in all_globals:
+                    all_globals.append(name)
+        for name in all_globals:
+            self.w(f"{name} = None")
+        for fn in fns:
+            self.w("")
+            self.fndef(fn)
+        for cd in clss:
+            self.w("")
+            self.classdef(cd)
+        for module in modules:
+            self.w("")
+            self.w(f"{module.state_name} = 0")
+            self.w(f"def {module.init_name}():")
+            self.indent += 1
+            global_names = [module.state_name] + list(module.globals)
+            self.w("global " + ", ".join(global_names))
+            self.w(f"if {module.state_name} == 2:")
+            self.indent += 1
+            self.w("return")
+            self.indent -= 1
+            self.w(f"if {module.state_name} == 1:")
+            self.indent += 1
+            self.w('raise RuntimeError("cyclic module initialization")')
+            self.indent -= 1
+            self.w(f"{module.state_name} = 1")
+            self.w("try:")
+            self.indent += 1
+            for dep_id in module.deps:
+                dep = next(m for m in modules if m.module_id == dep_id)
+                self.w(f"{dep.init_name}()")
+            for stmt in module.body:
+                self.stmt(stmt)
+            self.w(f"{module.state_name} = 2")
+            self.indent -= 1
+            self.w("except Exception:")
+            self.indent += 1
+            self.w(f"{module.state_name} = 0")
+            self.w("raise")
+            self.indent -= 1
+            self.indent -= 1
+        self.w("")
+        self.w(f"_WV_SOURCE_FILE = {json.dumps(root_path, ensure_ascii=False)}")
+        source_map_line = len(self.out)
+        self.w("_WV_SOURCE_MAP = {}")
+        self.w("")
+        self.w('if __name__ == "__main__":')
+        self.indent += 1
+        self.w("try:")
+        self.indent += 1
+        self.w(f"{root.init_name}()")
+        self.indent -= 1
+        self.w("except Exception as _wv_error:")
+        self.indent += 1
+        self.w("_wv_report_uncaught(_wv_error, _WV_SOURCE_MAP, "
+               "_WV_SOURCE_FILE, __file__)")
+        self.w("raise SystemExit(1)")
+        self.indent -= 1
+        self.indent -= 1
+        self.out[source_map_line] = f"_WV_SOURCE_MAP = {self.source_map!r}"
+        return "\n".join(self.out) + "\n"
+
     def classdef(self, cd):
-        self.w(f"class _C_{cd.name}(_LtObj):")
+        factory = self._fresh_internal("_lt_make_class_" + cd.name)
+        self.w(f"def {factory}():")
+        self.indent += 1
+        self.w("class _LtMethods:")
         self.indent += 1
         for m in cd.methods:
             self.fndef(m)
         self.indent -= 1
-        self.w(f'{cd.name} = _LtClass("{cd.name}", _C_{cd.name})')
+        parent = cd.parent.name if cd.parent else "None"
+        methods = ", ".join(
+            f"{json.dumps(m.name)}: _LtMethods.{m.name}" for m in cd.methods)
+        self.w(f"return _LtClass({json.dumps(cd.source_name, ensure_ascii=False)}, "
+               f"{parent}, {{{methods}}})")
+        self.indent -= 1
+        self.w(f"{cd.name} = {factory}()")
 
     def fndef(self, fn):
         # locals default to nil (matches Java backend)
         assigned = set()
         self._collect(fn.body, assigned)
         assigned -= set(fn.params)
-        self.w(f"def {fn.name}({', '.join(fn.params)}):")
+        self.w(f"def {fn.name}({', '.join(fn.params)}):", fn.line,
+               fn.source_path)
         self.indent += 1
         for name in sorted(assigned):
             self.w(f"{name} = None")
@@ -678,33 +832,34 @@ class Gen:
 
     def stmt(self, s):
         if isinstance(s, Assign):
-            self.w(f"{s.name} = {self.expr(s.value)}", s.line)
+            self.w(f"{s.name} = {self.expr(s.value)}", s.line, s.source_path)
         elif isinstance(s, ExprStmt):
-            self.w(self.expr(s.expr), s.line)
+            self.w(self.expr(s.expr), s.line, s.source_path)
         elif isinstance(s, If):
-            self.w(f"if {self.expr(s.cond)}:", s.line)
+            self.w(f"if {self.expr(s.cond)}:", s.line, s.source_path)
             self.suite(s.then_body)
             if s.else_body:
                 self.w("else:")
                 self.suite(s.else_body)
         elif isinstance(s, While):
-            self.w(f"while {self.expr(s.cond)}:", s.line)
+            self.w(f"while {self.expr(s.cond)}:", s.line, s.source_path)
             self.suite(s.body)
         elif isinstance(s, For):
-            self.w(f"for {s.var} in _wv_iter({self.expr(s.iter)}):", s.line)
+            self.w(f"for {s.var} in _wv_iter({self.expr(s.iter)}):", s.line,
+                   s.source_path)
             self.suite(s.body)
         elif isinstance(s, Return):
             self.w(f"return {self.expr(s.value)}" if s.value is not None
-                   else "return None", s.line)
+                   else "return None", s.line, s.source_path)
         elif isinstance(s, Break):
-            self.w("break", s.line)
+            self.w("break", s.line, s.source_path)
         elif isinstance(s, Continue):
-            self.w("continue", s.line)
+            self.w("continue", s.line, s.source_path)
         elif isinstance(s, Try):
             # catch var defaults to nil so reading it outside the handler
             # is nil on both backends (not NameError vs javac error)
             self.w(f"{s.var} = None")
-            self.w("try:", s.line)
+            self.w("try:", s.line, s.source_path)
             self.suite(s.body)
             self.w("except Exception as _lt_e:")
             self.indent += 1
@@ -716,7 +871,8 @@ class Gen:
                 self.stmt(x)
             self.indent -= 1
         elif isinstance(s, Throw):
-            self.w(f"raise Exception(_wv_repr({self.expr(s.value)}))", s.line)
+            self.w(f"raise Exception(_wv_repr({self.expr(s.value)}))", s.line,
+                   s.source_path)
         else:
             raise Exception(f"py backend: unexpected {type(s).__name__}")
 
@@ -752,6 +908,12 @@ class Gen:
             if isinstance(e.func, Name) and e.func.id in BUILTIN_PY:
                 return f"{BUILTIN_PY[e.func.id]}({args})"
             return f"{self.expr(e.func)}({args})"
+        if isinstance(e, SuperCall):
+            receiver = self.expr(e.args[0])
+            args = [self.expr(a) for a in e.args[1:]]
+            rendered = ", ".join([receiver, e.owner.name,
+                                    json.dumps(e.method)] + args)
+            return f"_wv_supercall({rendered})"
         if isinstance(e, PyImport):
             return f"_wv_pymod({self.expr(e.module_expr)})"
         if isinstance(e, JavaImport):

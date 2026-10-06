@@ -1,0 +1,3 @@
+class _Hidden:
+    fn marker(self):
+        "hidden"

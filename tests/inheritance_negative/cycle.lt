@@ -1,0 +1,7 @@
+class A(B):
+    fn marker(self):
+        "a"
+
+class B(A):
+    fn marker(self):
+        "b"

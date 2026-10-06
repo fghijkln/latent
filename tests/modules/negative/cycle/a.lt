@@ -1,0 +1,2 @@
+import "b.lt" as b
+value = 1

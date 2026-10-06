@@ -1,0 +1,4 @@
+fn load():
+    import "lib.lt" as lib
+    say lib.value
+load()

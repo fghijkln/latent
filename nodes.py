@@ -5,6 +5,7 @@ class Node:
     def __init__(self, line=0, col=0):
         self.line = line
         self.col = col
+        self.source_path = None
 
 
 # ---- statements ----
@@ -12,6 +13,28 @@ class Program(Node):
     def __init__(self, stmts, **kw):
         super().__init__(**kw)
         self.stmts = stmts
+
+
+class ImportStmt(Node):
+    """Compile-time import of a local .lt module under a namespace alias."""
+    def __init__(self, module_path, alias, **kw):
+        super().__init__(**kw)
+        self.module_path = module_path
+        self.alias = alias
+
+
+class ModuleInit(Node):
+    """One namespaced module body in a bundled multi-module program."""
+    def __init__(self, module_id, deps, body, globals_, init_name,
+                 state_name, root=False, **kw):
+        super().__init__(**kw)
+        self.module_id = module_id
+        self.deps = deps
+        self.body = body
+        self.globals = globals_
+        self.init_name = init_name
+        self.state_name = state_name
+        self.root = root
 
 
 class Assign(Node):
@@ -41,13 +64,24 @@ class SetIndex(Node):
         self.value = value
 
 
+class ClassRef(Node):
+    """Static Latent class reference, optionally qualified by a module alias."""
+    def __init__(self, name, alias=None, **kw):
+        super().__init__(**kw)
+        self.name = name
+        self.alias = alias
+        self.display = f"{alias}.{name}" if alias else name
+
+
 class ClassDef(Node):
     """Class definition. methods is a list of FnDef; the first parameter
     of each method receives the instance (self, by convention)."""
-    def __init__(self, name, methods, **kw):
+    def __init__(self, name, methods, parent=None, **kw):
         super().__init__(**kw)
         self.name = name
         self.methods = methods
+        self.parent = parent
+        self.source_name = name
 
 
 class FnDef(Node):
@@ -154,6 +188,19 @@ class Name(Node):
         self.id = id
 
 
+class Super(Node):
+    """The restricted super receiver; never a first-class value."""
+
+
+class SuperCall(Node):
+    """A call to a method starting at the current class's direct parent."""
+    def __init__(self, method, args, **kw):
+        super().__init__(**kw)
+        self.method = method
+        self.args = args
+        self.owner = None  # ClassDef attached by semantic analysis
+
+
 class List(Node):
     def __init__(self, elts, **kw):
         super().__init__(**kw)
@@ -216,3 +263,22 @@ class JavaImport(Node):
     def __init__(self, class_expr, **kw):
         super().__init__(**kw)
         self.class_expr = class_expr
+
+
+def class_order(classes):
+    """Stable topological order for class metadata initialization."""
+    by_name = {cd.name: cd for cd in classes}
+    result = []
+    seen = set()
+
+    def visit(cd):
+        if cd.name in seen:
+            return
+        seen.add(cd.name)
+        if cd.parent is not None and cd.parent.name in by_name:
+            visit(by_name[cd.parent.name])
+        result.append(cd)
+
+    for cd in classes:
+        visit(cd)
+    return result

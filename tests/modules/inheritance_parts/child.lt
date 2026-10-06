@@ -1,0 +1,9 @@
+import "base.lt" as base
+
+class Derived(base.Base):
+    fn init(self, name):
+        super.init(self, base.normalize(name))
+        self.kind = "derived"
+
+    fn speak(self):
+        super.speak(self) + "+derived"

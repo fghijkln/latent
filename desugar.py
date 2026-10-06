@@ -104,6 +104,9 @@ class Desugar:
         return stmts
 
     def stmt(self, s):
+        if isinstance(s, ImportStmt):
+            return ImportStmt(s.module_path, s.alias,
+                              line=s.line, col=s.col)
         if isinstance(s, Assign):
             return Assign(s.name, self.expr(s.value), line=s.line, col=s.col)
         if isinstance(s, SetAttr):
@@ -124,7 +127,8 @@ class Desugar:
                 dm = self.stmt(m)
                 assert isinstance(dm, FnDef)
                 methods.append(dm)
-            return ClassDef(s.name, methods, line=s.line, col=s.col)
+            return ClassDef(s.name, methods, parent=s.parent,
+                            line=s.line, col=s.col)
         if isinstance(s, FnDef):
             body = self._implicit_return([self.stmt(x) for x in s.body])
             return FnDef(s.name, s.params, body, line=s.line, col=s.col)
@@ -162,6 +166,9 @@ class Desugar:
     def expr(self, e):
         if isinstance(e, (Num, Bool, Nil, Name)):
             return e
+        if isinstance(e, Super):
+            raise DesugarError(
+                f"{e.line}:{e.col}: super must be called as super.method(self, ...)")
         if isinstance(e, Str):
             return self._desugar_str(e)
         if isinstance(e, List):
@@ -175,6 +182,9 @@ class Desugar:
         if isinstance(e, UnOp):
             return UnOp(e.op, self.expr(e.operand), line=e.line, col=e.col)
         if isinstance(e, Dot):
+            if isinstance(e.obj, Super):
+                raise DesugarError(
+                    f"{e.line}:{e.col}: super must be called as super.method(self, ...)")
             obj = self.expr(e.obj)
             return Call(Name("__wgetattr", line=e.line, col=e.col),
                         [obj, Str(e.attr, line=e.line, col=e.col)],
@@ -184,6 +194,10 @@ class Desugar:
                         [self.expr(e.obj), self.expr(e.index)],
                         line=e.line, col=e.col)
         if isinstance(e, Call):
+            if isinstance(e.func, Dot) and isinstance(e.func.obj, Super):
+                return SuperCall(e.func.attr,
+                                 [self.expr(a) for a in e.args],
+                                 line=e.line, col=e.col)
             func = self.expr(e.func)
             args = [self.expr(a) for a in e.args]
             if isinstance(e.func, Dot):

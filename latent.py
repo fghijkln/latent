@@ -18,6 +18,7 @@ import desugar
 import semant
 import gen_py
 import gen_java
+import module_system
 
 
 def compile_src(src, path="<src>"):
@@ -179,12 +180,15 @@ def main():
     ap.add_argument("--run", action="store_true", help="compile and run")
     args = ap.parse_args()
 
-    with open(args.src, encoding="utf-8") as f:
-        src = f.read()
-    prog, err = compile_src(src, args.src)
+    prog, err = module_system.compile_module_graph(args.src)
     if err:
-        kind, raw = err
-        print(render_error(args.src, src, kind, raw), file=sys.stderr)
+        try:
+            with open(err.path, encoding="utf-8") as f:
+                error_src = f.read()
+        except OSError:
+            error_src = ""
+        print(render_error(err.path, error_src, err.kind,
+                           err.raw_message()), file=sys.stderr)
         return 1
 
     stem = os.path.splitext(os.path.basename(args.src))[0]
@@ -192,7 +196,7 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     if args.target == "py":
-        code = gen_py.generate(prog, source_path=args.src)
+        code = gen_py.generate(prog, source_path=os.path.realpath(args.src))
         out = os.path.join(outdir, stem + ".py")
         with open(out, "w", encoding="utf-8") as f:
             f.write(code)
@@ -220,7 +224,8 @@ def main():
             return r.returncode
     else:
         cls = gen_java.cls_name(stem)
-        code = gen_java.generate(prog, cls, source_path=args.src)
+        code = gen_java.generate(prog, cls,
+                                 source_path=os.path.realpath(args.src))
         main_java = os.path.join(outdir, cls + ".java")
         with open(main_java, "w", encoding="utf-8") as f:
             f.write(code)

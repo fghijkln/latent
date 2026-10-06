@@ -1,11 +1,11 @@
-# Latent 语言规范 v0.5
+# Latent 语言规范 v0.6.0
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
 >
 > v0.2 变更：Python 与 Java 本体彻底纳入范围——`py "mod"` 与
 > `java "com.foo.Bar"` 对称，两个后端都能直接用两个生态的库。
-> v0.5.0：校准至 v0.4.0 已实现语义，并为未捕获运行期错误增加双后端 `.lt` 行号映射。
+> v0.6.0 在 v0.5.0 基线上发布 P2 本地模块与 P3 单继承；两项功能在 Python、Java 后端共用同一套静态语义。
 
 ## 1. 设计目标
 
@@ -18,22 +18,25 @@
 ## 2. 词法
 
 - 缩进敏感（空格，禁止 tab）。`#` 单行注释。
-- 关键字：`fn if elif else while for in and or not true false nil py java say return break continue global`
+- 关键字：`fn if elif else while for in and or not true false nil py java say return break continue global import as super`
 - 字面量：数字 `42` `3.14`（**全语言只有一种数字类型：float64**），
   字符串 `".."` `'..'`（支持 `$name` / `${expr}` 插值），`true false nil`，
   列表 `[1, 2]`，映射 `{"a": 1}`（键为字符串）。
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
 
-## 3. 语法（v0.5）
+## 3. 语法（v0.6）
 
 ```
 program  := stmt*
-stmt     := assign | fndef | classdef | ifstmt | whilestmt | forstmt
+stmt     := importstmt | assign | fndef | classdef | ifstmt | whilestmt | forstmt
           | saystmt | exprstmt | returnstmt | breakstmt | continuestmt
           | trystmt | throwstmt
+importstmt := "import" STRING "as" NAME
 fndef    := "fn" NAME "(" [params] ")" ( "=>" expr | ":" block )
-classdef := "class" NAME ":" block        # v0.3 新增；block 内只能是 fndef
+classdef := "class" NAME ["(" parentref ")"] ":" block
+parentref := NAME ["." NAME]              # 本地类，或 import 别名下的公开类
+supercall := "super" "." NAME "(" NAME ["," args] ")"
 trystmt  := "try" ":" block "catch" NAME ":" block   # v0.4 新增
 throwstmt:= "throw" expr                              # v0.4 新增
 ifstmt   := "if" expr ":" block ("elif" expr ":" block)* ("else" ":" block)?
@@ -47,7 +50,7 @@ expr     := orexpr
 orexpr   := andexpr ("or" andexpr)*
 ...
 primary  := NUMBER | STRING | "true" | "false" | "nil"
-          | NAME | list | map | call | "py" expr | "java" expr | "(" expr ")"
+          | NAME | "super" | list | map | call | "py" expr | "java" expr | "(" expr ")"
 call     := primary "(" [args] ")" | primary "." NAME "(" [args] ")"
 index    := primary "[" expr "]"          # v0.2.1 新增：下标读
 ```
@@ -72,9 +75,9 @@ index    := primary "[" expr "]"          # v0.2.1 新增：下标读
   Java 后端 definite-assignment 问题）。顶层变量即全局变量。
 - **函数**：一等声明但 v0.1 不可作值传递；递归允许；参数按值传递
   （列表/映射为引用语义，同 Python）。
-- **`.` 访问**：只允许出现在 py / java 句柄上，统一 desugar 为运行时调用
-  `__wgetattr(h, "attr")` / `__wcall(h, "attr", args)`；运行时按句柄类型分发
-  （py 句柄走 Python 语义，java 句柄走 Java 反射语义）。
+- **`.` 访问**：py / java 句柄成员按既有规则脱糖为 `__wgetattr(h, "attr")` /
+  `__wcall(h, "attr", args)`；模块命名空间成员则在编译期按导入别名静态解析，
+  不构造运行时模块对象（见 §11）。
 
 ## 5. 类（v0.3 新增）
 
@@ -98,14 +101,21 @@ say Point             # <class Point>
 语义保证：
 
 1. `class` 块内只能是 `fn` 定义；方法名 `new` 保留（构造专用）。
-2. `C.new(args)` 创建实例并调用 `init(self, ...)`（若定义了 `init`）；未定义
-   `init` 时 `C.new()` 得空对象，带参数则为运行期错误。
-3. 字段动态：`self.x = v` 即创建/赋值；`obj.x` 读字段，不存在为运行期错误。
-   方法只能通过 `obj.m(args)` 调用（`obj.m` 不调用时不返回值，属未定义行为，
-   不要依赖）。
-4. 实例是独立的值：`==` 为 identity；真值恒真；`say` 打印 `<Point object>`。
-5. 方法内名字规则与函数相同（参数、局部变量先读后写为编译期错误，可读全局）。
-6. **无继承**（v0.3 不做，见 §10）。
+2. `class Child(Parent):` 表示单继承，父类必须是已声明的 Latent 类；声明顺序可
+   前后不限。允许通过 P2 的模块别名继承公开类：`class Child(models.Base):`。
+   未知/非类父引用、私有模块类、自继承和传递循环均为编译期错误。
+3. 实例方法按最具体类优先查找，未覆盖的方法沿父链继承。普通方法覆盖必须保留
+   参数数量（含显式接收者）；`init` 可增加或调整参数，构造调用按实际选中的
+   `init` 校验。
+4. `C.new(args)` 创建一个 C 实例。若 C 自己定义 `init`，只调用 C 的实现；父构造器
+   不会隐式运行。C 未定义 `init` 时继承最近祖先的实现；没有任何 `init` 时，
+   `C.new()` 创建空对象，有参数则为运行期错误。
+5. `super.m(self, args...)` 仅能在有父类的实例方法中使用，必须显式把当前方法的
+   第一个参数作为接收者；它从当前类的直接父类开始找最近实现，不会动态分派回子类。
+   `super` 不是值，不能访问字段、保存或传递。
+6. 字段仍动态地保存在同一个实例上：`self.x = v` 即创建/赋值；`obj.x` 读取字段，
+   不存在为运行期错误。实例相等仍按 identity、真值恒真，打印使用源类名。
+7. 方法内名字规则与函数相同（参数、局部变量先读后写为编译期错误，可读全局）。
 
 `obj.attr = v` 与 `xs[i] = v`（v0.3 新增， desugar 为 `__wsetattr` /
 `__wsetindex`）：
@@ -248,17 +258,53 @@ for x in a:                      # Java List/数组可迭代
   Java 后端直调、Python 后端经 `LtJavaDaemon` 调）、`ltpy.py`（Python 守护进程）、
   `LtJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
 
-## 11. v0.5 仍不支持（已记录，不算遗漏）
+## 11. 模块系统（P2，v0.6.0）
 
-- 类的继承、`super`、类方法/静态方法、运算符重载。
-- 闭包捕获、函数作值、模块系统（`import` 其他 .lt）。
+```latent
+# app.lt
+import "lib/math.lt" as math
+say math.add(2, 3)
+say math.answer
+box = math.Box.new(7)
+```
+
+```latent
+# lib/math.lt
+answer = 42
+fn add(x, y):
+    x + y
+
+class Box:
+    fn init(self, value):
+        self.value = value
+```
+
+语义保证：
+
+1. `import "相对路径.lt" as 名称` 是唯一的 Latent 模块导入形式；`import`、`as` 是保留关键字。导入声明必须位于文件顶部且在所有普通代码之前，不能放进函数、类或控制流块；因此旧代码若曾将这两个词用作标识符，需改名。
+2. 路径相对**声明该导入的文件所在目录**解析，而不是相对进程当前工作目录；必须是相对路径且以 `.lt` 结尾。`..` 可用于父目录。不存在/不可读的文件为编译期错误。
+3. 每个模块通过导入别名访问：`名称.字段` 读取顶层变量，`名称.函数(...)` 调用顶层函数，`名称.类.new(...)` 构造顶层类。别名不是值、不可调用；被导入函数不是一等值；命名空间成员不能被赋值。
+4. 顶层变量、函数和类属于各自模块；不自动注入导入方的名字空间。除以下划线开头的顶层名字外，顶层变量/函数/类均可通过别名访问。以下划线开头的名字为私有，导入方访问会在编译期报错。
+5. 同一文件内别名必须唯一，且不能与该文件的局部绑定冲突。模块成员以只读导入视图暴露；要修改状态，应由模块导出的函数提供操作。
+6. 编译器以规范化后的真实文件路径识别模块。同一个文件即使经不同相对路径、以不同别名导入，也只解析、生成并初始化一次；不同模块的同名函数、类或变量彼此隔离。
+7. 模块图在编译期静态解析并打包为一个 Python 或 Java 编译单元。运行时初始化遵循依赖优先：首次初始化导入方时先初始化它的依赖，再运行其顶层语句；每个模块成功初始化后缓存结果，不会因第二个别名重复执行副作用。每次启动一个新程序时缓存重新开始。
+8. 循环导入暂不支持，在编译期拒绝并报告回边导入位置；缺失文件、私有/不存在成员及其他编译错误尽量指向相关 `.lt` 文件和行列。未捕获运行期错误沿用 §6 的多文件行映射。
+9. 不支持通配导入、包管理、动态导入、从 Python/Java 导入 Latent 模块或把模块命名空间作为普通对象传递。
+10. 模块公开类可作为父类使用，例如 `class Worker(models.Base):`；模块别名、公开/私有检查与普通 `alias.Class` 访问相同。依赖模块的父类元数据会先于子类初始化。
+
+P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模块初始化、命名空间可见性及父类分派语义。
+
+## 12. 仍不支持（已记录，不算遗漏）
+
+- 多继承、接口、Java 类继承、类/静态方法、运算符重载。
+- 闭包捕获、函数作值；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
 - 关键字参数（`f(x=1)`）、`py` 内联代码块（`py:` 多行 Python 源码）。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
 
-## 12. 示例
+## 13. 示例
 
 ```latent
 # fib.lt
