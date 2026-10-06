@@ -110,6 +110,7 @@ public class LtRt {
         if (a instanceof PyHandle || b instanceof PyHandle) return a == b;
         if (a instanceof LtObj || b instanceof LtObj) return a == b;
         if (a instanceof LtClass || b instanceof LtClass) return a == b;
+        if (a instanceof LtFunction || b instanceof LtFunction) return a == b;
         if (a instanceof JReflect.JClass || b instanceof JReflect.JClass) return a == b;
         if (a instanceof JReflect.JObj || b instanceof JReflect.JObj) return a == b;
         if (a instanceof Double && b instanceof Double) {
@@ -193,7 +194,7 @@ public class LtRt {
         if (v instanceof PyHandle) return Daemon.inst().repr((PyHandle) v);
         if (v instanceof LtClass) return "<class " + ((LtClass) v).name + ">";
         if (v instanceof LtFunction)
-            return "<function " + ((LtFunction) v).name + ">";
+            return ((LtFunction) v).display;
         if (v instanceof LtObj) return "<" + ((LtObj) v).cls.name + " object>";
         if (v instanceof JReflect.JClass || v instanceof JReflect.JObj)
             return JReflect.repr(v);
@@ -331,10 +332,15 @@ public class LtRt {
     public static class LtFunction {
         final int arity;
         final String name;
+        final String display;
         final LtBody body;
         LtFunction(int arity, String name, LtBody body) {
+            this(arity, name, "<function " + name + ">", body);
+        }
+        LtFunction(int arity, String name, String display, LtBody body) {
             this.arity = arity;
             this.name = name;
+            this.display = display;
             this.body = body;
         }
         Object invoke(Object[] args) {
@@ -385,10 +391,13 @@ public class LtRt {
         public final String name;
         public final LtClass parent;
         public final Map<String, LtMethod> methods;
-        LtClass(String name, LtClass parent, Map<String, LtMethod> methods) {
+        public final Map<String, Integer> methodArities;
+        LtClass(String name, LtClass parent, Map<String, LtMethod> methods,
+                Map<String, Integer> methodArities) {
             this.name = name;
             this.parent = parent;
             this.methods = methods;
+            this.methodArities = methodArities;
         }
     }
 
@@ -399,10 +408,15 @@ public class LtRt {
     }
 
     public static LtClass makeClass(String name, LtClass parent,
-                                    String[] names, LtMethod[] methods) {
+                                    String[] names, LtMethod[] methods,
+                                    int[] arities) {
         Map<String, LtMethod> m = new LinkedHashMap<>();
-        for (int i = 0; i < names.length; i++) m.put(names[i], methods[i]);
-        return new LtClass(name, parent, m);
+        Map<String, Integer> a = new LinkedHashMap<>();
+        for (int i = 0; i < names.length; i++) {
+            m.put(names[i], methods[i]);
+            a.put(names[i], arities[i]);
+        }
+        return new LtClass(name, parent, m, a);
     }
 
     static LtMethod findMethod(LtClass cls, String name) {
@@ -411,6 +425,14 @@ public class LtRt {
             if (method != null) return method;
         }
         return null;
+    }
+
+    static int findMethodArity(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent) {
+            Integer arity = c.methodArities.get(name);
+            if (arity != null) return arity;
+        }
+        return -1;
     }
 
     /** Dispatch a Latent method beginning at the current class's parent. */
@@ -458,10 +480,17 @@ public class LtRt {
     public static Object wgetattr(Object h, String attr) {
         if (h instanceof PyHandle) return pyget(h, attr);
         if (h instanceof LtObj) {
-            Map<String, Object> f = ((LtObj) h).fields;
-            if (!f.containsKey(attr))
-                throw new RuntimeException("no field '" + attr + "'");
-            return f.get(attr);
+            LtObj o = (LtObj) h;
+            Map<String, Object> f = o.fields;
+            if (f.containsKey(attr)) return f.get(attr);
+            LtMethod method = findMethod(o.cls, attr);
+            if (method != null) {
+                int arity = findMethodArity(o.cls, attr);
+                return new LtFunction(arity, attr,
+                    "<bound method " + o.cls.name + "." + attr + ">",
+                    args -> method.call(o, args));
+            }
+            throw new RuntimeException("no field '" + attr + "'");
         }
         if (h instanceof LtClass)
             throw new RuntimeException("cannot read fields on a class");

@@ -1,0 +1,56 @@
+class Base:
+    fn init(self, value):
+        self.value = value
+
+    fn bump(self, delta):
+        self.value = self.value + delta
+        return self.value
+
+    fn kind(self):
+        return "base"
+
+class Child(Base):
+    fn kind(self):
+        return "child"
+
+fn apply(action, value):
+    return action(value)
+
+fn get_bump(obj):
+    return obj.bump
+
+fn capture(action, amount):
+    fn call():
+        return action(amount)
+    return call
+
+child = Child.new(10)
+bound = child.bump
+alias = bound
+say bound
+say alias == bound
+say bound == child.bump
+say bound(2)
+say apply(bound, 3)
+from_factory = get_bump(child)
+say from_factory(1)
+captured = capture(bound, 4)
+say captured()
+say child.kind
+say child.kind()
+child.kind = "shadowed field"
+say child.kind
+say child.kind()
+try:
+    bound()
+catch err:
+    say err
+try:
+    bound(1, 2)
+catch err:
+    say err
+
+other = Base.new(100)
+other_bound = other.bump
+say other_bound(1)
+say child.value

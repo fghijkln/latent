@@ -55,6 +55,8 @@ def _wv_repr(v):
     if isinstance(v, _LtClass):
         return "<class %s>" % v._name
     if isinstance(v, _LtFunction):
+        if v._display is not None:
+            return v._display
         return "<function %s>" % v._name
     if isinstance(v, _LtObj):
         return "<%s object>" % v._lt_class._name
@@ -345,12 +347,13 @@ class _LtClass:
 
 class _LtFunction:
     """A first-class Latent function with backend-independent arity checks."""
-    __slots__ = ("_fn", "_arity", "_name")
+    __slots__ = ("_fn", "_arity", "_name", "_display")
 
-    def __init__(self, fn, arity, name):
+    def __init__(self, fn, arity, name, display=None):
         self._fn = fn
         self._arity = arity
         self._name = name
+        self._display = display
 
     def __call__(self, *args):
         if len(args) != self._arity:
@@ -509,6 +512,12 @@ def _wv_wgetattr(h, attr):
     if isinstance(h, _LtObj):
         if attr in h._lt_fields:
             return h._lt_fields[attr]
+        method = h._lt_class._find_method(attr)
+        if method is not None:
+            arity = method.__code__.co_argcount - 1
+            return _LtFunction(
+                lambda *args: method(h, *args), arity, attr,
+                "<bound method %s.%s>" % (h._lt_class._name, attr))
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)

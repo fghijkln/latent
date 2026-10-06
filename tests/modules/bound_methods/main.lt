@@ -1,0 +1,6 @@
+import "lib.lt" as lib
+
+counter = lib.Counter.new(40)
+advance = counter.advance
+say advance
+say advance(2)

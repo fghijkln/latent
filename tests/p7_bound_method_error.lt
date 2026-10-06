@@ -1,0 +1,8 @@
+class Fragile:
+    fn explode(self):
+        if true:
+            throw "bound method failed"
+
+item = Fragile.new()
+action = item.explode
+action()

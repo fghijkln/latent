@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.10.0 — 2026-10-06
+
+### Added
+
+- Reading `obj.method` returns a bound Latent method when no same-named instance field exists. The value captures the receiver and can be assigned, passed, returned, captured by a closure, and called indirectly; inherited methods bind to the runtime subclass instance.
+- Bound methods display as `<bound method Class.method>`, hide `self` from their arity, and use the same runtime arity checks on both backends. Explicit `obj.method(...)` calls keep their existing dispatch path.
+
+### Compatibility
+
+- On a Latent instance with a matching method but no matching field, bare `obj.method` now returns a bound method instead of raising the previous missing-field error. A same-named instance field still wins; `obj.method = value` still writes a field.
+- Built-ins and Python/Java handle methods remain direct-call-only. P7 does not change the `latent-ast` v2 shape.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 116 passed, 0 failed (107 dual-backend/integration scenarios plus 9 read-only CLI regression tests).
+- `py_compile` passed for all 13 tracked Python files; `javac runtime/*.java` and `git diff --check` passed.
+
 ## v0.9.0 — 2026-10-06
 
 ### Added

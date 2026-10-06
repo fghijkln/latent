@@ -311,13 +311,16 @@ class Gen:
         names = ", ".join(java_str(m.name) for m in cd.methods)
         lambdas = ", ".join(
             f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
+        arities = ", ".join(str(max(0, len(m.params) - 1))
+                             for m in cd.methods)
         parent = ident(cd.parent.name) if cd.parent else "null"
         self.w(f"static LtRt.LtClass {ident(cd.name)} = LtRt.makeClass(")
         self.ind += 1
         self.w(f"{java_str(cd.source_name)},")
         self.w(f"{parent},")
         self.w(f"new String[]{{{names}}},")
-        self.w(f"new LtRt.LtMethod[]{{{lambdas}}});")
+        self.w(f"new LtRt.LtMethod[]{{{lambdas}}},")
+        self.w(f"new int[]{{{arities}}});")
         self.ind -= 1
 
     def methoddef(self, cd, m):

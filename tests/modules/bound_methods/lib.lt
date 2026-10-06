@@ -1,0 +1,7 @@
+class Counter:
+    fn init(self, value):
+        self.value = value
+
+    fn advance(self, delta):
+        self.value = self.value + delta
+        return self.value

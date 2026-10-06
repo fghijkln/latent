@@ -20,10 +20,11 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "p5_recursion", "p5_shadowing", "p5_global",
             "p5_invalid_calls", "p6_nonlocal_nearest", "p6_nonlocal_skip",
             "p6_nonlocal_shared", "p6_nonlocal_returned",
-            "p6_nonlocal_nested_scope"]
+            "p6_nonlocal_nested_scope", "p7_bound_methods"]
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
-                   "modules/function_values/main", "modules/nonlocal/main"]
+                   "modules/function_values/main", "modules/nonlocal/main",
+                   "modules/bound_methods/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target",
                "err_nested_readbefore", "err_p6_nonlocal_missing",
@@ -120,7 +121,8 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "err_location_method", "err_location_loop",
                "err_location_throw", "err_location_try",
                "err_location_py_handle", "err_location_java_handle",
-               "modules/runtime/main", "inheritance_bad_init_arity"]
+               "modules/runtime/main", "inheritance_bad_init_arity",
+               "p7_bound_method_error"]
 RUNTIME_SOURCE_LINES = {
     "py_lazy_use": [2], "java_lazy_use": [2],
     "err_index_range": [2], "err_index_key": [2],
@@ -130,9 +132,13 @@ RUNTIME_SOURCE_LINES = {
     "err_location_throw": [1], "err_location_try": [4],
     "err_location_py_handle": [2], "err_location_java_handle": [2],
     "inheritance_bad_init_arity": [9],
+    "p7_bound_method_error": [4, 8],
 }
 RUNTIME_SOURCE_MARKERS = {
     "modules/runtime/main": ["main.lt:2", "lib.lt:3"],
+}
+RUNTIME_ERROR_MARKERS = {
+    "p7_bound_method_error": "bound method failed",
 }
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
@@ -178,6 +184,15 @@ P6_EXPECTED_STDOUT = {
     "p6_nonlocal_nested_scope": "[90, 3, 3]\n",
     "modules/nonlocal/main": "41\n42\n100\n",
 }
+P7_EXPECTED_STDOUT = {
+    "p7_bound_methods": (
+        "<bound method Child.bump>\ntrue\nfalse\n12\n15\n16\n20\n"
+        "<bound method Child.kind>\nchild\nshadowed field\nchild\n"
+        "bump() takes 1 args, got 0\n"
+        "bump() takes 1 args, got 2\n101\n20\n"),
+    "modules/bound_methods/main": (
+        "<bound method Counter.advance>\n42\n"),
+}
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -222,11 +237,14 @@ def has_source_locations(name, result):
     """Require mapped source locations without coupling to backend wording."""
     _, _, stderr = result
     if name in RUNTIME_SOURCE_MARKERS:
-        return ("Latent runtime error:" in stderr and
-                all(marker in stderr for marker in RUNTIME_SOURCE_MARKERS[name]))
-    return ("Latent runtime error:" in stderr and
-            all(f"{name}.lt:{line}" in stderr
-                for line in RUNTIME_SOURCE_LINES[name]))
+        locations = all(marker in stderr
+                        for marker in RUNTIME_SOURCE_MARKERS[name])
+    else:
+        locations = all(f"{name}.lt:{line}" in stderr
+                        for line in RUNTIME_SOURCE_LINES[name])
+    error_marker = RUNTIME_ERROR_MARKERS.get(name)
+    return ("Latent runtime error:" in stderr and locations and
+            (error_marker is None or error_marker in stderr))
 
 
 def main():
@@ -252,6 +270,8 @@ def main():
             ok = ok and py[1] == P5_EXPECTED_STDOUT[name]
         if name in P6_EXPECTED_STDOUT:
             ok = ok and py[1] == P6_EXPECTED_STDOUT[name]
+        if name in P7_EXPECTED_STDOUT:
+            ok = ok and py[1] == P7_EXPECTED_STDOUT[name]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
