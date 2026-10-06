@@ -1,0 +1,11 @@
+value = 100
+
+fn make_mutator():
+    value = 40
+    fn middle():
+        fn mutate():
+            nonlocal value
+            value = value + 1
+            return value
+        return mutate
+    return middle()

@@ -25,3 +25,7 @@ Python 后端以 `_LtFunction` 统一包装、间接调用与 arity 检查，使
 `tests/run_tests.py` 覆盖赋值/传参/返回/间接调用、嵌套捕获和后续更新、多闭包共享、递归、词法遮蔽、`global`、P2 导出函数值、错误调用及 arity，并继续对拍 Python/Java 输出。最终 `python3 tests/run_tests.py` 为 **100 项通过、0 失败**（92 个双后端/集成场景与 8 个只读 CLI 测试）；全项目 tracked Python 文件 `py_compile` 与 `git diff --check` 通过。
 
 实际 VS Code Stable 1.140.0 和 Latent 0.6.0 工作区显示 **Restricted Mode**，`.lt` 被当作纯文本，命令面板无匹配的 Latent 命令。未改 Workspace Trust 或已安装扩展；全套验证由项目 CLI 完成。
+
+## 后续扩展
+
+本文件保留 P5/v0.8.0 发布时“不提供 `nonlocal`”的历史语义。后续 P6 已在 v0.9.0 发布，设计与实现见 [P6：`nonlocal` 词法绑定设计记录](P6_NONLOCAL_DESIGN.md)。

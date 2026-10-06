@@ -8,3 +8,15 @@ fn scale_by(factor):
 
 twice = scale_by(2)
 say apply(twice, 21)
+
+fn make_counter():
+    value = 0
+    fn next_value():
+        nonlocal value
+        value = value + 1
+        return value
+    return next_value
+
+counter = make_counter()
+say counter()
+say counter()

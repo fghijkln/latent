@@ -34,7 +34,7 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `mixed_io.lt` | 混用 | Python `open()` 写文件，Java NIO 读回来——两个生态在同一个程序里 |
 | `classes.lt` | Latent 类 | `Account` 存取款：`init`/`new`/方法/字段，`==` 为 identity |
 | `inheritance.lt` | Latent 单继承 | `Dog(Animal)`、显式 `super.init`、覆盖方法与继承分派 |
-| `functions.lt` | 函数值与闭包 | 函数作参数/返回值、嵌套词法捕获与闭包调用 |
+| `functions.lt` | 函数值与闭包 | 函数作参数/返回值、词法捕获、`nonlocal` 计数器状态闭包 |
 | `pipeline.lt` | 旗舰 demo | 双生态销售管道：Python 写 CSV → Java NIO 读 → re 解析 → try/catch 跳坏行 → numpy 均值 → BigDecimal 求和 → java.time 时间戳 |
 
 ## 本地 `.lt` 模块

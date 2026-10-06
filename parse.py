@@ -78,6 +78,13 @@ class Parser:
                 names.append(self.expect("NAME").value)
             self.expect("NEWLINE")
             return GlobalStmt(names, line=t.line, col=t.col)
+        if t.kind == "NONLOCAL":
+            self.next()
+            names = [self.expect("NAME").value]
+            while self.match(","):
+                names.append(self.expect("NAME").value)
+            self.expect("NEWLINE")
+            return NonlocalStmt(names, line=t.line, col=t.col)
         if t.kind == "FN":
             return self.fndef()
         if t.kind == "IF":

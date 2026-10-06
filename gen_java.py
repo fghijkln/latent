@@ -375,6 +375,23 @@ class Gen:
                 out.update(self._scope_globals(s.handler))
         return out
 
+    def _scope_nonlocals(self, stmts):
+        out = set()
+        for s in stmts:
+            if isinstance(s, NonlocalStmt):
+                out.update(s.names)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                out.update(self._scope_nonlocals(s.then_body))
+                out.update(self._scope_nonlocals(s.else_body or []))
+            elif isinstance(s, (For, While)):
+                out.update(self._scope_nonlocals(s.body))
+            elif isinstance(s, Try):
+                out.update(self._scope_nonlocals(s.body))
+                out.update(self._scope_nonlocals(s.handler))
+        return out
+
     def _fn_context(self, fn):
         cached = getattr(self, "fn_contexts", {})
         if id(fn) in cached:
@@ -384,8 +401,10 @@ class Gen:
         names = set(fn.params)
         self._collect(fn.body, names)
         globals_ = self._scope_globals(fn.body)
-        names.difference_update(globals_)
+        nonlocals = self._scope_nonlocals(fn.body)
+        names.difference_update(globals_ | nonlocals)
         context = {"fn": fn, "locals": names, "globals": globals_,
+                   "nonlocals": nonlocals,
                    "parent": parent}
         if not hasattr(self, "fn_contexts"):
             self.fn_contexts = {}
@@ -403,6 +422,8 @@ class Gen:
         return False
 
     def _assign(self, name, value):
+        if self.scope is not None and name in self.scope["nonlocals"]:
+            return f"_env.setEnclosing({java_str(name)}, {value});"
         if self.scope is not None and not self._is_global(name):
             return f"_env.setLocal({java_str(name)}, {value});"
         return f"{ident(name)} = {value};"
@@ -466,7 +487,7 @@ class Gen:
                 out.add(s.name)
 
     def stmt(self, s):
-        if isinstance(s, GlobalStmt):
+        if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
             closure = f"LtRt.function({len(s.params)}, {java_str(s.source_name)}, " \
@@ -547,6 +568,8 @@ class Gen:
             while scope is not None:
                 if e.id in scope["globals"]:
                     return ident(e.id)
+                if e.id in scope["nonlocals"]:
+                    return f"_env.get({java_str(e.id)})"
                 if e.id in scope["locals"]:
                     return f"_env.get({java_str(e.id)})"
                 scope = scope["parent"]

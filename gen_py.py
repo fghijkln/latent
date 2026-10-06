@@ -837,17 +837,37 @@ class Gen:
                 out.update(self._scope_globals(s.handler))
         return out
 
+    def _scope_nonlocals(self, stmts):
+        out = set()
+        for s in stmts:
+            if isinstance(s, NonlocalStmt):
+                out.update(s.names)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                out.update(self._scope_nonlocals(s.then_body))
+                out.update(self._scope_nonlocals(s.else_body or []))
+            elif isinstance(s, (For, While)):
+                out.update(self._scope_nonlocals(s.body))
+            elif isinstance(s, Try):
+                out.update(self._scope_nonlocals(s.body))
+                out.update(self._scope_nonlocals(s.handler))
+        return out
+
     def fndef(self, fn, method=False):
         # locals default to nil (matches Java backend)
         assigned = set()
         self._collect(fn.body, assigned)
         global_names = self._scope_globals(fn.body)
-        assigned -= set(fn.params) | global_names
+        nonlocal_names = self._scope_nonlocals(fn.body)
+        assigned -= set(fn.params) | global_names | nonlocal_names
         self.w(f"def {fn.name}({', '.join(fn.params)}):", fn.line,
                fn.source_path)
         self.indent += 1
         if global_names:
             self.w("global " + ", ".join(sorted(global_names)))
+        if nonlocal_names:
+            self.w("nonlocal " + ", ".join(sorted(nonlocal_names)))
         for name in sorted(assigned):
             self.w(f"{name} = None")
         for s in fn.body:
@@ -880,7 +900,7 @@ class Gen:
                 out.add(s.name)
 
     def stmt(self, s):
-        if isinstance(s, GlobalStmt):
+        if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
             self.fndef(s)

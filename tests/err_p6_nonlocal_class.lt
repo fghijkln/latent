@@ -1,0 +1,4 @@
+class Example:
+    nonlocal value
+    fn read(self):
+        return nil

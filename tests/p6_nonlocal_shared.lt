@@ -1,0 +1,21 @@
+fn make_pair():
+    count = 0
+    total = 100
+    fn one():
+        nonlocal count, total
+        count = count + 1
+        total = total + 1
+        return count + total
+    fn ten():
+        nonlocal count, total
+        count = count + 10
+        total = total + 10
+        return count + total
+    return [one, ten]
+
+pair = make_pair()
+one = pair[0]
+ten = pair[1]
+say one()
+say ten()
+say one()

@@ -1,4 +1,4 @@
-# Latent 语言规范 v0.8.0
+# Latent 语言规范 v0.9.0
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -8,6 +8,7 @@
 > v0.6.0 在 v0.5.0 基线上发布 P2 本地模块与 P3 单继承；两项功能在 Python、Java 后端共用同一套静态语义。
 > v0.7.0 增加只读的版本化 JSON AST 与脱糖诊断命令；不改变常规编译和运行行为。
 > v0.8.0 在 v0.7.0 基线上增加用户定义函数值、嵌套词法闭包和 `global`。
+> v0.9.0 增加 `nonlocal` 词法绑定；`latent-ast` JSON schema 升级到版本 2。
 
 ## 1. 设计目标
 
@@ -20,22 +21,23 @@
 ## 2. 词法
 
 - 缩进敏感（空格，禁止 tab）。`#` 单行注释。
-- 关键字：`fn if elif else while for in and or not true false nil py java say return break continue global import as super`
+- 关键字：`fn if elif else while for in and or not true false nil py java say return break continue global nonlocal import as super`
 - 字面量：数字 `42` `3.14`（**全语言只有一种数字类型：float64**），
   字符串 `".."` `'..'`（支持 `$name` / `${expr}` 插值），`true false nil`，
   列表 `[1, 2]`，映射 `{"a": 1}`（键为字符串）。
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
 
-## 3. 语法（v0.8.0）
+## 3. 语法（v0.9.0）
 
 ```
 program  := stmt*
 stmt     := importstmt | assign | fndef | classdef | ifstmt | whilestmt | forstmt
-          | saystmt | exprstmt | returnstmt | breakstmt | continuestmt | globalstmt
+          | saystmt | exprstmt | returnstmt | breakstmt | continuestmt | globalstmt | nonlocalstmt
           | trystmt | throwstmt
 importstmt := "import" STRING "as" NAME
 globalstmt := "global" NAME ("," NAME)*
+nonlocalstmt := "nonlocal" NAME ("," NAME)*
 fndef    := "fn" NAME "(" [params] ")" ( "=>" expr | ":" block )
 classdef := "class" NAME ["(" parentref ")"] ":" block
 parentref := NAME ["." NAME]              # 本地类，或 import 别名下的公开类
@@ -77,7 +79,7 @@ index    := primary "[" expr "]"          # v0.2.1 新增：下标读
   当前函数的局部变量在首次赋值前读取仍为**编译期错误**。嵌套函数按词法链解析
   自由名字，并捕获其所属调用帧中的共享可变绑定；闭包创建后，外层对该绑定的后续
   赋值会被所有捕获它的闭包观察到。嵌套函数自身若给同名名字赋值，则该名字是它的
-  局部变量；不提供 `nonlocal` 声明。
+  局部变量；若要写外层绑定，须依照 P6 `nonlocal` 规则显式声明。
 - **函数值（P5）**：用户定义的普通函数可赋值、作为参数传递、作为返回值及经变量调用；
   支持嵌套函数、闭包、递归与词法遮蔽。公开模块函数也可通过限定名取作函数值，仍按
   模块隔离及导出/私有规则解析。函数值的 `say` 表示为 `<function 名称>`。
@@ -85,6 +87,13 @@ index    := primary "[" expr "]"          # v0.2.1 新增：下标读
   对同名外层局部变量也优先写/读模块全局，不捕获该外层绑定。名字须在模块作用域中
   声明。该声明作用于整个函数体（包括其控制流块），不穿透到内嵌函数；内嵌函数可
   自己声明 `global`。
+- **`nonlocal`（P6，v0.9.0）**：函数内的 `nonlocal x, y` 将读取和所有赋值
+  绑定到最近的、词法外层函数中实际具有该局部绑定的作用域；搜索跳过未绑定该名的
+  中间函数作用域。参数、局部赋值、循环目标、`catch` 变量和嵌套函数名都可提供外层
+  绑定。目标不存在时为编译期错误；声明与同函数参数、`global` 或重复声明冲突也为
+  编译期错误。赋值给声明名本身不是冲突。声明只作用于当前函数，不穿透到嵌套函数；
+  嵌套函数要写该绑定时必须自行声明。模块顶层拒绝 `nonlocal`，类体也拒绝（类体只
+  接受方法定义）；类方法仍是独立函数作用域。
 - **非一等值边界（P5）**：类方法、内建函数，以及 Python/Java 句柄的方法不作为普通
   函数值；通过原有直接调用语法使用。类方法的绑定、继承和分派规则不变。
 - **`.` 访问**：py / java 句柄成员按既有规则脱糖为 `__wgetattr(h, "attr")` /
@@ -277,11 +286,11 @@ python3 latent.py prog.lt --show-ast       # --dump-ast 是同义别名
 python3 latent.py prog.lt --show-desugar
 ```
 
-两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 1`；
+两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 2`；
 包含阶段名、源文件路径，以及显式定义字段的节点树。每个源节点都记录 1 起算的行、列；
-没有语法位置的 `Program` 容器使用 null。字段顺序、节点名与 JSON 形状属于格式版本 1 的
-稳定接口；变更不兼容结构时必须升级版本号。非有限浮点字面值以 `"inf"`、`"-inf"` 或
-`"nan"` 字符串表示，以保持合法 JSON。
+没有语法位置的 `Program` 容器使用 null。版本 2 新增 `NonlocalStmt` 变体；已有节点的
+字段顺序、名称与 JSON 形状和格式版本 1 完全相同。未来变更不兼容结构时必须升级版本号。
+非有限浮点字面值以 `"inf"`、`"-inf"` 或 `"nan"` 字符串表示，以保持合法 JSON。
 
 `--show-ast` 只词法分析并解析指定文件；`--show-desugar` 再运行脱糖变换。两者均不做语义
 检查、不遍历模块依赖、不生成或执行 Python/Java 程序、不加载或启动 py/JVM 互操作运行时，
@@ -328,7 +337,7 @@ P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模�
 ## 12. 仍不支持（已记录，不算遗漏）
 
 - 多继承、接口、Java 类继承、类/静态方法、运算符重载。
-- `nonlocal`、类方法/内建函数/Python 与 Java 句柄方法的一等值化；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
+- 类方法/内建函数/Python 与 Java 句柄方法的一等值化；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
 - 关键字参数（`f(x=1)`）、`py` 内联代码块（`py:` 多行 Python 源码）。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。

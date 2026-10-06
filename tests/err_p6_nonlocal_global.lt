@@ -1,0 +1,6 @@
+counter = 0
+fn outer():
+    counter = 1
+    fn broken():
+        global counter
+        nonlocal counter

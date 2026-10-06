@@ -136,6 +136,8 @@ class Checker:
 
     # ---- top level ----
     def top_stmt(self, s, in_loop):
+        if isinstance(s, NonlocalStmt):
+            _err(s, "nonlocal declaration is only valid inside a function")
         if isinstance(s, ImportStmt):
             _err(s, "imports are only supported when compiling a .lt file")
         if isinstance(s, FnDef):
@@ -225,6 +227,21 @@ class Checker:
                 self._collect_globals(s.body, out)
                 self._collect_globals(s.handler, out)
 
+    def _collect_nonlocals(self, stmts, out):
+        for s in stmts:
+            if isinstance(s, NonlocalStmt):
+                out.update(s.names)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                self._collect_nonlocals(s.then_body, out)
+                self._collect_nonlocals(s.else_body or [], out)
+            elif isinstance(s, (For, While)):
+                self._collect_nonlocals(s.body, out)
+            elif isinstance(s, Try):
+                self._collect_nonlocals(s.body, out)
+                self._collect_nonlocals(s.handler, out)
+
     def _collect_nested_defs(self, stmts, out):
         for s in stmts:
             if isinstance(s, FnDef):
@@ -243,22 +260,43 @@ class Checker:
         self._collect_assigned(fn.body, assigned)
         globals_ = set()
         self._collect_globals(fn.body, globals_)
+        nonlocals = set()
+        self._collect_nonlocals(fn.body, nonlocals)
         if len(globals_) != sum(1 for s in self._global_nodes(fn.body)
                                 for _ in s.names):
             _err(fn, "duplicate name in global declaration")
+        if len(nonlocals) != sum(1 for s in self._nonlocal_nodes(fn.body)
+                                for _ in s.names):
+            _err(fn, "duplicate name in nonlocal declaration")
         params = set(fn.params)
         conflict = params & globals_
         if conflict:
             _err(fn, f"parameter {sorted(conflict)[0]!r} cannot be global")
+        conflict = params & nonlocals
+        if conflict:
+            _err(fn, f"parameter {sorted(conflict)[0]!r} cannot be nonlocal")
+        conflict = globals_ & nonlocals
+        if conflict:
+            _err(fn, f"name {sorted(conflict)[0]!r} cannot be both global and nonlocal")
         for name in globals_:
             if name not in self.module_bindings:
                 _err(fn, f"global name {name!r} is not declared at module scope")
-        assigned.difference_update(globals_)
+        nonlocal_bindings = {}
+        for name in nonlocals:
+            owner = self._enclosing_local(name, parent_ctx)
+            if owner is None:
+                node = next(s for s in self._nonlocal_nodes(fn.body)
+                            if name in s.names)
+                _err(node, f"no binding for nonlocal {name!r} found in enclosing functions")
+            nonlocal_bindings[name] = owner
+        assigned.difference_update(globals_ | nonlocals)
         assigned.update(params)
         nested = {}
         self._collect_nested_defs(fn.body, nested)
         ctx = {"params": params, "assigned": assigned, "done": set(),
-               "globals": globals_, "nested_functions": nested,
+               "globals": globals_, "nonlocals": nonlocals,
+               "nonlocal_bindings": nonlocal_bindings,
+               "nested_functions": nested,
                "parent": parent_ctx, "fn": fn, "classdef": classdef}
         for s in fn.body:
             self.fn_stmt(s, ctx, in_loop=0)
@@ -279,6 +317,31 @@ class Checker:
                 found.extend(self._global_nodes(s.body))
                 found.extend(self._global_nodes(s.handler))
         return found
+
+    def _nonlocal_nodes(self, stmts):
+        found = []
+        for s in stmts:
+            if isinstance(s, NonlocalStmt):
+                found.append(s)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                found.extend(self._nonlocal_nodes(s.then_body))
+                found.extend(self._nonlocal_nodes(s.else_body or []))
+            elif isinstance(s, (For, While)):
+                found.extend(self._nonlocal_nodes(s.body))
+            elif isinstance(s, Try):
+                found.extend(self._nonlocal_nodes(s.body))
+                found.extend(self._nonlocal_nodes(s.handler))
+        return found
+
+    def _enclosing_local(self, name, scope):
+        while scope is not None:
+            if name not in scope["globals"] and name not in scope["nonlocals"] and \
+                    (name in scope["params"] or name in scope["assigned"]):
+                return scope
+            scope = scope["parent"]
+        return None
 
     def _collect_assigned(self, stmts, out):
         for s in stmts:
@@ -301,15 +364,15 @@ class Checker:
                 out.add(s.name)
 
     def fn_stmt(self, s, ctx, in_loop):
-        if isinstance(s, GlobalStmt):
+        if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
-            if s.name not in ctx["globals"]:
+            if s.name not in ctx["globals"] and s.name not in ctx["nonlocals"]:
                 ctx["done"].add(s.name)
             self.fn_body(s, parent_ctx=ctx)
         elif isinstance(s, Assign):
             self._expr(s.value, ctx, in_loop)
-            if s.name not in ctx["globals"]:
+            if s.name not in ctx["globals"] and s.name not in ctx["nonlocals"]:
                 ctx["done"].add(s.name)
         elif isinstance(s, If):
             self._expr(s.cond, ctx, in_loop)
@@ -324,7 +387,7 @@ class Checker:
                 self.fn_stmt(x, ctx, in_loop + 1)
         elif isinstance(s, For):
             self._expr(s.iter, ctx, in_loop)
-            if s.var not in ctx["globals"]:
+            if s.var not in ctx["globals"] and s.var not in ctx["nonlocals"]:
                 ctx["done"].add(s.var)
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop + 1)
@@ -334,7 +397,7 @@ class Checker:
         elif isinstance(s, Try):
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop)
-            if s.var not in ctx["globals"]:
+            if s.var not in ctx["globals"] and s.var not in ctx["nonlocals"]:
                 ctx["assigned"].add(s.var)
                 ctx["done"].add(s.var)
             for x in s.handler:
@@ -491,6 +554,8 @@ class Checker:
         while scope is not None:
             if name in scope["globals"]:
                 return ("global", scope)
+            if name in scope["nonlocals"]:
+                return ("local", scope["nonlocal_bindings"][name])
             if name in scope["params"] or name in scope["assigned"]:
                 return ("local", scope)
             scope = scope["parent"]

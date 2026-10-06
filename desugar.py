@@ -109,6 +109,8 @@ class Desugar:
                               line=s.line, col=s.col)
         if isinstance(s, GlobalStmt):
             return GlobalStmt(list(s.names), line=s.line, col=s.col)
+        if isinstance(s, NonlocalStmt):
+            return NonlocalStmt(list(s.names), line=s.line, col=s.col)
         if isinstance(s, Assign):
             return Assign(s.name, self.expr(s.value), line=s.line, col=s.col)
         if isinstance(s, SetAttr):

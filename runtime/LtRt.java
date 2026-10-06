@@ -357,6 +357,15 @@ public class LtRt {
                 throw new RuntimeException("unknown local binding '" + name + "'");
             values.put(name, value);
         }
+        public void setEnclosing(String name, Object value) {
+            for (Env frame = parent; frame != null; frame = frame.parent) {
+                if (frame.values.containsKey(name)) {
+                    frame.values.put(name, value);
+                    return;
+                }
+            }
+            throw new RuntimeException("unknown enclosing binding '" + name + "'");
+        }
         public Object get(String name) {
             for (Env frame = this; frame != null; frame = frame.parent)
                 if (frame.values.containsKey(name)) return frame.values.get(name);

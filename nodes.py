@@ -30,6 +30,13 @@ class GlobalStmt(Node):
         self.names = names
 
 
+class NonlocalStmt(Node):
+    """Declare names in a function body as enclosing-function bindings."""
+    def __init__(self, names, **kw):
+        super().__init__(**kw)
+        self.names = names
+
+
 class ModuleInit(Node):
     """One namespaced module body in a bundled multi-module program."""
     def __init__(self, module_id, deps, body, globals_, init_name,

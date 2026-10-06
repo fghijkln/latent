@@ -1,0 +1,17 @@
+fn outer():
+    total = 2
+    fn middle():
+        nonlocal total
+        fn local_shadow():
+            total = 90
+            return total
+        fn update():
+            nonlocal total
+            total = total + 1
+            return total
+        local_value = local_shadow()
+        updated = update()
+        return [local_value, updated, total]
+    return middle()
+
+say outer()

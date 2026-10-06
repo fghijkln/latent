@@ -1,0 +1,11 @@
+fn make_counter(start):
+    value = start
+    fn step(amount):
+        nonlocal value
+        value = value + amount
+        return value
+    return step
+
+counter = make_counter(5)
+say counter(2)
+say counter(4)

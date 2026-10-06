@@ -18,13 +18,26 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "class_basic", "inheritance", "setassign", "try_basic",
             "p5_values", "p5_closure_capture", "p5_shared_capture",
             "p5_recursion", "p5_shadowing", "p5_global",
-            "p5_invalid_calls"]
+            "p5_invalid_calls", "p6_nonlocal_nearest", "p6_nonlocal_skip",
+            "p6_nonlocal_shared", "p6_nonlocal_returned",
+            "p6_nonlocal_nested_scope"]
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
-                   "modules/function_values/main"]
+                   "modules/function_values/main", "modules/nonlocal/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target",
-               "err_nested_readbefore"]
+               "err_nested_readbefore", "err_p6_nonlocal_missing",
+               "err_p6_nonlocal_parameter", "err_p6_nonlocal_global",
+               "err_p6_nonlocal_duplicate", "err_p6_nonlocal_top",
+               "err_p6_nonlocal_class"]
+NONLOCAL_COMPILE_MARKERS = {
+    "err_p6_nonlocal_missing": "no binding for nonlocal 'absent'",
+    "err_p6_nonlocal_parameter": "parameter 'value' cannot be nonlocal",
+    "err_p6_nonlocal_global": "cannot be both global and nonlocal",
+    "err_p6_nonlocal_duplicate": "duplicate name in nonlocal declaration",
+    "err_p6_nonlocal_top": "nonlocal declaration is only valid inside a function",
+    "err_p6_nonlocal_class": "only fn definitions allowed in class body",
+}
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
     "inheritance_negative/self_cycle", "inheritance_negative/cycle",
@@ -157,6 +170,14 @@ P5_EXPECTED_STDOUT = {
                          "call on non-function value\n"),
     "modules/function_values/main": "6\n15\n100008\n8\n",
 }
+P6_EXPECTED_STDOUT = {
+    "p6_nonlocal_nearest": "11\n1\n",
+    "p6_nonlocal_skip": "41\n42\n",
+    "p6_nonlocal_shared": "102\n122\n124\n",
+    "p6_nonlocal_returned": "7\n11\n",
+    "p6_nonlocal_nested_scope": "[90, 3, 3]\n",
+    "modules/nonlocal/main": "41\n42\n100\n",
+}
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -229,6 +250,8 @@ def main():
             ok = ok and py[1] == MODULE_INHERITANCE_STDOUT
         if name in P5_EXPECTED_STDOUT:
             ok = ok and py[1] == P5_EXPECTED_STDOUT[name]
+        if name in P6_EXPECTED_STDOUT:
+            ok = ok and py[1] == P6_EXPECTED_STDOUT[name]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -240,7 +263,9 @@ def main():
         src = os.path.join(TESTS, name + ".lt")
         rc, so, se = run([sys.executable, LATENTC, src, "-t", "py",
                           "-o", os.path.join(OUT, "t_" + name)])
-        ok = rc != 0
+        detail = so + se
+        ok = rc != 0 and (name not in NONLOCAL_COMPILE_MARKERS or
+                          NONLOCAL_COMPILE_MARKERS[name] in detail)
         print(("PASS " if ok else "FAIL ") + name + ("" if ok else " (compiled!)"))
         if not ok:
             fails += 1

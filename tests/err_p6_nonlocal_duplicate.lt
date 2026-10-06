@@ -1,0 +1,5 @@
+fn outer():
+    value = 1
+    fn broken():
+        nonlocal value
+        nonlocal value

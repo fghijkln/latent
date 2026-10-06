@@ -6,14 +6,16 @@ import nodes
 
 
 FORMAT = "latent-ast"
-VERSION = 1
+VERSION = 2
 
 # The public dump shape is explicit: compiler-only attributes and Python object
-# reprs are never exposed. Keep this order stable as part of format version 1.
+# reprs are never exposed. Version 2 adds NonlocalStmt; version-1 node shapes
+# and field order remain unchanged.
 _FIELDS = {
     nodes.Program: (("statements", "stmts"),),
     nodes.ImportStmt: (("module_path", "module_path"), ("alias", "alias")),
     nodes.GlobalStmt: (("names", "names"),),
+    nodes.NonlocalStmt: (("names", "names"),),
     nodes.ModuleInit: (("module_id", "module_id"),
                        ("dependencies", "deps"), ("body", "body"),
                        ("globals", "globals_"),

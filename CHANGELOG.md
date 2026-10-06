@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.9.0 — 2026-10-06
+
+### Added
+
+- `nonlocal name[, name...]` binds reads and writes in a function to the nearest enclosing function scope that owns that local name. Returned closures share and update the same mutable binding; unbound intermediate scopes are skipped.
+- `nonlocal` works with enclosing parameters, assignments, loop targets, catch variables, and nested function names. Declarations apply to the whole function body and do not leak into nested functions.
+- The read-only `latent-ast` JSON schema advances to version 2 with `NonlocalStmt(names)`; the version-1 node shapes and field ordering are unchanged.
+
+### Compatibility
+
+- `nonlocal` is now a reserved keyword; programs that used it as an identifier must rename it.
+- Missing enclosing bindings, parameter/`global` conflicts, duplicate declarations, and declarations at module or class scope are compile-time errors.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 113 passed, 0 failed (104 dual-backend/integration scenarios plus 9 read-only CLI regression tests).
+- `py_compile` passed for all 13 tracked Python files; `javac runtime/*.java` and `git diff --check` passed.
+
 ## v0.8.0 — 2026-10-06
 
 ### Added

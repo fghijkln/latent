@@ -74,8 +74,8 @@ hello latent
 ```
 
 `say` 是打印语句，不需要括号。这是全教程最重要的约定：**同一份源码，
-`-t py` 和 `-t java` 的运行结果一致**。编译器的 92 个双后端/集成场景覆盖单文件/模块
-正例、编译错误、运行错误与 cookbook，另有 8 个只读 CLI 诊断回归测试。
+`-t py` 和 `-t java` 的运行结果一致**。编译器的 104 个双后端/集成场景覆盖单文件/模块
+正例、编译错误、运行错误与 cookbook，另有 9 个只读 CLI 诊断回归测试。
 
 ---
 
@@ -262,8 +262,32 @@ fn bump():
     return counter
 ```
 
-边界：类方法仍不是一等值；内建函数以及 Python/Java 句柄方法也仍只能按原语法直接调用。
-当前没有 `nonlocal`；嵌套函数中给名字赋值会创建当前函数局部绑定。
+v0.9.0 的 P6 增加 `nonlocal`，让嵌套函数读写最近的外层函数局部绑定；中间函数
+若没有该名字，会被跳过：
+
+```latent
+fn make_counter():
+    value = 0
+    fn middle():
+        fn next_value():
+            nonlocal value
+            value = value + 1
+            return value
+        return next_value
+    return middle()
+
+counter = make_counter()
+say counter()       # 1
+say counter()       # 2；返回闭包共享并更新同一个 cell
+```
+
+`nonlocal` 声明对它所在函数的整个函数体生效，但**不会穿透到嵌套函数**。如果更内层函数
+也需要写 `value`，它必须在自己的函数体中再写一次 `nonlocal value`；没有声明的内层赋值
+仍建立内层局部绑定。目标外层绑定不存在、与参数或同函数的 `global` 冲突、或重复声明，
+都会在编译期报错。模块顶层拒绝 `nonlocal`，类体只允许方法定义。声明名可以被赋值，
+这正是修改外层 cell 的方式。
+
+类方法仍不是一等值；内建函数以及 Python/Java 句柄方法也仍只能按原语法直接调用。
 
 ---
 
@@ -482,9 +506,9 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - 同一个文件即使使用不同路径写法和别名导入，也只初始化一次；被导入模块先于当前模块执行。循环导入会在编译期报错。
 - 当前仅支持本地静态 `.lt` 文件导入，不支持通配符、动态导入或包管理。公开模块类可以作为父类，详见 §9。
 
-## 15. 已知限制（v0.8.0）
+## 15. 已知限制（v0.9.0）
 
-- 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。P5 支持用户定义函数值与嵌套闭包，但不支持 `nonlocal`；模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
+- 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。P5/v0.8.0 支持用户定义函数值、嵌套闭包和 `global`；P6/v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)。模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持基本类型类名（`java "int"` 不行）。
 - 调用只有位置参数，没有关键字参数；类方法、内建函数和 Python/Java 句柄方法不能当作函数值。
@@ -506,5 +530,5 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（100 项：92 个双后端/集成场景和 8 个只读 CLI
+- 跑测试：`python3 tests/run_tests.py`（113 项：104 个双后端/集成场景和 9 个只读 CLI
   诊断回归；正例/cookbook 双后端对拍）

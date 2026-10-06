@@ -196,6 +196,24 @@ def _scope_globals(stmts):
     return out
 
 
+def _scope_nonlocals(stmts):
+    out = set()
+    for stmt in stmts:
+        if isinstance(stmt, nodes.NonlocalStmt):
+            out.update(stmt.names)
+        elif isinstance(stmt, nodes.FnDef):
+            continue
+        elif isinstance(stmt, nodes.If):
+            out.update(_scope_nonlocals(stmt.then_body))
+            out.update(_scope_nonlocals(stmt.else_body or []))
+        elif isinstance(stmt, (nodes.For, nodes.While)):
+            out.update(_scope_nonlocals(stmt.body))
+        elif isinstance(stmt, nodes.Try):
+            out.update(_scope_nonlocals(stmt.body))
+            out.update(_scope_nonlocals(stmt.handler))
+    return out
+
+
 def _nested_function_names(stmts):
     out = set()
     for stmt in stmts:
@@ -214,7 +232,8 @@ def _nested_function_names(stmts):
 
 def _function_locals(fn):
     return ((set(fn.params) | _assigned_names(fn.body) |
-             _nested_function_names(fn.body)) - _scope_globals(fn.body))
+             _nested_function_names(fn.body)) -
+            (_scope_globals(fn.body) | _scope_nonlocals(fn.body)))
 
 
 def _rewrite_expr(expr, unit, locals_, allow_function=False):
@@ -327,6 +346,8 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
     if isinstance(stmt, nodes.GlobalStmt):
         stmt.names = [unit.symbols[name][1] if name in unit.symbols else name
                       for name in stmt.names]
+        return stmt
+    if isinstance(stmt, nodes.NonlocalStmt):
         return stmt
     if isinstance(stmt, nodes.FnDef):
         if module_top:

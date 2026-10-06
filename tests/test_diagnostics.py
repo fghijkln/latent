@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit and CLI regression tests for read-only AST diagnostics."""
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -46,9 +47,15 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual((result, error), (0, ""))
         document = json.loads(output)
         self.assertEqual(document["format"], "latent-ast")
-        self.assertEqual(document["version"], 1)
+        self.assertEqual(document["version"], 2)
         self.assertEqual(document["phase"], "parsed")
         self.assertEqual(document["source"], os.path.realpath(SAMPLE))
+        tree_digest = hashlib.sha256(json.dumps(
+            document["tree"], ensure_ascii=False,
+            separators=(",", ":")).encode("utf-8")).hexdigest()
+        self.assertEqual(
+            tree_digest,
+            "488f03fb04b840ae8eaa32efa559ba1161bbbfc34760fd49bf936590dad3c750")
         node_types = {node["node"] for node in _nodes(document["tree"])}
         self.assertTrue({"SetAttr", "Dot", "If", "While"} <= node_types)
         for node in _nodes(document["tree"]):
@@ -144,6 +151,28 @@ class DiagnosticTests(unittest.TestCase):
                             if node["node"] == "GlobalStmt"]
             self.assertEqual(len(global_nodes), 1)
             self.assertEqual(global_nodes[0]["fields"], {"names": ["counter"]})
+
+    def test_nonlocal_statement_is_schema_v2_ast_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "nonlocal_scope.lt"
+            source.write_text(
+                "fn outer():\n    value = 1\n    fn inner():\n"
+                "        nonlocal value, other\n        value = 2\n",
+                encoding="utf-8")
+            parsed = self.invoke(str(source), "--show-ast")
+            desugared = self.invoke(str(source), "--show-desugar")
+        for result, output, error in (parsed, desugared):
+            self.assertEqual((result, error), (0, ""))
+            document = json.loads(output)
+            self.assertEqual(document["version"], 2)
+            nodes_in_tree = list(_nodes(document["tree"]))
+            declarations = [node for node in nodes_in_tree
+                            if node["node"] == "NonlocalStmt"]
+            self.assertEqual(len(declarations), 1)
+            self.assertEqual(declarations[0]["fields"],
+                             {"names": ["value", "other"]})
+            self.assertEqual(declarations[0]["position"],
+                             {"line": 4, "column": 9})
 
     def test_diagnostic_flags_are_mutually_exclusive(self):
         result, output, error = self.invoke(

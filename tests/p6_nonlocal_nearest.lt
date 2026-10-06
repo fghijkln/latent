@@ -1,0 +1,14 @@
+fn outer():
+    value = 1
+    fn middle():
+        value = 10
+        fn bump():
+            nonlocal value
+            value = value + 1
+            return value
+        return bump
+    bump = middle()
+    say bump()
+    return value
+
+say outer()

@@ -1,0 +1,6 @@
+import "lib.lt" as lib
+
+mutate = lib.make_mutator()
+say mutate()
+say mutate()
+say lib.value
