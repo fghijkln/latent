@@ -1,0 +1,6 @@
+class C:
+    fn init(self, left, right):
+        self.left = left
+        self.right = right
+
+C.new(left=1)

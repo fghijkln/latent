@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.11.0 — 2026-10-06
+
+### Added
+
+- Named arguments for Latent user-defined functions, first-class functions and closures, public module functions, Latent direct/bound methods, and `C.new(...)` / Latent `init` constructors.
+- Static argument validation for calls with a known signature; runtime binding by preserved parameter names for function values and dynamically resolved Latent methods. Positional actuals must precede named actuals, and all actual expressions remain left-to-right.
+- `latent-ast` schema v3 with an explicit `NamedArg(name, value)` node; existing node field shapes remain locked by regression tests.
+
+### Compatibility
+
+- Named-argument calls are new in v0.11.0; source using `callee(name=value)` requires this release or later. Existing positional-call syntax and v0.10.0 release artifacts are unchanged.
+- `latent-ast` advances from schema v2 to v3 for the new `NamedArg` node. Existing node field shapes remain unchanged, but AST consumers must accept v3 before reading P8 dumps.
+- A direct call whose signature is statically known (including an inherited `init`) now fails at compile time for invalid arguments instead of reaching the former runtime arity check; indirect function-value and uncertain-receiver calls remain runtime-checked. Runtime argument-binding failures share the `ArgumentError` category across backends while retaining the established arity message text.
+- Built-ins and Python/Java interop methods/constructors remain positional-only. Defaults, variadics, and keyword-only parameters are not added.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 142 passed, 0 failed (132 dual-backend/integration scenarios plus 10 read-only CLI regressions).
+- `py_compile` passed for all 13 tracked Python files; `javac runtime/*.java` and `git diff --check` passed.
+
 ## v0.10.0 — 2026-10-06
 
 ### Added

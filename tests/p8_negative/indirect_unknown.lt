@@ -1,0 +1,7 @@
+fn pair(left, right):
+    return left + right
+
+fn invoke(fn_value):
+    return fn_value(left=1, other=2)
+
+invoke(pair)

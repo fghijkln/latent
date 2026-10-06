@@ -1,0 +1,9 @@
+class Base:
+    fn combine(self, left, right):
+        return left + right
+
+class Child(Base):
+    fn call_parent(self, first, second):
+        return super.combine(self, left=first, other=second)
+
+Child.new().call_parent(1, 2)

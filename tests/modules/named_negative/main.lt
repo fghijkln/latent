@@ -1,0 +1,3 @@
+import "lib.lt" as lib
+
+lib.pair(left=1, other=2)

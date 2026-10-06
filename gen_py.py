@@ -338,28 +338,93 @@ class _LtClass:
         if init is not None:
             # Latent-level dispatch: values stay Latent (no _wv_pyarg;
             # that int conversion is only for calling real Python functions)
-            init(o, *args)
+            init(o, *_wv_bind_args(_wv_method_params(init), args,
+                                   self._name + ".new"))
         elif args:
-            raise TypeError(
-                "%s.new() takes no arguments (no init defined)" % self._name)
+            _wv_bind_args((), args, self._name + ".new")
         return o
+
+
+class _LtArgumentError(RuntimeError):
+    pass
+
+
+class _LtNamedArg:
+    __slots__ = ("name", "value")
+
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+
+def _wv_named(name, value):
+    return _LtNamedArg(name, value)
+
+
+def _wv_has_named(args):
+    return any(isinstance(arg, _LtNamedArg) for arg in args)
+
+
+def _wv_bind_args(params, args, name):
+    params = tuple(params)
+    if not _wv_has_named(args):
+        if len(args) != len(params):
+            raise _LtArgumentError("%s() takes %d args, got %d" %
+                                   (name, len(params), len(args)))
+        return list(args)
+    values = [None] * len(params)
+    supplied = [False] * len(params)
+    pos = 0
+    seen_names = set()
+    for arg in args:
+        if isinstance(arg, _LtNamedArg):
+            if arg.name in seen_names:
+                raise _LtArgumentError("%s() got duplicate named argument %r" %
+                                       (name, arg.name))
+            seen_names.add(arg.name)
+            if arg.name not in params:
+                raise _LtArgumentError(
+                    "%s() got unexpected named argument %r" %
+                    (name, arg.name))
+            index = params.index(arg.name)
+            if supplied[index]:
+                raise _LtArgumentError(
+                    "%s() got multiple values for argument %r" %
+                    (name, arg.name))
+            values[index] = arg.value
+            supplied[index] = True
+        else:
+            if pos >= len(params):
+                raise _LtArgumentError("%s() takes %d args, got %d" %
+                                       (name, len(params), pos + 1))
+            values[pos] = arg
+            supplied[pos] = True
+            pos += 1
+    for index, was_supplied in enumerate(supplied):
+        if not was_supplied:
+            raise _LtArgumentError("%s() missing required argument %r" %
+                                   (name, params[index]))
+    return values
+
+
+def _wv_method_params(method):
+    code = method.__code__
+    return code.co_varnames[1:code.co_argcount]
 
 
 class _LtFunction:
     """A first-class Latent function with backend-independent arity checks."""
-    __slots__ = ("_fn", "_arity", "_name", "_display")
+    __slots__ = ("_fn", "_params", "_arity", "_name", "_display")
 
-    def __init__(self, fn, arity, name, display=None):
+    def __init__(self, fn, params, name, display=None):
         self._fn = fn
-        self._arity = arity
+        self._params = tuple(params)
+        self._arity = len(self._params)
         self._name = name
         self._display = display
 
     def __call__(self, *args):
-        if len(args) != self._arity:
-            raise RuntimeError("%s() takes %d args, got %d" %
-                               (self._name, self._arity, len(args)))
-        return self._fn(*args)
+        return self._fn(*_wv_bind_args(self._params, args, self._name))
 
 
 def _wv_call(fn, *args):
@@ -514,9 +579,9 @@ def _wv_wgetattr(h, attr):
             return h._lt_fields[attr]
         method = h._lt_class._find_method(attr)
         if method is not None:
-            arity = method.__code__.co_argcount - 1
+            params = _wv_method_params(method)
             return _LtFunction(
-                lambda *args: method(h, *args), arity, attr,
+                lambda *args: method(h, *args), params, attr,
                 "<bound method %s.%s>" % (h._lt_class._name, attr))
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
@@ -526,6 +591,9 @@ def _wv_wgetattr(h, attr):
 
 def _wv_wcall(h, attr, *args):
     if isinstance(h, (_JClass, _JHandle)):
+        if _wv_has_named(args):
+            raise _LtArgumentError(
+                "named arguments are not supported for Python/Java interop calls")
         jvm = _JVM.inst()
         jargs = [_jvm_encode(a) for a in args]
         if isinstance(h, _JClass) and attr == "new":
@@ -540,7 +608,13 @@ def _wv_wcall(h, attr, *args):
         m = h._lt_class._find_method(attr)
         if m is None:
             raise AttributeError("no method %r" % attr)
-        return m(h, *args)
+        return _LtFunction(lambda *values: m(h, *values),
+                           _wv_method_params(m), attr)(*args)
+    if isinstance(h, _LazyMod):
+        if _wv_has_named(args):
+            raise _LtArgumentError(
+                "named arguments are not supported for Python/Java interop calls")
+        return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
     return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
 
 
@@ -556,7 +630,8 @@ def _wv_supercall(receiver, owner, attr, *args):
     if method is None:
         raise AttributeError("no parent method %r on class %s" %
                              (attr, owner._name))
-    return method(receiver, *args)
+    return _LtFunction(lambda *values: method(receiver, *values),
+                       _wv_method_params(method), attr)(*args)
 
 
 def _wv_wsetattr(h, attr, v):
@@ -628,7 +703,9 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
             return
 
         message = str(exc)
-        detail = type(exc).__name__ + (": " + message if message else "")
+        error_type = ("ArgumentError" if isinstance(exc, _LtArgumentError)
+                      else type(exc).__name__)
+        detail = error_type + (": " + message if message else "")
         print("Latent runtime error: " + detail, file=_sys.stderr)
         print("Latent traceback (most recent call last):", file=_sys.stderr)
         for filename, line, name in mapped:
@@ -885,7 +962,8 @@ class Gen:
             pass
         self.indent -= 1
         if not method:
-            self.w(f"{fn.name} = _LtFunction({fn.name}, {len(fn.params)}, "
+            self.w(f"{fn.name} = _LtFunction({fn.name}, "
+                   f"{json.dumps(fn.params, ensure_ascii=False)}, "
                    f"{json.dumps(fn.source_name, ensure_ascii=False)})")
 
     def _collect(self, stmts, out):
@@ -964,6 +1042,12 @@ class Gen:
             self.stmt(s)
         self.indent -= 1
 
+    def argument(self, arg):
+        if isinstance(arg, NamedArg):
+            return f"_wv_named({json.dumps(arg.name, ensure_ascii=False)}, " \
+                   f"{self.expr(arg.value)})"
+        return self.expr(arg)
+
     def expr(self, e):
         if isinstance(e, Num):
             return self.num(e.value)
@@ -986,14 +1070,14 @@ class Gen:
             a = self.expr(e.operand)
             return f"(-{a})" if e.op == "-" else f"(not {a})"
         if isinstance(e, Call):
-            args = ", ".join(self.expr(a) for a in e.args)
+            args = ", ".join(self.argument(a) for a in e.args)
             if isinstance(e.func, Name) and e.func.id in BUILTIN_PY:
                 return f"{BUILTIN_PY[e.func.id]}({args})"
             suffix = ", " + args if args else ""
             return f"_wv_call({self.expr(e.func)}{suffix})"
         if isinstance(e, SuperCall):
             receiver = self.expr(e.args[0])
-            args = [self.expr(a) for a in e.args[1:]]
+            args = [self.argument(a) for a in e.args[1:]]
             rendered = ", ".join([receiver, e.owner.name,
                                     json.dumps(e.method)] + args)
             return f"_wv_supercall({rendered})"

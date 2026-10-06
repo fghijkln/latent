@@ -243,11 +243,21 @@ class UnOp(Node):
         self.operand = operand
 
 
+class NamedArg(Node):
+    """One named actual argument, kept in source evaluation order."""
+    def __init__(self, name, value, **kw):
+        super().__init__(**kw)
+        self.name = name
+        self.value = value
+
+
 class Call(Node):
     def __init__(self, func, args, **kw):
         super().__init__(**kw)
         self.func = func  # expr (Name normally)
         self.args = args
+        # Compiler-only hints; excluded from the stable latent-ast schema.
+        self.direct_method = None
 
 
 class PyImport(Node):

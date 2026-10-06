@@ -329,25 +329,90 @@ public class LtRt {
     public interface LtBody {
         Object call(Object[] args);
     }
+    /** Marker for a named actual argument; the value is already evaluated. */
+    public static class NamedArg {
+        final String name;
+        final Object value;
+        NamedArg(String name, Object value) {
+            this.name = name;
+            this.value = value;
+        }
+    }
+    public static class ArgumentError extends RuntimeException {
+        ArgumentError(String message) { super(message); }
+    }
+    public static Object named(String name, Object value) {
+        return new NamedArg(name, value);
+    }
+    private static boolean hasNamedArgs(Object[] args) {
+        for (Object arg : args) if (arg instanceof NamedArg) return true;
+        return false;
+    }
+    private static void rejectNamedInteropArgs(Object[] args) {
+        if (hasNamedArgs(args))
+            throw new ArgumentError(
+                "named arguments are not supported for Python/Java interop calls");
+    }
+    private static Object[] bindArgs(String[] params, Object[] args, String name) {
+        if (!hasNamedArgs(args)) {
+            if (args.length != params.length)
+                throw new ArgumentError(name + "() takes " + params.length +
+                    " args, got " + args.length);
+            return args;
+        }
+        Object[] values = new Object[params.length];
+        boolean[] supplied = new boolean[params.length];
+        Set<String> seenNames = new HashSet<>();
+        int pos = 0;
+        for (Object arg : args) {
+            if (arg instanceof NamedArg) {
+                NamedArg named = (NamedArg) arg;
+                if (!seenNames.add(named.name))
+                    throw new ArgumentError(name +
+                        "() got duplicate named argument '" + named.name + "'");
+                int index = Arrays.asList(params).indexOf(named.name);
+                if (index < 0)
+                    throw new ArgumentError(name +
+                        "() got unexpected named argument '" + named.name + "'");
+                if (supplied[index])
+                    throw new ArgumentError(name +
+                        "() got multiple values for argument '" + named.name + "'");
+                values[index] = named.value;
+                supplied[index] = true;
+            } else {
+                if (pos >= params.length)
+                    throw new ArgumentError(name + "() takes " + params.length +
+                        " args, got " + (pos + 1));
+                values[pos] = arg;
+                supplied[pos] = true;
+                pos++;
+            }
+        }
+        for (int i = 0; i < params.length; i++) {
+            if (!supplied[i])
+                throw new ArgumentError(name +
+                    "() missing required argument '" + params[i] + "'");
+        }
+        return values;
+    }
     public static class LtFunction {
         final int arity;
         final String name;
         final String display;
+        final String[] params;
         final LtBody body;
-        LtFunction(int arity, String name, LtBody body) {
-            this(arity, name, "<function " + name + ">", body);
+        LtFunction(String[] params, String name, LtBody body) {
+            this(params, name, "<function " + name + ">", body);
         }
-        LtFunction(int arity, String name, String display, LtBody body) {
-            this.arity = arity;
+        LtFunction(String[] params, String name, String display, LtBody body) {
+            this.params = params.clone();
+            this.arity = params.length;
             this.name = name;
             this.display = display;
             this.body = body;
         }
         Object invoke(Object[] args) {
-            if (args.length != arity)
-                throw new RuntimeException(name + "() takes " + arity +
-                    " args, got " + args.length);
-            return body.call(args);
+            return body.call(bindArgs(params, args, name));
         }
     }
     /** Per-invocation binding cells; nested functions retain this frame. */
@@ -378,8 +443,8 @@ public class LtRt {
             throw new RuntimeException("unknown lexical binding '" + name + "'");
         }
     }
-    public static LtFunction function(int arity, String name, LtBody body) {
-        return new LtFunction(arity, name, body);
+    public static LtFunction function(String[] params, String name, LtBody body) {
+        return new LtFunction(params, name, body);
     }
     public static Object callValue(Object value, Object... args) {
         if (!(value instanceof LtFunction))
@@ -392,12 +457,15 @@ public class LtRt {
         public final LtClass parent;
         public final Map<String, LtMethod> methods;
         public final Map<String, Integer> methodArities;
+        public final Map<String, String[]> methodParameters;
         LtClass(String name, LtClass parent, Map<String, LtMethod> methods,
-                Map<String, Integer> methodArities) {
+                Map<String, Integer> methodArities,
+                Map<String, String[]> methodParameters) {
             this.name = name;
             this.parent = parent;
             this.methods = methods;
             this.methodArities = methodArities;
+            this.methodParameters = methodParameters;
         }
     }
 
@@ -409,14 +477,16 @@ public class LtRt {
 
     public static LtClass makeClass(String name, LtClass parent,
                                     String[] names, LtMethod[] methods,
-                                    int[] arities) {
+                                    int[] arities, String[][] parameters) {
         Map<String, LtMethod> m = new LinkedHashMap<>();
         Map<String, Integer> a = new LinkedHashMap<>();
+        Map<String, String[]> p = new LinkedHashMap<>();
         for (int i = 0; i < names.length; i++) {
             m.put(names[i], methods[i]);
             a.put(names[i], arities[i]);
+            p.put(names[i], parameters[i].clone());
         }
-        return new LtClass(name, parent, m, a);
+        return new LtClass(name, parent, m, a, p);
     }
 
     static LtMethod findMethod(LtClass cls, String name) {
@@ -435,6 +505,14 @@ public class LtRt {
         return -1;
     }
 
+    static String[] findMethodParameters(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent) {
+            String[] params = c.methodParameters.get(name);
+            if (params != null) return params;
+        }
+        return new String[0];
+    }
+
     /** Dispatch a Latent method beginning at the current class's parent. */
     public static Object superCall(Object receiver, LtClass owner,
                                    String method, Object... args) {
@@ -447,7 +525,8 @@ public class LtRt {
         LtMethod target = findMethod(owner.parent, method);
         if (target == null)
             throw new RuntimeException("no parent method '" + method + "' on class " + owner.name);
-        return target.call(receiver, args);
+        return target.call(receiver,
+            bindArgs(findMethodParameters(owner.parent, method), args, method));
     }
 
     public static Object pymod(Object name) {
@@ -485,8 +564,8 @@ public class LtRt {
             if (f.containsKey(attr)) return f.get(attr);
             LtMethod method = findMethod(o.cls, attr);
             if (method != null) {
-                int arity = findMethodArity(o.cls, attr);
-                return new LtFunction(arity, attr,
+                String[] params = findMethodParameters(o.cls, attr);
+                return new LtFunction(params, attr,
                     "<bound method " + o.cls.name + "." + attr + ">",
                     args -> method.call(o, args));
             }
@@ -503,16 +582,18 @@ public class LtRt {
 
     /** Unified call: py handles, java static/instance methods, C.new() constructors. */
     public static Object wcall(Object h, String attr, Object... args) {
-        if (h instanceof PyHandle) return pycall(h, attr, args);
+        if (h instanceof PyHandle) {
+            rejectNamedInteropArgs(args);
+            return pycall(h, attr, args);
+        }
         if (h instanceof LtClass) {
             LtClass c = (LtClass) h;
             if (attr.equals("new")) {
                 LtObj o = new LtObj(c);
                 LtMethod init = findMethod(c, "init");
-                if (init != null) init.call(o, args);
-                else if (args.length > 0)
-                    throw new RuntimeException("no init defined for class " +
-                        c.name + ", but " + args.length + " args given");
+                String[] params = findMethodParameters(c, "init");
+                if (init != null) init.call(o, bindArgs(params, args, c.name + ".new"));
+                else if (args.length > 0) bindArgs(new String[0], args, c.name + ".new");
                 return o;
             }
             throw new RuntimeException("no class-level method '" + attr +
@@ -524,15 +605,18 @@ public class LtRt {
             if (m == null)
                 throw new RuntimeException("no method '" + attr +
                     "' on " + o.cls.name);
-            return m.call(o, args);
+            return m.call(o, bindArgs(findMethodParameters(o.cls, attr), args, attr));
         }
         if (h instanceof JReflect.JClass) {
+            rejectNamedInteropArgs(args);
             if (attr.equals("new"))
                 return JReflect.construct((JReflect.JClass) h, args);
             return JReflect.callStatic((JReflect.JClass) h, attr, args);
         }
-        if (h instanceof JReflect.JObj)
+        if (h instanceof JReflect.JObj) {
+            rejectNamedInteropArgs(args);
             return JReflect.call((JReflect.JObj) h, attr, args);
+        }
         throw new RuntimeException("call on non-handle value: " + typeName(h));
     }
 

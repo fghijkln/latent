@@ -302,16 +302,35 @@ class Parser:
             return BinOp("**", base, self.factor(), line=t.line, col=t.col)
         return base
 
+    def call_args(self):
+        args = []
+        saw_named = False
+        if self.peek().kind == ")":
+            return args
+        while True:
+            current = self.peek()
+            is_named = (current.kind == "NAME" and
+                        self.toks[self.pos + 1].kind == "=")
+            if is_named:
+                name = self.next()
+                self.next()  # '='
+                args.append(NamedArg(name.value, self.expr(),
+                                     line=name.line, col=name.col))
+                saw_named = True
+            else:
+                if saw_named:
+                    self.err("positional argument follows named argument", current)
+                args.append(self.expr())
+            if not self.match(","):
+                break
+        return args
+
     def postfix(self):
         e = self.primary()
         while True:
             if self.peek().kind == "(":
                 t = self.next()
-                args = []
-                if self.peek().kind != ")":
-                    args.append(self.expr())
-                    while self.match(","):
-                        args.append(self.expr())
+                args = self.call_args()
                 self.expect(")")
                 e = Call(e, args, line=t.line, col=t.col)
             elif self.peek().kind == ".":

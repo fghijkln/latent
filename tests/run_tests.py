@@ -21,10 +21,12 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "p5_invalid_calls", "p6_nonlocal_nearest", "p6_nonlocal_skip",
             "p6_nonlocal_shared", "p6_nonlocal_returned",
             "p6_nonlocal_nested_scope", "p7_bound_methods"]
+POSITIVE.append("p8_named_arguments")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
                    "modules/function_values/main", "modules/nonlocal/main",
-                   "modules/bound_methods/main"]
+                   "modules/bound_methods/main",
+                   "modules/named_arguments/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target",
                "err_nested_readbefore", "err_p6_nonlocal_missing",
@@ -38,6 +40,22 @@ NONLOCAL_COMPILE_MARKERS = {
     "err_p6_nonlocal_duplicate": "duplicate name in nonlocal declaration",
     "err_p6_nonlocal_top": "nonlocal declaration is only valid inside a function",
     "err_p6_nonlocal_class": "only fn definitions allowed in class body",
+}
+P8_NEG_COMPILE = {
+    "p8_negative/duplicate": "got duplicate named argument 'left'",
+    "p8_negative/duplicate_position": "got multiple values for argument 'left'",
+    "p8_negative/unknown": "got unexpected named argument 'other'",
+    "p8_negative/missing": "missing required argument 'right'",
+    "p8_negative/extra": "pair() takes 2 args, got 3",
+    "p8_negative/bad_order": "positional argument follows named argument",
+    "p8_negative/builtin": "built-in function 'len' does not accept named arguments",
+    "p8_negative/method_unknown": "combine() got unexpected named argument 'other'",
+    "p8_negative/method_missing": "combine() missing required argument 'right'",
+    "p8_negative/constructor_unknown": "C.new() got unexpected named argument 'other'",
+    "p8_negative/constructor_missing": "C.new() missing required argument 'right'",
+    "p8_negative/super_unknown": "super.combine() got unexpected named argument 'other'",
+    "modules/named_negative/main": "pair() got unexpected named argument 'other'",
+    "inheritance_bad_init_arity": "Child.new() takes 1 args, got 0",
 }
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
@@ -121,8 +139,16 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "err_location_method", "err_location_loop",
                "err_location_throw", "err_location_try",
                "err_location_py_handle", "err_location_java_handle",
-               "modules/runtime/main", "inheritance_bad_init_arity",
-               "p7_bound_method_error"]
+               "modules/runtime/main", "p7_bound_method_error",
+               "p8_negative/indirect_duplicate",
+               "p8_negative/indirect_duplicate_position",
+               "p8_negative/indirect_unknown",
+               "p8_negative/indirect_missing",
+               "p8_negative/indirect_extra",
+               "p8_negative/bound_unknown",
+               "p8_negative/python_interop",
+               "p8_negative/java_interop_method",
+               "p8_negative/java_interop_constructor"]
 RUNTIME_SOURCE_LINES = {
     "py_lazy_use": [2], "java_lazy_use": [2],
     "err_index_range": [2], "err_index_key": [2],
@@ -131,8 +157,16 @@ RUNTIME_SOURCE_LINES = {
     "err_location_method": [3, 5], "err_location_loop": [2],
     "err_location_throw": [1], "err_location_try": [4],
     "err_location_py_handle": [2], "err_location_java_handle": [2],
-    "inheritance_bad_init_arity": [9],
     "p7_bound_method_error": [4, 8],
+    "p8_negative/indirect_duplicate": [5, 7],
+    "p8_negative/indirect_duplicate_position": [5, 7],
+    "p8_negative/indirect_unknown": [5, 7],
+    "p8_negative/indirect_missing": [5, 7],
+    "p8_negative/indirect_extra": [5, 7],
+    "p8_negative/bound_unknown": [8, 10],
+    "p8_negative/python_interop": [2],
+    "p8_negative/java_interop_method": [2],
+    "p8_negative/java_interop_constructor": [2],
 }
 RUNTIME_SOURCE_MARKERS = {
     "modules/runtime/main": ["main.lt:2", "lib.lt:3"],
@@ -140,12 +174,23 @@ RUNTIME_SOURCE_MARKERS = {
 RUNTIME_ERROR_MARKERS = {
     "p7_bound_method_error": "bound method failed",
 }
+P8_RUNTIME_ERROR_MARKERS = {
+    "p8_negative/indirect_duplicate": "Latent runtime error: ArgumentError: pair() got duplicate named argument 'left'",
+    "p8_negative/indirect_duplicate_position": "Latent runtime error: ArgumentError: pair() got multiple values for argument 'left'",
+    "p8_negative/indirect_unknown": "Latent runtime error: ArgumentError: pair() got unexpected named argument 'other'",
+    "p8_negative/indirect_missing": "Latent runtime error: ArgumentError: pair() missing required argument 'right'",
+    "p8_negative/indirect_extra": "Latent runtime error: ArgumentError: pair() takes 2 args, got 3",
+    "p8_negative/bound_unknown": "Latent runtime error: ArgumentError: combine() got unexpected named argument 'other'",
+    "p8_negative/python_interop": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
+    "p8_negative/java_interop_method": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
+    "p8_negative/java_interop_constructor": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
+}
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_strings", "java_collections", "java_time", "java_nio",
             "java_bigdecimal", "mixed_io", "classes", "inheritance",
-            "pipeline", "modules", "functions"]
+            "pipeline", "modules", "functions", "named_arguments"]
 
 TRY_BASIC_STDOUT = ("caught: index out of range: 5\n"
                     "k=key not found: zz\n"
@@ -192,6 +237,10 @@ P7_EXPECTED_STDOUT = {
         "bump() takes 1 args, got 2\n101\n20\n"),
     "modules/bound_methods/main": (
         "<bound method Counter.advance>\n42\n"),
+}
+P8_EXPECTED_STDOUT = {
+    "p8_named_arguments": "123\n123\n15\n123\nACB\n12\n34\n78\n122\n56\n9\n10\n11\n",
+    "modules/named_arguments/main": "12\n34\n",
 }
 
 
@@ -272,6 +321,8 @@ def main():
             ok = ok and py[1] == P6_EXPECTED_STDOUT[name]
         if name in P7_EXPECTED_STDOUT:
             ok = ok and py[1] == P7_EXPECTED_STDOUT[name]
+        if name in P8_EXPECTED_STDOUT:
+            ok = ok and py[1] == P8_EXPECTED_STDOUT[name]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -291,6 +342,29 @@ def main():
             fails += 1
         else:
             print(f"  msg: {(so + se).strip().splitlines()[0]}")
+
+    print("== P8 negative compile: py/java must match static diagnostics ==")
+    for name, marker in P8_NEG_COMPILE.items():
+        details = []
+        results = []
+        for target in ("py", "java"):
+            outdir = os.path.join(OUT, "t_" + name.replace("/", "_") + "_" + target)
+            rc, so, se = run([sys.executable, LATENTC,
+                              os.path.join(TESTS, name + ".lt"),
+                              "-t", target, "-o", outdir])
+            detail = so + se
+            details.append(detail)
+            results.append(rc)
+        first_lines = [d.strip().splitlines()[0] if d.strip() else ""
+                       for d in details]
+        ok = (all(rc != 0 for rc in results) and
+              all(marker in detail for detail in details) and
+              first_lines[0] == first_lines[1])
+        print(("PASS " if ok else "FAIL ") + name)
+        if not ok:
+            fails += 1
+            print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
+            print(f"  java: rc={results[1]} detail={details[1][-500:]}")
 
     print("== negative inheritance compile: parent graph and super rules ==")
     for name in NEG_INHERITANCE_COMPILE:
@@ -329,6 +403,13 @@ def main():
         ok = (py[0] not in (0, "compile-fail", "timeout") and
               jv[0] not in (0, "compile-fail", "timeout") and
               has_source_locations(name, py) and has_source_locations(name, jv))
+        if name in P8_RUNTIME_ERROR_MARKERS:
+            expected = P8_RUNTIME_ERROR_MARKERS[name]
+            py_error = next((line for line in py[2].splitlines()
+                             if line.startswith("Latent runtime error:")), "")
+            jv_error = next((line for line in jv[2].splitlines()
+                             if line.startswith("Latent runtime error:")), "")
+            ok = ok and py_error == expected and jv_error == expected
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -347,6 +428,8 @@ def main():
             ok = ok and py[1] == "Hello Latent\n"
         elif name == "inheritance":
             ok = ok and py[1] == COOKBOOK_INHERITANCE_STDOUT
+        elif name == "named_arguments":
+            ok = ok and py[1] == "tea:3\n6\n"
         print(("PASS " if ok else "FAIL ") + "cookbook/" + name)
         if not ok:
             fails += 1
@@ -372,6 +455,7 @@ def main():
 
     total = (diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
+             len(P8_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
              len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK))
     print(f"\n{total - fails} passed, {fails} failed")

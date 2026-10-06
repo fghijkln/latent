@@ -209,6 +209,8 @@ while i < 3:
 
 ## 8. 函数
 
+> **v0.11.0/P8** 支持 Latent 调用的命名参数；Python/Java 互操作调用和内建函数仍只接受位置参数。
+
 ```latent
 fn fib(n):
     if n < 2:
@@ -290,6 +292,23 @@ say counter()       # 2；返回闭包共享并更新同一个 cell
 v0.10.0 的 P7 让 Latent 实例方法也能像函数值一样传递；内建函数以及
 Python/Java 句柄方法仍只能按原语法直接调用。
 
+### P8/v0.11.0：命名参数
+
+P8/v0.11.0 允许 Latent 用户函数和函数值按形参名传参，位置实参必须排在命名实参之前；实参表达式仍从左到右求值。形参都必须提供一次，不支持默认值或可变参数：
+
+```latent
+fn pair(left, right):
+    return left * 10 + right
+
+fn apply(fn_value):
+    return fn_value(right=2, left=1)
+
+say pair(right=2, left=1)  # 12
+say apply(pair)            # 12；函数值按运行期签名绑定
+```
+
+同一规则也适用于公开模块函数、Latent 直接/绑定方法及 Latent 构造器。内建函数和 Python/Java 互操作句柄仍只接受位置参数；命名实参会明确报错。使用命名调用的源码需要 v0.11.0 或更新版本。
+
 ---
 
 ## 9. 类
@@ -326,6 +345,8 @@ step(2, 3)               # self 已绑定为 p，只需传 dx、dy
 读取 `p.move` 时，同名实例字段优先；没有该字段才回退到最近的类方法。继承方法绑定
 到实际子类实例；而 `p.move(2, 3)` 仍按原有直接方法分派执行。绑定方法可传给函数、
 由函数返回或被闭包捕获。
+
+P8/v0.11.0 还允许按方法形参名调用绑定方法，并给 Latent 构造器命名：`p = Point.new(y=4, x=3)`、`step = p.move`、`step(dy=2, dx=1)`。绑定方法的调用者无需给 `self` 传参。
 
 - `init` 是构造器，`Point.new(...)` 会自动调它；没写 `init` 时 `Point.new()` 得到空对象。
 - 方法第一个参数收实例，按惯例叫 `self`（和 Python 一样是显式的）。
@@ -519,12 +540,12 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - 同一个文件即使使用不同路径写法和别名导入，也只初始化一次；被导入模块先于当前模块执行。循环导入会在编译期报错。
 - 当前仅支持本地静态 `.lt` 文件导入，不支持通配符、动态导入或包管理。公开模块类可以作为父类，详见 §9。
 
-## 15. 已知限制（v0.10.0）
+## 15. 已知限制（v0.11.0）
 
 - 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。P5/v0.8.0 支持用户定义函数值、嵌套闭包和 `global`；P6/v0.9.0 增加 `nonlocal`；P7/v0.10.0 增加 Latent 实例绑定方法值。模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持基本类型类名（`java "int"` 不行）。
-- 调用只有位置参数，没有关键字参数；Latent 实例绑定方法可作为函数值，类/静态方法不支持，内建函数及 Python/Java 句柄方法不能当作函数值。
+- v0.11.0/P8 支持 Latent 函数、模块函数、方法和构造器的命名参数；内建函数及 Python/Java 互操作调用继续只接受位置参数。不支持默认值、可变参数或仅限关键字参数。
 - 数字只有 float64 一种类型。
 - 性能只求正确：Java 后端全装箱，跨语言调用走 JSON 行协议。够用，不快。
 
@@ -532,9 +553,9 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 ## 库 cookbook
 
-`cookbook/` 里有 16 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`cookbook/` 里有 17 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
 `os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
-`BigDecimal`）常用库、函数值/闭包示例，以及一个双生态混用的例子。每个都在双后端验证过输出一致，
+`BigDecimal`）常用库、函数值/闭包示例，以及一个双生态混用的例子。`named_arguments.lt` 展示 v0.11.0/P8 的命名参数；全部样例均已在双后端验证输出一致，
 说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
 
 ---
@@ -543,5 +564,5 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（116 项：107 个双后端/集成场景和 9 个只读 CLI
+- 跑测试：`python3 tests/run_tests.py`（142 项：132 个双后端/集成场景和 10 个只读 CLI
   诊断回归；正例/cookbook 双后端对拍）

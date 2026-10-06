@@ -1,0 +1,2 @@
+Math = java "java.lang.Math"
+Math.sqrt(value=4)

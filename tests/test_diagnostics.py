@@ -47,7 +47,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual((result, error), (0, ""))
         document = json.loads(output)
         self.assertEqual(document["format"], "latent-ast")
-        self.assertEqual(document["version"], 2)
+        self.assertEqual(document["version"], 3)
         self.assertEqual(document["phase"], "parsed")
         self.assertEqual(document["source"], os.path.realpath(SAMPLE))
         tree_digest = hashlib.sha256(json.dumps(
@@ -152,7 +152,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(len(global_nodes), 1)
             self.assertEqual(global_nodes[0]["fields"], {"names": ["counter"]})
 
-    def test_nonlocal_statement_is_schema_v2_ast_data(self):
+    def test_nonlocal_statement_retains_stable_ast_shape_in_v3(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "nonlocal_scope.lt"
             source.write_text(
@@ -164,7 +164,7 @@ class DiagnosticTests(unittest.TestCase):
         for result, output, error in (parsed, desugared):
             self.assertEqual((result, error), (0, ""))
             document = json.loads(output)
-            self.assertEqual(document["version"], 2)
+            self.assertEqual(document["version"], 3)
             nodes_in_tree = list(_nodes(document["tree"]))
             declarations = [node for node in nodes_in_tree
                             if node["node"] == "NonlocalStmt"]
@@ -173,6 +173,31 @@ class DiagnosticTests(unittest.TestCase):
                              {"names": ["value", "other"]})
             self.assertEqual(declarations[0]["position"],
                              {"line": 4, "column": 9})
+
+    def test_named_argument_schema_v3_keeps_existing_call_field_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "named_call.lt"
+            source.write_text(
+                "fn pair(left, right):\n    return left + right\n"
+                "pair(1, right=2)\n", encoding="utf-8")
+            parsed = self.invoke(str(source), "--show-ast")
+            desugared = self.invoke(str(source), "--show-desugar")
+        for result, output, error in (parsed, desugared):
+            self.assertEqual((result, error), (0, ""))
+            document = json.loads(output)
+            self.assertEqual(document["version"], 3)
+            nodes_in_tree = list(_nodes(document["tree"]))
+            calls = [node for node in nodes_in_tree if node["node"] == "Call"]
+            named = [node for node in nodes_in_tree
+                     if node["node"] == "NamedArg"]
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(set(calls[0]["fields"]), {"function", "arguments"})
+            self.assertEqual(len(named), 1)
+            self.assertEqual(named[0]["fields"],
+                             {"name": "right",
+                              "value": {"node": "Num",
+                                        "position": {"line": 3, "column": 15},
+                                        "fields": {"value": 2.0}}})
 
     def test_diagnostic_flags_are_mutually_exclusive(self):
         result, output, error = self.invoke(

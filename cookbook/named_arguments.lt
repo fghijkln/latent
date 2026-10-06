@@ -1,0 +1,16 @@
+fn describe(name, count):
+    return name + ":" + str(count)
+
+say describe(count=3, name="tea")
+
+class Counter:
+    fn init(self, value):
+        self.value = value
+
+    fn add(self, amount):
+        self.value = self.value + amount
+        return self.value
+
+counter = Counter.new(value=4)
+step = counter.add
+say step(amount=2)

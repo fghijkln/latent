@@ -1,0 +1,6 @@
+class C:
+    fn combine(self, left, right):
+        return left + right
+
+obj = C.new()
+obj.combine(left=1)

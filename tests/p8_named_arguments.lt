@@ -1,0 +1,92 @@
+events = ""
+
+fn mark(tag, value):
+    global events
+    events = events + tag
+    return value
+
+fn combine(first, second, third):
+    return first * 100 + second * 10 + third
+
+fn apply_named(fn_value):
+    return fn_value(third=3, first=1, second=2)
+
+fn make_adder(amount):
+    fn add(value, extra):
+        return amount + value + extra
+    return add
+
+say combine(second=2, first=1, third=3)
+say apply_named(combine)
+adder = make_adder(10)
+say adder(extra=2, value=3)
+say combine(mark("A", 1), third=mark("C", 3), second=mark("B", 2))
+say events
+
+class Base:
+    fn init(self, left, right):
+        self.left = left
+        self.right = right
+
+    fn inherited(self, first, second):
+        return first * 10 + second
+
+    fn combine(self, left, right):
+        return left * 10 + right
+
+class Child(Base):
+    fn init(self, code, right, left):
+        self.code = code
+        self.left = left
+        self.right = right
+
+    fn combine(self, alpha, beta):
+        return alpha * 10 + beta
+
+    fn through_super(self, x, y):
+        return super.combine(self, right=y, left=x)
+
+base = Base.new(right=2, left=1)
+child = Child.new(left=3, right=4, code=9)
+say base.inherited(second=2, first=1)
+say child.inherited(first=3, second=4)
+say child.combine(beta=8, alpha=7)
+say child.through_super(y=12, x=11)
+bound = child.inherited
+say bound(second=6, first=5)
+
+
+class LeftOnly:
+    fn take(self, left):
+        return left
+
+class RightOnly:
+    fn take(self, right):
+        return right
+
+choose_left = false
+target = RightOnly.new()
+if choose_left:
+    target = LeftOnly.new()
+say target.take(right=9)
+
+fn choose_value(flag):
+    target = RightOnly.new()
+    if flag:
+        target = LeftOnly.new()
+    return target.take(right=10)
+
+say choose_value(false)
+
+class NamedBase:
+    fn forward(self, value):
+        return self.take(new=value)
+
+    fn take(self, old):
+        return old
+
+class NamedChild(NamedBase):
+    fn take(self, new):
+        return new
+
+say NamedChild.new().forward(value=11)

@@ -26,6 +26,7 @@ class Checker:
         self.classes = {}     # name -> ClassDef (top level)
         self.globals = set()
         self.module_bindings = set()
+        self.top_class_types = {}
 
     def run(self, prog):
         if any(isinstance(s, ModuleInit) for s in prog.stmts):
@@ -54,6 +55,7 @@ class Checker:
                         _err(m, f"method {s.name}.{m.name} must declare a receiver parameter")
                 self.classes[s.name] = s
         self.module_bindings = self._top_bindings(prog.stmts)
+        self._seed_top_class_types(prog.stmts)
         self._validate_inheritance()
         # generated Java method names must not collide with user functions
         for cname, cd in self.classes.items():
@@ -103,6 +105,7 @@ class Checker:
         self.module_bindings.update(self.functions)
         self.module_bindings.update(self.classes)
         self._validate_inheritance()
+        self._seed_top_class_types([m.body for m in modules])
         for cname, cd in self.classes.items():
             for method in cd.methods:
                 if f"{cname}_{method.name}" in self.functions:
@@ -148,31 +151,50 @@ class Checker:
         elif isinstance(s, Assign):
             self.top_expr(s.value, in_loop)
             self.globals.add(s.name)
+            cls = self._class_of(s.value, None)
+            if cls is None:
+                self.top_class_types.pop(s.name, None)
+            else:
+                self.top_class_types[s.name] = cls
         elif isinstance(s, If):
             self.top_expr(s.cond, in_loop)
+            snapshot = self._snapshot_class_types(None)
             for x in s.then_body:
                 self.top_stmt(x, in_loop)
+            self._restore_class_types(snapshot)
             if s.else_body:
                 for x in s.else_body:
                     self.top_stmt(x, in_loop)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], None)
         elif isinstance(s, While):
             self.top_expr(s.cond, in_loop)
+            snapshot = self._snapshot_class_types(None)
             for x in s.body:
                 self.top_stmt(x, in_loop + 1)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], None)
         elif isinstance(s, For):
             self.top_expr(s.iter, in_loop)
             self.globals.add(s.var)
+            snapshot = self._snapshot_class_types(None)
             for x in s.body:
                 self.top_stmt(x, in_loop + 1)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], None)
         elif isinstance(s, ExprStmt):
             self.top_expr(s.expr, in_loop)
             self._check_exprstmt(s)
         elif isinstance(s, Try):
+            snapshot = self._snapshot_class_types(None)
             for x in s.body:
                 self.top_stmt(x, in_loop)
+            self._restore_class_types(snapshot)
             self.globals.add(s.var)
             for x in s.handler:
                 self.top_stmt(x, in_loop)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], None)
         elif isinstance(s, Throw):
             self.top_expr(s.value, in_loop)
         elif isinstance(s, Return):
@@ -296,6 +318,7 @@ class Checker:
         ctx = {"params": params, "assigned": assigned, "done": set(),
                "globals": globals_, "nonlocals": nonlocals,
                "nonlocal_bindings": nonlocal_bindings,
+               "class_types": {},
                "nested_functions": nested,
                "parent": parent_ctx, "fn": fn, "classdef": classdef}
         for s in fn.body:
@@ -363,6 +386,29 @@ class Checker:
             elif isinstance(s, FnDef):
                 out.add(s.name)
 
+    def _class_type_maps(self, ctx):
+        maps = [self.top_class_types]
+        while ctx is not None:
+            maps.append(ctx["class_types"])
+            ctx = ctx["parent"]
+        return maps
+
+    def _snapshot_class_types(self, ctx):
+        return [(mapping, dict(mapping))
+                for mapping in self._class_type_maps(ctx)]
+
+    def _restore_class_types(self, snapshot):
+        for mapping, saved in snapshot:
+            mapping.clear()
+            mapping.update(saved)
+
+    def _forget_assigned_class_types(self, stmts, ctx):
+        names = set()
+        self._collect_assigned(stmts, names)
+        for mapping in self._class_type_maps(ctx):
+            for name in names:
+                mapping.pop(name, None)
+
     def fn_stmt(self, s, ctx, in_loop):
         if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
@@ -372,36 +418,62 @@ class Checker:
             self.fn_body(s, parent_ctx=ctx)
         elif isinstance(s, Assign):
             self._expr(s.value, ctx, in_loop)
-            if s.name not in ctx["globals"] and s.name not in ctx["nonlocals"]:
+            cls = self._class_of(s.value, ctx)
+            if s.name in ctx["globals"]:
+                # A global can be reassigned by another call at any time;
+                # function-body analysis cannot establish its call-time type.
+                self.top_class_types.pop(s.name, None)
+            elif s.name in ctx["nonlocals"]:
+                owner = ctx["nonlocal_bindings"][s.name]
+                owner["class_types"].pop(s.name, None)
+            else:
+                if cls is None:
+                    ctx["class_types"].pop(s.name, None)
+                else:
+                    ctx["class_types"][s.name] = cls
                 ctx["done"].add(s.name)
         elif isinstance(s, If):
             self._expr(s.cond, ctx, in_loop)
+            snapshot = self._snapshot_class_types(ctx)
             for x in s.then_body:
                 self.fn_stmt(x, ctx, in_loop)
+            self._restore_class_types(snapshot)
             if s.else_body:
                 for x in s.else_body:
                     self.fn_stmt(x, ctx, in_loop)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], ctx)
         elif isinstance(s, While):
             self._expr(s.cond, ctx, in_loop)
+            snapshot = self._snapshot_class_types(ctx)
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop + 1)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], ctx)
         elif isinstance(s, For):
             self._expr(s.iter, ctx, in_loop)
             if s.var not in ctx["globals"] and s.var not in ctx["nonlocals"]:
                 ctx["done"].add(s.var)
+            snapshot = self._snapshot_class_types(ctx)
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop + 1)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], ctx)
         elif isinstance(s, ExprStmt):
             self._expr(s.expr, ctx, in_loop)
             self._check_exprstmt(s)
         elif isinstance(s, Try):
+            snapshot = self._snapshot_class_types(ctx)
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop)
+            self._restore_class_types(snapshot)
             if s.var not in ctx["globals"] and s.var not in ctx["nonlocals"]:
                 ctx["assigned"].add(s.var)
                 ctx["done"].add(s.var)
             for x in s.handler:
                 self.fn_stmt(x, ctx, in_loop)
+            self._restore_class_types(snapshot)
+            self._forget_assigned_class_types([s], ctx)
         elif isinstance(s, Throw):
             self._expr(s.value, ctx, in_loop)
         elif isinstance(s, Return):
@@ -437,13 +509,11 @@ class Checker:
             if target is None:
                 _err(e, f"parent chain of {owner.source_name!r} has no method "
                         f"{e.method!r}")
-            got = len(e.args) - 1
-            want = len(target.params) - 1
-            if got != want:
-                _err(e, f"super.{e.method}() takes {want} args, got {got}")
+            self._check_arguments(e, e.args[1:], target.params[1:],
+                                  f"super.{e.method}")
             e.owner = owner
             for arg in e.args:
-                self._expr(arg, ctx, in_loop)
+                self._arg_expr(arg, ctx, in_loop)
             return
         if isinstance(e, List):
             for x in e.elts:
@@ -472,10 +542,14 @@ class Checker:
         if isinstance(e, Call):
             self._expr(e.func, ctx, in_loop, as_callee=True)
             for a in e.args:
-                self._expr(a, ctx, in_loop)
+                self._arg_expr(a, ctx, in_loop)
             self._check_call(e, ctx)
             return
         _err(e, f"unexpected {type(e).__name__}")
+
+    def _arg_expr(self, arg, ctx, in_loop):
+        self._expr(arg.value if isinstance(arg, NamedArg) else arg,
+                   ctx, in_loop)
 
     def _method_in_chain(self, cd, name):
         while cd is not None:
@@ -591,6 +665,24 @@ class Checker:
         _err(e, f"undefined name {name!r}")
 
     def _check_call(self, e, ctx):
+        # Dot calls are lowered to __wcall but retain an internal marker so
+        # the checker can validate a Latent signature when receiver type is known.
+        if e.direct_method is not None and len(e.args) >= 2:
+            cls = self._class_of(e.args[0], ctx)
+            if cls is not None:
+                method_name = e.direct_method
+                if method_name == "new":
+                    target = self._method_in_chain(cls, "init")
+                    params = target.params[1:] if target else []
+                    label = cls.source_name + ".new"
+                    self._check_arguments(e, e.args[2:], params, label)
+                else:
+                    target = self._method_in_chain(cls, method_name)
+                    if target is not None:
+                        self._check_arguments(e, e.args[2:],
+                                              target.params[1:], method_name)
+            return
+
         n = len(e.args)
         if not isinstance(e.func, Name):
             return
@@ -598,6 +690,8 @@ class Checker:
         if name in BUILTINS and not (ctx is not None and
                 self._binding(name, ctx) and
                 self._binding(name, ctx)[0] == "local"):
+            if any(isinstance(arg, NamedArg) for arg in e.args):
+                _err(e, f"built-in function {name!r} does not accept named arguments")
             lo, hi = BUILTINS[name]
             if n < lo or (hi is not None and n > hi):
                 _err(e, f"{name}() takes "
@@ -610,9 +704,77 @@ class Checker:
         elif binding and binding[0] == "local":
             target = binding[1]["nested_functions"].get(name)
         if target is not None:
-            want = len(target.params)
-            if n != want:
-                _err(e, f"{name}() takes {want} args, got {n}")
+            self._check_arguments(e, e.args, target.params, name)
+
+    def _check_arguments(self, node, actuals, params, label):
+        if not any(isinstance(arg, NamedArg) for arg in actuals):
+            if len(actuals) != len(params):
+                _err(node, f"{label}() takes {len(params)} args, got {len(actuals)}")
+            return
+        positional = sum(not isinstance(arg, NamedArg) for arg in actuals)
+        if positional > len(params):
+            _err(node, f"{label}() takes {len(params)} args, got {positional}")
+        supplied = set(params[:positional])
+        seen_names = set()
+        for arg in actuals:
+            if not isinstance(arg, NamedArg):
+                continue
+            name = arg.name
+            if name in seen_names:
+                _err(arg, f"{label}() got duplicate named argument {name!r}")
+            seen_names.add(name)
+            if name not in params:
+                _err(arg, f"{label}() got unexpected named argument {name!r}")
+            if name in supplied:
+                _err(arg, f"{label}() got multiple values for argument {name!r}")
+            supplied.add(name)
+        missing = [name for name in params if name not in supplied]
+        if missing:
+            _err(node, f"{label}() missing required argument {missing[0]!r}")
+
+    def _class_of(self, expr, ctx):
+        if isinstance(expr, Call) and expr.direct_method == "new" and expr.args:
+            return self._class_of(expr.args[0], ctx)
+        if not isinstance(expr, Name):
+            return None
+        name = expr.id
+        scope = ctx
+        while scope is not None:
+            fn = scope["fn"]
+            if scope["classdef"] is not None and fn.params and \
+                    name == fn.params[0]:
+                # self may be a subclass at runtime; overrides can use
+                # different parameter names, so defer its direct calls.
+                return None
+            if name in scope["params"] or name in scope["assigned"]:
+                return scope["class_types"].get(name)
+            if name in scope["globals"]:
+                return self.classes.get(name)
+            if name in scope["nonlocals"]:
+                return None
+            scope = scope["parent"]
+        if ctx is not None:
+            return self.classes.get(name)
+        return self.top_class_types.get(name) or self.classes.get(name)
+
+    def _seed_top_class_types(self, groups):
+        """Seed only unambiguous top-level assignments before function checks."""
+        statements = []
+        for group in groups:
+            if isinstance(group, list):
+                statements.extend(group)
+            else:
+                statements.append(group)
+        pending = [stmt for stmt in statements if isinstance(stmt, Assign)]
+        for _ in range(len(pending) + 1):
+            changed = False
+            for stmt in pending:
+                cls = self._class_of(stmt.value, None)
+                if cls is not None and self.top_class_types.get(stmt.name) is not cls:
+                    self.top_class_types[stmt.name] = cls
+                    changed = True
+            if not changed:
+                break
 
 
 def check(prog):

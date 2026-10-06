@@ -169,6 +169,12 @@ class Desugar:
         raise DesugarError(f"{s.line}:{s.col}: unknown stmt {type(s).__name__}")
 
     # ---- expressions ----
+    def argument(self, arg):
+        if isinstance(arg, NamedArg):
+            return NamedArg(arg.name, self.expr(arg.value),
+                            line=arg.line, col=arg.col)
+        return self.expr(arg)
+
     def expr(self, e):
         if isinstance(e, (Num, Bool, Nil, Name)):
             return e
@@ -202,16 +208,18 @@ class Desugar:
         if isinstance(e, Call):
             if isinstance(e.func, Dot) and isinstance(e.func.obj, Super):
                 return SuperCall(e.func.attr,
-                                 [self.expr(a) for a in e.args],
+                                 [self.argument(a) for a in e.args],
                                  line=e.line, col=e.col)
             func = self.expr(e.func)
-            args = [self.expr(a) for a in e.args]
+            args = [self.argument(a) for a in e.args]
             if isinstance(e.func, Dot):
                 d = e.func
-                return Call(Name("__wcall", line=e.line, col=e.col),
+                call = Call(Name("__wcall", line=e.line, col=e.col),
                             [self.expr(d.obj),
                              Str(d.attr, line=e.line, col=e.col)] + args,
                             line=e.line, col=e.col)
+                call.direct_method = d.attr
+                return call
             return Call(func, args, line=e.line, col=e.col)
         if isinstance(e, PyImport):
             return PyImport(self.expr(e.module_expr), line=e.line, col=e.col)

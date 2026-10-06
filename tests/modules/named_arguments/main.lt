@@ -1,0 +1,5 @@
+import "lib.lt" as lib
+
+say lib.combine(right=2, left=1)
+fn_value = lib.combine
+say fn_value(left=3, right=4)

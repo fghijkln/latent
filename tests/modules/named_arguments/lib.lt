@@ -1,0 +1,2 @@
+fn combine(left, right):
+    return left * 10 + right

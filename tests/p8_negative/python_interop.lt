@@ -1,0 +1,2 @@
+math = py "math"
+math.sqrt(value=4)

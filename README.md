@@ -6,7 +6,9 @@
 
 万物皆潜在（latent），直到被触碰的那一刻。
 
-**当前发布：v0.10.0**（Latent 实例绑定方法可作为函数值；包含 v0.9.0 的 `nonlocal` 词法绑定与 v0.8.0 的函数值、闭包）。
+**当前发布：v0.11.0**（P8 命名参数、`latent-ast` schema v3；并包含 v0.10.0 的 Latent 实例绑定方法值、v0.9.0 的 `nonlocal` 词法绑定与 v0.8.0 的函数值和闭包）。
+
+P8 设计与实现记录见 [P8 命名参数设计](P8_NAMED_ARGUMENTS_DESIGN.md)。
 
 Latent 不追求在简单脚本上赢过 Python——写纯 Python 逻辑，Python 的工具和
 生态成熟得多，无需争辩。它的赌注只有一个：**同一份源码，跑在 Python 和
@@ -16,7 +18,7 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 
 代价是真实的：两套后端、跨语言对象让调试和错误处理更难。为此编译器用
 机制而不是运气来还债：`tests/run_tests.py` 每次都在双后端之间逐字节
-对拍输出（107 项双后端/集成场景），另有 9 项只读 CLI 诊断回归，两端行为不一致即失败。
+对拍输出（132 项双后端/集成场景），另有 10 项只读 CLI 诊断回归，两端行为不一致即失败。
 
 - 教程：[TUTORIAL.md](TUTORIAL.md)
 - 语言规范：[SPEC.md](SPEC.md)
@@ -24,6 +26,7 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 - P3 继承语义：[P3_INHERITANCE_DESIGN.md](P3_INHERITANCE_DESIGN.md)
 - P5 函数值与闭包设计：[P5_FUNCTION_VALUES_DESIGN.md](P5_FUNCTION_VALUES_DESIGN.md)
 - P6 `nonlocal` 设计：[P6_NONLOCAL_DESIGN.md](P6_NONLOCAL_DESIGN.md)
+- P8 命名参数设计：[P8_NAMED_ARGUMENTS_DESIGN.md](P8_NAMED_ARGUMENTS_DESIGN.md)
 - 发布记录：[CHANGELOG.md](CHANGELOG.md)
 
 ## 用法
@@ -82,21 +85,24 @@ say java "java.lang.Math".sqrt(2)  # 静态方法直接调：1.4142135623730951
 ## 工程
 
 - 纯 Python 标准库实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 测试：`python3 tests/run_tests.py` —— 37 个程序正例（31 单文件 + 6 模块入口）、37 个编译期负例、
-  17 个运行期负例、16 个 cookbook，共 107 个双后端/集成场景；另有 9 个只读诊断
+- 测试：`python3 tests/run_tests.py` —— 39 个程序正例（32 单文件 + 7 模块入口）、51 个编译期负例、
+  25 个运行期负例、17 个 cookbook，共 132 个双后端/集成场景；另有 10 个只读诊断
   单元/CLI 回归。正例与 cookbook 双后端输出逐字节对拍，运行期负例验证两端失败
   状态与 `.lt` 源码位置。
 - 编译期错误显示 `文件:行:列`、源码行和 `^`；未捕获的运行期错误在
   Python/Java 后端显示 `.lt` 文件、行号和 Latent 调用栈。无法映射时回退到
   原生 traceback/Java 堆栈；运行期暂不显示列号。
 
-## 已知边界（已发布 v0.10.0）
+## 已知边界（已发布 v0.11.0）
 
 支持 Latent 单继承、`super`、`try`/`catch`/`throw`、属性与下标读写；未捕获的运行期错误
-已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承随 v0.6.0 发布；v0.7.0 增加只读 AST/脱糖诊断；v0.8.0 增加用户定义函数值、嵌套词法闭包和 `global`，详见 [P5 设计记录](P5_FUNCTION_VALUES_DESIGN.md)；v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)；v0.10.0 让 `obj.method` 在没有同名字段时返回捕获实例的绑定方法值，实例字段仍优先，显式 `obj.method(...)` 仍走原有分派。模块导入仍只支持本地显式别名，不支持循环导入或包管理。仍无多继承；内建函数及互操作句柄方法不作为函数值；
+已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承随 v0.6.0 发布；v0.7.0 增加只读 AST/脱糖诊断；v0.8.0 增加用户定义函数值、嵌套词法闭包和 `global`，详见 [P5 设计记录](P5_FUNCTION_VALUES_DESIGN.md)；v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)；v0.10.0 让 `obj.method` 在没有同名字段时返回捕获实例的绑定方法值，实例字段仍优先；v0.11.0/P8 增加 Latent 函数、闭包、公开模块函数、方法和构造器的命名参数，并升级 `latent-ast` 到 schema v3。模块导入仍只支持本地显式别名，不支持循环导入或包管理。仍无多继承；内建函数及互操作句柄方法不作为函数值；
 `py` 只支持模块句柄，
-不支持内联 Python 代码块；`java` 不支持基本类型类名（`java "int"`）；调用只有
-位置参数；数字只有 float64 一种类型。
+不支持内联 Python 代码块；`java` 不支持基本类型类名（`java "int"`）；数字只有 float64 一种类型。
+
+## v0.11.0：命名参数
+
+位置参数必须先于命名参数，实参仍按源码从左到右求值；签名已知时在编译期检查，否则在运行期按保留的形参名绑定。内建函数和 Python/Java 互操作方法/构造器仍只接受位置参数；不支持默认值、可变参数或仅限关键字参数。使用命名调用的源码要求 v0.11.0 或更新版本。
 
 ## 许可证
 

@@ -148,6 +148,9 @@ class Gen:
             self.source_map[generated_line] = (source_path or self.source_path,
                                                source_line)
 
+    def string_array(self, values):
+        return "new String[]{" + ", ".join(java_str(v) for v in values) + "}"
+
     def generate(self, prog):
         self._prepare_functions(prog)
         modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
@@ -175,7 +178,8 @@ class Gen:
                 self.w(f"static Object {ident(g)};")
             else:
                 self.w(f"static Object {ident(g)} = LtRt.function(" +
-                       f"{len(fn.params)}, {java_str(fn.source_name)}, " +
+                       f"{self.string_array(fn.params)}, "
+                       f"{java_str(fn.source_name)}, " +
                        f"args -> {self.fn_helpers[id(fn)]}(null, args));")
         for module in modules:
             self.w(f"private static int {module.state_name};")
@@ -258,8 +262,10 @@ class Gen:
         self.w("if (mappedFrames == 0) {")
         self.ind += 1
         self.w("String detail = error.getMessage();")
+        self.w('String errorName = error instanceof LtRt.ArgumentError ? '
+               '"ArgumentError" : error.getClass().getSimpleName();')
         self.w("System.err.println(\"Latent runtime error: \" + "
-               "error.getClass().getSimpleName() + "
+               "errorName + "
                "(detail == null || detail.isEmpty() ? \"\" : \": \" + detail));")
         self.w("System.err.println(\"Latent traceback (most recent call last):\");")
         self.ind -= 1
@@ -313,6 +319,8 @@ class Gen:
             f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
         arities = ", ".join(str(max(0, len(m.params) - 1))
                              for m in cd.methods)
+        parameters = ", ".join(self.string_array(m.params[1:])
+                                for m in cd.methods)
         parent = ident(cd.parent.name) if cd.parent else "null"
         self.w(f"static LtRt.LtClass {ident(cd.name)} = LtRt.makeClass(")
         self.ind += 1
@@ -320,7 +328,8 @@ class Gen:
         self.w(f"{parent},")
         self.w(f"new String[]{{{names}}},")
         self.w(f"new LtRt.LtMethod[]{{{lambdas}}},")
-        self.w(f"new int[]{{{arities}}});")
+        self.w(f"new int[]{{{arities}}},")
+        self.w(f"new String[][]{{{parameters}}});")
         self.ind -= 1
 
     def methoddef(self, cd, m):
@@ -332,7 +341,7 @@ class Gen:
         self.w(f"if (args.length != {len(restp)})")
         self.ind += 1
         self.w(f'throw new RuntimeException("{m.name}() takes {len(restp)} '
-               f'arguments, got " + args.length);')
+               f'args, got " + args.length);')
         self.ind -= 1
         self.w(f"Object[] _all_args = new Object[{len(restp) + 1}];")
         self.w("_all_args[0] = self;")
@@ -493,7 +502,8 @@ class Gen:
         if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
-            closure = f"LtRt.function({len(s.params)}, {java_str(s.source_name)}, " \
+            closure = f"LtRt.function({self.string_array(s.params)}, " \
+                      f"{java_str(s.source_name)}, " \
                       f"args -> {self.fn_helpers[id(s)]}(_env, args))"
             self.w(self._assign(s.name, closure), s.line, s.source_path)
         elif isinstance(s, Assign):
@@ -594,7 +604,7 @@ class Gen:
             return self.call(e)
         if isinstance(e, SuperCall):
             receiver = self.expr(e.args[0])
-            args = [self.expr(a) for a in e.args[1:]]
+            args = [self.argument(a) for a in e.args[1:]]
             rendered = ", ".join([receiver, ident(e.owner.name),
                                     java_str(e.method)] + args)
             return f"LtRt.superCall({rendered})"
@@ -637,8 +647,13 @@ class Gen:
             return f"(LtRt.truthy({l}) ? {l} : {r})"
         raise Exception(f"java backend: bad op {op}")
 
+    def argument(self, arg):
+        if isinstance(arg, NamedArg):
+            return f"LtRt.named({java_str(arg.name)}, {self.expr(arg.value)})"
+        return self.expr(arg)
+
     def call(self, e):
-        args = [self.expr(a) for a in e.args]
+        args = [self.argument(a) for a in e.args]
         name = e.func.id if isinstance(e.func, Name) else None
         if name == "__wgetattr":
             return f"LtRt.wgetattr({args[0]}, {args[1]})"
