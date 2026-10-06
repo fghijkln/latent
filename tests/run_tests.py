@@ -17,12 +17,37 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target"]
 NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
-               "err_index_key", "err_nomethod", "err_nofield"]
+               "err_index_key", "err_nomethod", "err_nofield",
+               "err_location_top", "err_location_nested",
+               "err_location_method", "err_location_loop",
+               "err_location_throw", "err_location_try",
+               "err_location_py_handle", "err_location_java_handle"]
+
+RUNTIME_SOURCE_LINES = {
+    "py_lazy_use": [2], "java_lazy_use": [2],
+    "err_index_range": [2], "err_index_key": [2],
+    "err_nomethod": [6], "err_nofield": [6],
+    "err_location_top": [2], "err_location_nested": [2, 4, 5],
+    "err_location_method": [3, 5], "err_location_loop": [2],
+    "err_location_throw": [1], "err_location_try": [4],
+    "err_location_py_handle": [2], "err_location_java_handle": [2],
+}
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_strings", "java_collections", "java_time", "java_nio",
             "java_bigdecimal", "mixed_io", "classes", "pipeline"]
+
+TRY_BASIC_STDOUT = ("caught: index out of range: 5\n"
+                    "k=key not found: zz\n"
+                    "e=negative!\n"
+                    "no error\n"
+                    "42\n"
+                    "5\n"
+                    "-1\n"
+                    "n=outer: inner\n"
+                    "javaerr\n"
+                    "pyerr\n")
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -53,6 +78,14 @@ def cap(name):
     return (s[0].upper() + s[1:]) if s else "_"
 
 
+def has_source_locations(name, result):
+    """Require a useful mapped diagnostic without coupling to backend wording."""
+    _, _, stderr = result
+    return ("Latent runtime error:" in stderr and
+            all(f"{name}.lt:{line}" in stderr
+                for line in RUNTIME_SOURCE_LINES[name]))
+
+
 def main():
     fails = 0
 
@@ -60,7 +93,10 @@ def main():
     for name in POSITIVE:
         py = compile_and_run(name, "py")
         jv = compile_and_run(name, "java")
-        ok = (py[0] == 0 and jv[0] == 0 and py[1] == jv[1])
+        ok = (py[0] == 0 and jv[0] == 0 and py[1] == jv[1] and
+              not py[2] and not jv[2])
+        if name == "try_basic":
+            ok = ok and py[1] == TRY_BASIC_STDOUT and jv[1] == TRY_BASIC_STDOUT
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -84,18 +120,22 @@ def main():
         py = compile_and_run(name, "py")
         jv = compile_and_run(name, "java")
         ok = (py[0] not in (0, "compile-fail", "timeout") and py[0] != 0 and
-              jv[0] not in (0, "compile-fail", "timeout") and jv[0] != 0)
+              jv[0] not in (0, "compile-fail", "timeout") and jv[0] != 0 and
+              has_source_locations(name, py) and has_source_locations(name, jv))
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
-            print(f"  py:   rc={py[0]} err={py[2][-300:]}")
-            print(f"  java: rc={jv[0]} err={jv[2][-300:]}")
+            print(f"  py:   rc={py[0]} mapped={has_source_locations(name, py)} "
+                  f"err={py[2][-500:]}")
+            print(f"  java: rc={jv[0]} mapped={has_source_locations(name, jv)} "
+                  f"err={jv[2][-500:]}")
 
     print("== cookbook: py vs java must produce identical stdout, exit 0 ==")
     for name in COOKBOOK:
         py = compile_and_run(name, "py", COOKBOOK_DIR)
         jv = compile_and_run(name, "java", COOKBOOK_DIR)
-        ok = (py[0] == 0 and jv[0] == 0 and py[1] == jv[1])
+        ok = (py[0] == 0 and jv[0] == 0 and py[1] == jv[1] and
+              not py[2] and not jv[2])
         print(("PASS " if ok else "FAIL ") + "cookbook/" + name)
         if not ok:
             fails += 1

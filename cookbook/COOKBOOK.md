@@ -7,7 +7,7 @@ python3 latent.py cookbook/py_json.lt -t py -o out --run
 python3 latent.py cookbook/py_json.lt -t java -o out --run
 ```
 
-`tests/run_tests.py` 会把全部 11 个例子自动双后端对拍。
+`tests/run_tests.py` 会把全部 13 个例子自动双后端对拍。
 
 ## Python 生态
 
@@ -47,6 +47,6 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 
 1. **Latent 字符串是原生值，不是 Java 对象**：`"hi".toUpperCase()` 调不动。用 `S.join` / `S.format` 这类静态方法，或 `StringBuilder` 做拼接。
 2. **内建函数不是一等值**：`collections.defaultdict(int)` 写不出来（`int` 传不进去）。v0.2 不支持把函数当值传。
-3. **只有下标读，没有下标写**：`xs[0]`、`m["k"]`、`t["tags"][0]` 都可以（含负索引）；但 `xs[0] = v` 语法不支持，改列表用 `push`，改映射用 `update` 这类方法。
+3. **下标写支持范围**：Latent 列表/映射、py 句柄，以及 Java `List`/`Map` 句柄都支持 `xs[0] = v` / `m["k"] = v`；字符串仍不可写。负索引适用于序列。
 4. **Java 方法重载按"第一个能对上"的来**：`coerce` 会把 Latent 数字转成 `int/long/double` 等，歧义时别依赖重载解析。
 5. **跨边界有 JSON 行协议开销**：循环里逐个调 Java/Python 方法优先保证正确，不保证性能。真要快，把循环写进对端的一次调用里。

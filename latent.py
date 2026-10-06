@@ -192,7 +192,7 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     if args.target == "py":
-        code = gen_py.generate(prog)
+        code = gen_py.generate(prog, source_path=args.src)
         out = os.path.join(outdir, stem + ".py")
         with open(out, "w", encoding="utf-8") as f:
             f.write(code)
@@ -220,7 +220,7 @@ def main():
             return r.returncode
     else:
         cls = gen_java.cls_name(stem)
-        code = gen_java.generate(prog, cls)
+        code = gen_java.generate(prog, cls, source_path=args.src)
         main_java = os.path.join(outdir, cls + ".java")
         with open(main_java, "w", encoding="utf-8") as f:
             f.write(code)

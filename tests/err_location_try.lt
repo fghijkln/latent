@@ -1,0 +1,4 @@
+try:
+    say [1][4]
+catch e:
+    throw e

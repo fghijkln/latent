@@ -1,0 +1,5 @@
+fn inner():
+    say [1][4]
+fn middle():
+    inner()
+middle()

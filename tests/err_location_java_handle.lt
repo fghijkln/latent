@@ -1,0 +1,2 @@
+Integer = java "java.lang.Integer"
+say Integer.parseInt("not-a-number")

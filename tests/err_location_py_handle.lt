@@ -1,0 +1,2 @@
+math = py "math"
+say math.sqrt("not-a-number")

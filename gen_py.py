@@ -10,6 +10,8 @@ import math as _math
 import os as _os
 import shutil as _shutil
 import subprocess as _subprocess
+import sys as _sys
+import traceback as _traceback
 
 
 class _LazyMod:
@@ -43,7 +45,9 @@ def _wv_repr(v):
             return "nan"
         if v.is_integer():
             return str(int(v))
-        return repr(v)
+        # NumPy 2.x reprs scalars as ``np.float64(...)``; normalize to the
+        # language's float64 spelling used by the Java backend.
+        return repr(float(v))
     if isinstance(v, str):
         return v
     if isinstance(v, _LazyMod):
@@ -532,6 +536,46 @@ def _wv_wsetindex(h, k, v):
         pass
     raise TypeError("cannot index-assign " + _wv_repr(h))
 
+
+def _wv_report_uncaught(exc, source_map, source_file, generated_file):
+    """Render mapped Latent frames; retain Python's traceback as a fallback."""
+    def _fallback():
+        _traceback.print_exception(type(exc), exc, exc.__traceback__,
+                                   file=_sys.stderr)
+
+    try:
+        generated_abs = _os.path.abspath(generated_file)
+        mapped = []
+        tb = exc.__traceback__
+        while tb is not None:
+            frame = tb.tb_frame
+            filename = frame.f_code.co_filename
+            if (filename == generated_file or
+                    _os.path.abspath(filename) == generated_abs):
+                source_line = source_map.get(tb.tb_lineno)
+                if source_line:
+                    name = frame.f_code.co_name
+                    mapped.append((source_line,
+                                   "main" if name == "<module>" else name))
+            tb = tb.tb_next
+        if not mapped:
+            _fallback()
+            return
+
+        message = str(exc)
+        detail = type(exc).__name__ + (": " + message if message else "")
+        print("Latent runtime error: " + detail, file=_sys.stderr)
+        print("Latent traceback (most recent call last):", file=_sys.stderr)
+        for line, name in mapped:
+            print(f"  at {source_file}:{line} in {name}", file=_sys.stderr)
+    except Exception:
+        # Diagnostics must never replace the original failure.
+        try:
+            _fallback()
+        except Exception:
+            print("Latent runtime error (diagnostic formatting failed)",
+                  file=_sys.stderr)
+
 '''
 
 BUILTIN_PY = {
@@ -544,12 +588,17 @@ BUILTIN_PY = {
 
 
 class Gen:
-    def __init__(self):
+    def __init__(self, source_path="<src>"):
         self.out = []
         self.indent = 0
+        self.source_path = source_path
+        self.source_map = {}
 
-    def w(self, s=""):
+    def w(self, s="", source_line=None):
+        physical_line = len(self.out) + 1 + sum(x.count("\n") for x in self.out)
         self.out.append("    " * self.indent + s)
+        if source_line:
+            self.source_map[physical_line] = source_line
 
     def generate(self, prog):
         self.w(PRELUDE.strip("\n"))
@@ -563,13 +612,27 @@ class Gen:
         for cd in clss:
             self.w("")
             self.classdef(cd)
+        self.w("")
+        self.w(f"_WV_SOURCE_FILE = {json.dumps(self.source_path, ensure_ascii=False)}")
+        source_map_line = len(self.out)
+        self.w("_WV_SOURCE_MAP = {}")
         if rest:
             self.w("")
             self.w('if __name__ == "__main__":')
             self.indent += 1
+            self.w("try:")
+            self.indent += 1
             for s in rest:
                 self.stmt(s)
             self.indent -= 1
+            self.w("except Exception as _wv_error:")
+            self.indent += 1
+            self.w("_wv_report_uncaught(_wv_error, _WV_SOURCE_MAP, "
+                   "_WV_SOURCE_FILE, __file__)")
+            self.w("raise SystemExit(1)")
+            self.indent -= 1
+            self.indent -= 1
+        self.out[source_map_line] = f"_WV_SOURCE_MAP = {self.source_map!r}"
         return "\n".join(self.out) + "\n"
 
     def classdef(self, cd):
@@ -615,33 +678,33 @@ class Gen:
 
     def stmt(self, s):
         if isinstance(s, Assign):
-            self.w(f"{s.name} = {self.expr(s.value)}")
+            self.w(f"{s.name} = {self.expr(s.value)}", s.line)
         elif isinstance(s, ExprStmt):
-            self.w(self.expr(s.expr))
+            self.w(self.expr(s.expr), s.line)
         elif isinstance(s, If):
-            self.w(f"if {self.expr(s.cond)}:")
+            self.w(f"if {self.expr(s.cond)}:", s.line)
             self.suite(s.then_body)
             if s.else_body:
                 self.w("else:")
                 self.suite(s.else_body)
         elif isinstance(s, While):
-            self.w(f"while {self.expr(s.cond)}:")
+            self.w(f"while {self.expr(s.cond)}:", s.line)
             self.suite(s.body)
         elif isinstance(s, For):
-            self.w(f"for {s.var} in _wv_iter({self.expr(s.iter)}):")
+            self.w(f"for {s.var} in _wv_iter({self.expr(s.iter)}):", s.line)
             self.suite(s.body)
         elif isinstance(s, Return):
             self.w(f"return {self.expr(s.value)}" if s.value is not None
-                   else "return None")
+                   else "return None", s.line)
         elif isinstance(s, Break):
-            self.w("break")
+            self.w("break", s.line)
         elif isinstance(s, Continue):
-            self.w("continue")
+            self.w("continue", s.line)
         elif isinstance(s, Try):
             # catch var defaults to nil so reading it outside the handler
             # is nil on both backends (not NameError vs javac error)
             self.w(f"{s.var} = None")
-            self.w("try:")
+            self.w("try:", s.line)
             self.suite(s.body)
             self.w("except Exception as _lt_e:")
             self.indent += 1
@@ -653,7 +716,7 @@ class Gen:
                 self.stmt(x)
             self.indent -= 1
         elif isinstance(s, Throw):
-            self.w(f"raise Exception(_wv_repr({self.expr(s.value)}))")
+            self.w(f"raise Exception(_wv_repr({self.expr(s.value)}))", s.line)
         else:
             raise Exception(f"py backend: unexpected {type(s).__name__}")
 
@@ -732,5 +795,5 @@ class Gen:
         raise Exception(f"py backend: bad op {op}")
 
 
-def generate(prog):
-    return Gen().generate(prog)
+def generate(prog, source_path="<src>"):
+    return Gen(source_path=source_path).generate(prog)

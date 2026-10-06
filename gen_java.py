@@ -69,14 +69,19 @@ def java_str(s):
 
 
 class Gen:
-    def __init__(self, cls):
+    def __init__(self, cls, source_path="<src>"):
         self.cls = cls
         self.out = []
         self.ind = 0
         self.tmp = 0
+        self.source_path = source_path
+        self.source_map = {}
 
-    def w(self, s=""):
+    def w(self, s="", source_line=None):
+        generated_line = len(self.out) + 1
         self.out.append("    " * self.ind + s)
+        if source_line:
+            self.source_map[generated_line] = source_line
 
     def generate(self, prog):
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
@@ -95,9 +100,23 @@ class Gen:
             self.classfield(cd)
         self.w("public static void main(String[] args) {")
         self.ind += 1
+        self.w("try {")
+        self.ind += 1
         for s in rest:
             self.stmt(s)
+        self.ind -= 1
+        self.w("} catch (Exception _lt_error) {")
+        self.ind += 1
+        self.w("_lt_reportError(_lt_error);")
         self.w("LtRt.shutdown();")
+        self.w("System.exit(1);")
+        self.w("return;")
+        self.ind -= 1
+        self.w("} finally {")
+        self.ind += 1
+        self.w("LtRt.shutdown();")
+        self.ind -= 1
+        self.w("}")
         self.ind -= 1
         self.w("}")
         for fn in fns:
@@ -107,6 +126,55 @@ class Gen:
             for m in cd.methods:
                 self.w("")
                 self.methoddef(cd, m)
+        self.w("")
+        self.w("private static final String _LT_SOURCE_FILE = " +
+               java_str(self.source_path) + ";")
+        self.w("private static int _lt_sourceLine(int generatedLine) {")
+        self.ind += 1
+        self.w("switch (generatedLine) {")
+        self.ind += 1
+        for generated_line, source_line in sorted(self.source_map.items()):
+            self.w(f"case {generated_line}: return {source_line};")
+        self.w("default: return 0;")
+        self.ind -= 1
+        self.w("}")
+        self.ind -= 1
+        self.w("}")
+        self.w("private static void _lt_reportError(Exception error) {")
+        self.ind += 1
+        self.w("try {")
+        self.ind += 1
+        self.w("int mappedFrames = 0;")
+        self.w("StackTraceElement[] frames = error.getStackTrace();")
+        self.w("for (int i = frames.length - 1; i >= 0; i--) {")
+        self.ind += 1
+        self.w("StackTraceElement frame = frames[i];")
+        self.w(f"if (!frame.getClassName().equals({java_str(self.cls)})) continue;")
+        self.w("int sourceLine = _lt_sourceLine(frame.getLineNumber());")
+        self.w("if (sourceLine <= 0) continue;")
+        self.w("if (mappedFrames == 0) {")
+        self.ind += 1
+        self.w("String detail = error.getMessage();")
+        self.w("System.err.println(\"Latent runtime error: \" + "
+               "error.getClass().getSimpleName() + "
+               "(detail == null || detail.isEmpty() ? \"\" : \": \" + detail));")
+        self.w("System.err.println(\"Latent traceback (most recent call last):\");")
+        self.ind -= 1
+        self.w("}")
+        self.w("System.err.println(\"  at \" + _LT_SOURCE_FILE + \":\" + "
+               "sourceLine + \" in \" + frame.getMethodName());")
+        self.w("mappedFrames++;")
+        self.ind -= 1
+        self.w("}")
+        self.w("if (mappedFrames == 0) error.printStackTrace(System.err);")
+        self.ind -= 1
+        self.w("} catch (Throwable diagnosticError) {")
+        self.ind += 1
+        self.w("error.printStackTrace(System.err);")
+        self.ind -= 1
+        self.w("}")
+        self.ind -= 1
+        self.w("}")
         self.ind -= 1
         self.w("}")
         return "\n".join(self.out) + "\n"
@@ -126,7 +194,8 @@ class Gen:
         params = m.params
         selfname = ident(params[0]) if params else "self"
         restp = params[1:] if params else []
-        self.w(f"static Object {cd.name}_{m.name}(Object {selfname}, Object[] args) " + "{")
+        self.w(f"static Object {cd.name}_{m.name}(Object {selfname}, Object[] args) " + "{",
+               m.line)
         self.ind += 1
         self.w(f"if (args.length != {len(restp)})")
         self.ind += 1
@@ -149,7 +218,7 @@ class Gen:
 
     def fndef(self, fn):
         params = ", ".join(f"Object {ident(p)}" for p in fn.params)
-        self.w(f"static Object {ident(fn.name)}({params}) " + "{")
+        self.w(f"static Object {ident(fn.name)}({params}) " + "{", fn.line)
         self.ind += 1
         assigned = set()
         self._collect(fn.body, assigned)
@@ -221,24 +290,25 @@ class Gen:
 
     def stmt(self, s):
         if isinstance(s, Assign):
-            self.w(f"{ident(s.name)} = {self.expr(s.value)};")
+            self.w(f"{ident(s.name)} = {self.expr(s.value)};", s.line)
         elif isinstance(s, ExprStmt):
-            self.w(f"{self.expr(s.expr)};")
+            self.w(f"{self.expr(s.expr)};", s.line)
         elif isinstance(s, If):
-            self.w(f"if (LtRt.truthy({self.expr(s.cond)})) " + "{")
+            self.w(f"if (LtRt.truthy({self.expr(s.cond)})) " + "{", s.line)
             self.suite(s.then_body)
             if s.else_body:
                 self.w("} else {")
                 self.suite(s.else_body)
             self.w("}")
         elif isinstance(s, While):
-            self.w(f"while (LtRt.truthy({self.expr(s.cond)})) " + "{")
+            self.w(f"while (LtRt.truthy({self.expr(s.cond)})) " + "{", s.line)
             self.suite(s.body)
             self.w("}")
         elif isinstance(s, For):
             t = f"wv$it{self.tmp}"
             self.tmp += 1
-            self.w(f"for (Object {t} : LtRt.iter({self.expr(s.iter)})) " + "{")
+            self.w(f"for (Object {t} : LtRt.iter({self.expr(s.iter)})) " + "{",
+                   s.line)
             self.ind += 1
             self.w(f"{ident(s.var)} = {t};")
             for x in s.body:
@@ -247,14 +317,14 @@ class Gen:
             self.w("}")
         elif isinstance(s, Return):
             self.w(f"return {self.expr(s.value)};" if s.value is not None
-                   else "return null;")
+                   else "return null;", s.line)
         elif isinstance(s, Break):
-            self.w("break;")
+            self.w("break;", s.line)
         elif isinstance(s, Continue):
-            self.w("continue;")
+            self.w("continue;", s.line)
         elif isinstance(s, Try):
             v = ident(s.var)
-            self.w("try {")
+            self.w("try {", s.line)
             self.suite(s.body)
             self.w("} catch (Exception _lt_e) {")
             self.ind += 1
@@ -267,7 +337,7 @@ class Gen:
             self.w("}")
         elif isinstance(s, Throw):
             self.w(f"throw new RuntimeException("
-                   f"(String) LtRt.strOf({self.expr(s.value)}));")
+                   f"(String) LtRt.strOf({self.expr(s.value)}));", s.line)
         else:
             raise Exception(f"java backend: unexpected {type(s).__name__}")
 
@@ -356,5 +426,5 @@ class Gen:
         return f"{ident(name)}({', '.join(args)})"
 
 
-def generate(prog, cls):
-    return Gen(cls).generate(prog)
+def generate(prog, cls, source_path="<src>"):
+    return Gen(cls, source_path=source_path).generate(prog)

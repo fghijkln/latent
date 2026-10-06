@@ -62,8 +62,8 @@ hello latent
 ```
 
 `say` 是打印语句，不需要括号。这是全教程最重要的约定：**同一份源码，
-`-t py` 和 `-t java` 的运行结果一致**。编译器自带 41 个测试，
-每次都在双后端之间逐字节对拍输出。
+`-t py` 和 `-t java` 的运行结果一致**。编译器的 51 项测试覆盖正例、编译错误、
+运行错误与 cookbook；每次都验证双后端输出或相应的失败诊断。
 
 ---
 
@@ -170,7 +170,8 @@ say "hello"[1]   # e
 ```
 
 下标同样适用于库返回的东西：`json.loads(s)["tags"]`、`re.findall(p, t)[0]`、
-Java 的 `ArrayList` 也能 `xs[0]`。只有读没有写（`xs[0] = v` 不支持）。
+Java 的 `ArrayList` 也能 `xs[0]`。Latent 列表/映射和 py 句柄可下标写；Java `List`/
+`Map` 句柄也可写。字符串下标只读：字符串不可变。
 
 ## 7. 控制流
 
@@ -249,7 +250,7 @@ say p           # <Point object>
 - 方法第一个参数收实例，按惯例叫 `self`（和 Python 一样是显式的）。
 - 字段是动态的：`self.z = 1` 随时加；`==` 比的是 identity；暂无继承。
 
-属性写和下标写也是 v0.3 新加的：
+属性写和下标写从 v0.3 起已支持：
 
 ```latent
 p.x = 10        # 字段赋值
@@ -277,6 +278,11 @@ throw "balance < 0"   # 自己抛错
 - `e` 是消息字符串；Latent 自身错误的文案双后端一致，跨生态异常的 `e`
   是对方运行时的原文（调试用）。
 - 没触发过 `catch` 时读 `e` 得 `nil`；`try` 可嵌套。
+
+未被 `catch` 的错误会以非零状态退出，并在两个后端显示 `.lt` 文件、行号和
+Latent 调用栈，例如 `program.lt:12`。运行期暂不显示列号；若某个生成帧无法映射，
+诊断会安全回退到 Python traceback 或 Java 堆栈。错误被 `catch` 后仍只把原有消息
+字符串赋给 `e`，不会额外打印诊断。
 
 ---
 
@@ -360,7 +366,7 @@ say a          # [1.4142135623730951]
 
 两条铁律：**同一份源码双后端输出一致**；**用不上的那一端运行时根本不启动**。
 
-## 14. 已知限制（v0.3）
+## 14. 已知限制（v0.5）
 
 - 无继承、无闭包捕获、无模块系统（`import` 其他 `.lt` 文件）。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
@@ -373,7 +379,7 @@ say a          # [1.4142135623730951]
 
 ## 库 cookbook
 
-`cookbook/` 里有 12 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`cookbook/` 里有 13 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
 `os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
 `BigDecimal`）常用库，外加一个双生态混用的例子。每个都在双后端验证过输出一致，
 说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
@@ -384,4 +390,5 @@ say a          # [1.4142135623730951]
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（41 个测试，双后端对拍）
+- 跑测试：`python3 tests/run_tests.py`（51 项：17 正例、7 编译负例、14 运行负例、
+  13 cookbook；正例/cookbook 双后端对拍）

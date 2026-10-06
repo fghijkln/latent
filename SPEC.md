@@ -1,10 +1,11 @@
-# Latent 语言规范 v0.3
+# Latent 语言规范 v0.5
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
 >
 > v0.2 变更：Python 与 Java 本体彻底纳入范围——`py "mod"` 与
 > `java "com.foo.Bar"` 对称，两个后端都能直接用两个生态的库。
+> v0.5.0：校准至 v0.4.0 已实现语义，并为未捕获运行期错误增加双后端 `.lt` 行号映射。
 
 ## 1. 设计目标
 
@@ -24,7 +25,7 @@
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
 
-## 3. 语法（v0.4）
+## 3. 语法（v0.5）
 
 ```
 program  := stmt*
@@ -52,9 +53,9 @@ index    := primary "[" expr "]"          # v0.2.1 新增：下标读
 ```
 
 - `for x in xs`：`xs` 为列表（或字符串，逐字符；或 Java List/数组）。
-- `xs[i]` / `m[k]` / `s[i]`：下标**读**。整数索引（负数从末尾数，越界为运行期错误）；
-  映射按 key 取值（key 不存在为运行期错误）；字符串取单字符。
-  对 py 句柄走 daemon `getitem`，对 java 句柄若内含 List/Map 同理；只读，不支持 `xs[i] = v`。
+- `xs[i]` / `m[k]` / `s[i]`：下标读。整数索引（负数从末尾数，越界为运行期错误）；
+  映射按 key 取值（key 不存在为运行期错误）；字符串取单字符。下标写见 §5：
+  Latent 列表/映射及 py 句柄可写；Java `List`/`Map` 句柄可写；字符串不可写。
 
 - `fn` 单行形式：`fn add(a, b) => a + b`。
 - 函数末表达式即返回值（可省略 `return`）；`return` 用于提前返回。
@@ -136,6 +137,9 @@ throw "boom"           # 主动抛错；catch 到的 e 就是 "boom"
    得 `nil`（双后端一致）。
 4. `throw` 的值经字符串化后抛出；可出现在任何语句位置，可嵌套，
    handler 里可以再 `throw`。
+5. 未被 `catch` 的运行期错误在 Python 与 Java 后端均尽量显示原始 `.lt` 文件、
+   行号和 Latent 调用栈；暂不提供运行期列号。映射不可用时安全回退到后端原生
+   traceback/堆栈。此诊断不改变 `catch e` 的消息字符串、跨生态异常原文或失败退出状态。
 
 ## 7. 按需加载 Python：`py`
 
@@ -238,16 +242,17 @@ for x in a:                      # Java List/数组可迭代
 - `gen_java.py`：全 `Object` 值模型 + `LtRt` 运行时；
   顶层变量→`static Object` 字段，函数→`static Object` 方法；
   py 互操作→`LtRt` 懒启动 `ltpy.py` 守护进程（JSON 行协议）；
-  java 互操作→`JReflect` 直接反射（`Class.forName` 懒加载，无守护进程）。
+  java 互操作→`JReflect` 直接反射（`Class.forName` 懒加载，无守护进程）；
+  生成语句保留 `.lt` 行映射，用于未捕获异常诊断。
 - `runtime/`：`LtRt.java`（Java 后端运行时）、`JReflect.java`（Java 反射互操作核心，
   Java 后端直调、Python 后端经 `LtJavaDaemon` 调）、`ltpy.py`（Python 守护进程）、
   `LtJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
 
-## 11. v0.4 不做（已记录，不算遗漏）
+## 11. v0.5 仍不支持（已记录，不算遗漏）
 
-- 类的继承、`super`、类方法/静态方法、运算符重载——v0.4 候选。
+- 类的继承、`super`、类方法/静态方法、运算符重载。
 - 闭包捕获、函数作值、模块系统（`import` 其他 .lt）。
-- 关键字参数（`f(x=1)`）、`py` 内联代码块（`py:` 多行 Python 源码）——v0.4 候选。
+- 关键字参数（`f(x=1)`）、`py` 内联代码块（`py:` 多行 Python 源码）。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。

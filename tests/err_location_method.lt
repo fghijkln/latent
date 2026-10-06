@@ -1,0 +1,5 @@
+class Box:
+    fn fail(self):
+        return [1][4]
+b = Box.new()
+b.fail()
