@@ -55,6 +55,8 @@ class Checker:
                         _err(m, f"method {s.name}.{m.name} must declare a receiver parameter")
                     if isinstance(m.params[0], DefaultParam):
                         _err(m.params[0], f"method {s.name}.{m.name} receiver parameter cannot have a default")
+                    if isinstance(m.params[0], (RestParam, ExtraParam)):
+                        _err(m.params[0], f"method {s.name}.{m.name} receiver must be a required positional parameter")
                 self.classes[s.name] = s
         self.module_bindings = self._top_bindings(prog.stmts)
         self._seed_top_class_types(prog.stmts)
@@ -105,6 +107,8 @@ class Checker:
                         _err(method, f"method {s.name}.{method.name} must declare a receiver parameter")
                     if isinstance(method.params[0], DefaultParam):
                         _err(method.params[0], f"method {s.name}.{method.name} receiver parameter cannot have a default")
+                    if isinstance(method.params[0], (RestParam, ExtraParam)):
+                        _err(method.params[0], f"method {s.name}.{method.name} receiver must be a required positional parameter")
                 self.classes[s.name] = s
         self.module_bindings.update(self.functions)
         self.module_bindings.update(self.classes)
@@ -573,8 +577,8 @@ class Checker:
         _err(e, f"unexpected {type(e).__name__}")
 
     def _arg_expr(self, arg, ctx, in_loop):
-        self._expr(arg.value if isinstance(arg, NamedArg) else arg,
-                   ctx, in_loop)
+        self._expr(arg.value if isinstance(arg, (NamedArg, StarArg, StarStarArg))
+                   else arg, ctx, in_loop)
 
     def _method_in_chain(self, cd, name):
         while cd is not None:
@@ -717,6 +721,8 @@ class Checker:
                 self._binding(name, ctx)[0] == "local"):
             if any(isinstance(arg, NamedArg) for arg in e.args):
                 _err(e, f"built-in function {name!r} does not accept named arguments")
+            if any(isinstance(arg, (StarArg, StarStarArg)) for arg in e.args):
+                _err(e, f"built-in function {name!r} does not support argument unpacking")
             lo, hi = BUILTINS[name]
             if n < lo or (hi is not None and n > hi):
                 _err(e, f"{name}() takes "
@@ -732,21 +738,28 @@ class Checker:
             self._check_arguments(e, e.args, target.params, name)
 
     def _check_arguments(self, node, actuals, params, label):
-        names = parameter_names(params)
+        names = fixed_parameter_names(params)
         required = required_parameter_count(params)
-        if not any(isinstance(arg, NamedArg) for arg in actuals):
-            if len(actuals) > len(names):
-                _err(node, f"{label}() takes {len(names)} args, got {len(actuals)}")
-            if len(actuals) < required:
+        has_rest = rest_parameter_name(params) is not None
+        has_extra = extra_parameter_name(params) is not None
+        has_expansion = any(isinstance(arg, (StarArg, StarStarArg))
+                            for arg in actuals)
+        positional_count = sum(not isinstance(arg, (NamedArg, StarArg,
+                                                      StarStarArg))
+                               for arg in actuals)
+        if not any(isinstance(arg, NamedArg) for arg in actuals) and \
+                not has_expansion:
+            if positional_count > len(names) and not has_rest:
+                _err(node, f"{label}() takes {len(names)} args, got {positional_count}")
+            if positional_count < required:
                 if required == len(names):
-                    _err(node, f"{label}() takes {len(names)} args, got {len(actuals)}")
+                    _err(node, f"{label}() takes {len(names)} args, got {positional_count}")
                 _err(node,
-                     f"{label}() missing required argument {names[len(actuals)]!r}")
+                     f"{label}() missing required argument {names[positional_count]!r}")
             return
-        positional = sum(not isinstance(arg, NamedArg) for arg in actuals)
-        if positional > len(names):
-            _err(node, f"{label}() takes {len(names)} args, got {positional}")
-        supplied = set(names[:positional])
+        if positional_count > len(names) and not has_rest:
+            _err(node, f"{label}() takes {len(names)} args, got {positional_count}")
+        supplied = set(names[:min(positional_count, len(names))])
         seen_names = set()
         for arg in actuals:
             if not isinstance(arg, NamedArg):
@@ -755,13 +768,14 @@ class Checker:
             if name in seen_names:
                 _err(arg, f"{label}() got duplicate named argument {name!r}")
             seen_names.add(name)
-            if name not in names:
+            if name not in names and not has_extra:
                 _err(arg, f"{label}() got unexpected named argument {name!r}")
-            if name in supplied:
+            if name in names and name in supplied:
                 _err(arg, f"{label}() got multiple values for argument {name!r}")
-            supplied.add(name)
+            if name in names:
+                supplied.add(name)
         missing = [name for name in names[:required] if name not in supplied]
-        if missing:
+        if missing and not has_expansion:
             _err(node, f"{label}() missing required argument {missing[0]!r}")
 
     def _class_of(self, expr, ctx):

@@ -23,12 +23,14 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "p6_nonlocal_nested_scope", "p7_bound_methods"]
 POSITIVE.append("p8_named_arguments")
 POSITIVE.append("p9_default_parameters")
+POSITIVE.append("p10_variadic_arguments")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
                    "modules/function_values/main", "modules/nonlocal/main",
                    "modules/bound_methods/main",
                    "modules/named_arguments/main",
-                   "modules/default_arguments/main"]
+                   "modules/default_arguments/main",
+                   "modules/variadic/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target",
                "err_nested_readbefore", "err_p6_nonlocal_missing",
@@ -66,6 +68,16 @@ P9_NEG_COMPILE = {
     "p9_negative/required_after_default": "required parameter follows defaulted parameter",
     "p9_negative/default_future_parameter": "cannot reference parameter 'later' before it is bound",
     "p9_negative/default_receiver": "receiver parameter cannot have a default",
+}
+P10_NEG_COMPILE = {
+    "p10_negative/positional_after_variadic": "positional parameter follows variadic parameter",
+    "p10_negative/rest_after_extra": "*rest must precede **extra and appear once",
+    "p10_negative/duplicate_rest": "*rest must precede **extra and appear once",
+    "p10_negative/duplicate_extra": "multiple **extra parameters",
+    "p10_negative/keyword_only": "expected NAME",
+    "p10_negative/unpack_after_named": "positional unpacking follows named argument",
+    "p10_negative/builtin_star": "built-in function 'len' does not support argument unpacking",
+    "p10_negative/builtin_starstar": "built-in function 'len' does not support argument unpacking",
 }
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
@@ -162,7 +174,20 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "p9_negative/indirect_missing",
                "p9_negative/indirect_unknown",
                "p9_negative/indirect_duplicate",
-               "p9_negative/bound_missing"]
+               "p9_negative/bound_missing",
+               "p10_negative/missing_expanded",
+               "p10_negative/unknown_expanded",
+               "p10_negative/duplicate_star_named",
+               "p10_negative/duplicate_named_mapping",
+               "p10_negative/duplicate_mappings",
+               "p10_negative/too_many_expanded",
+               "p10_negative/nonlist_star",
+               "p10_negative/nonmap_starstar",
+               "p10_negative/nonstring_key",
+               "p10_negative/python_interop_star",
+               "p10_negative/python_interop_starstar",
+               "p10_negative/java_interop_star",
+               "p10_negative/java_interop_starstar"]
 RUNTIME_SOURCE_LINES = {
     "py_lazy_use": [2], "java_lazy_use": [2],
     "err_index_range": [2], "err_index_key": [2],
@@ -185,6 +210,19 @@ RUNTIME_SOURCE_LINES = {
     "p9_negative/indirect_unknown": [4],
     "p9_negative/indirect_duplicate": [4],
     "p9_negative/bound_missing": [6],
+    "p10_negative/missing_expanded": [4],
+    "p10_negative/unknown_expanded": [4],
+    "p10_negative/duplicate_star_named": [4],
+    "p10_negative/duplicate_named_mapping": [4],
+    "p10_negative/duplicate_mappings": [4],
+    "p10_negative/too_many_expanded": [4],
+    "p10_negative/nonlist_star": [4],
+    "p10_negative/nonmap_starstar": [4],
+    "p10_negative/nonstring_key": [6],
+    "p10_negative/python_interop_star": [2],
+    "p10_negative/python_interop_starstar": [2],
+    "p10_negative/java_interop_star": [3],
+    "p10_negative/java_interop_starstar": [3],
 }
 RUNTIME_SOURCE_MARKERS = {
     "modules/runtime/main": ["main.lt:2", "lib.lt:3"],
@@ -209,12 +247,28 @@ P9_RUNTIME_ERROR_MARKERS = {
     "p9_negative/indirect_duplicate": "Latent runtime error: ArgumentError: pair() got multiple values for argument 'left'",
     "p9_negative/bound_missing": "Latent runtime error: ArgumentError: combine() missing required argument 'left'",
 }
+P10_RUNTIME_ERROR_MARKERS = {
+    "p10_negative/missing_expanded": "Latent runtime error: ArgumentError: pair() takes 2 args, got 0",
+    "p10_negative/unknown_expanded": "Latent runtime error: ArgumentError: pair() got unexpected named argument 'other'",
+    "p10_negative/duplicate_star_named": "Latent runtime error: ArgumentError: pair() got multiple values for argument 'right'",
+    "p10_negative/duplicate_named_mapping": "Latent runtime error: ArgumentError: pair() got duplicate named argument 'right'",
+    "p10_negative/duplicate_mappings": "Latent runtime error: ArgumentError: collect() got duplicate named argument 'x'",
+    "p10_negative/too_many_expanded": "Latent runtime error: ArgumentError: one() takes 1 args, got 2",
+    "p10_negative/nonlist_star": "Latent runtime error: ArgumentError: * unpacking requires a Latent list",
+    "p10_negative/nonmap_starstar": "Latent runtime error: ArgumentError: ** unpacking requires a Latent map",
+    "p10_negative/nonstring_key": "Latent runtime error: ArgumentError: ** unpacking requires string keys",
+    "p10_negative/python_interop_star": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
+    "p10_negative/python_interop_starstar": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
+    "p10_negative/java_interop_star": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
+    "p10_negative/java_interop_starstar": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
+}
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_strings", "java_collections", "java_time", "java_nio",
             "java_bigdecimal", "mixed_io", "classes", "inheritance",
             "pipeline", "modules", "functions", "named_arguments"]
+COOKBOOK.append("variadic_arguments")
 
 TRY_BASIC_STDOUT = ("caught: index out of range: 5\n"
                     "k=key not found: zz\n"
@@ -272,6 +326,31 @@ P9_EXPECTED_STDOUT = {
         "nil\n2\nBa\n2\nab\n2\nXY\n10\n11\n12\n5\n24\n22\n25\n29\n30\n10\n11\n"),
     "modules/default_arguments/main": "12\n5\n6\n15\n10\n",
 }
+P10_EXPECTED_STDOUT = {
+    "p10_variadic_arguments": (
+        '["default", 2, [], {}]\n'
+        '["mixed", 3, [4, 5], {"label": "x", "mode": "fast"}]\n'
+        '["expanded", 4, [6], {"note": "ok"}]\n'
+        '["empty", 2, [], {}]\n'
+        '["named", 5, [], {"tag": "mapping"}]\n'
+        '["many", 7, [8], {"first": 1, "second": 2}]\n'
+        '[10, "closure", [11], {"flag": true}]\n'
+        '[1, [2, 3], {"name": 4, "x": 5}]\n'
+        'A12SNVM\n'
+        '["new", [1], {"mode": "constructor"}]\n'
+        '["child", [5], {"inherited": true}]\n'
+        '["inherited-method", [6], {"key": "value"}]\n'
+        '["bound", [7], {"bound-key": 8}]\n'
+        '["super", [9], {"via": "parent"}]\n'),
+    "modules/variadic/main": (
+        '["module", 2, [], {}]\n'
+        '["expanded", 3, [4], {"mode": "module"}]\n'
+        '["value", 5, [], {"extra": "function-value"}]\n'),
+}
+COOKBOOK_VARIADIC_STDOUT = (
+    '["default", 2, [], {}]\n'
+    '["card", 3, ["extra"], {"color": "blue"}]\n'
+    '["keyword", 4, [], {"border": true}]\n')
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -355,6 +434,8 @@ def main():
             ok = ok and py[1] == P8_EXPECTED_STDOUT[name]
         if name in P9_EXPECTED_STDOUT:
             ok = ok and py[1] == P9_EXPECTED_STDOUT[name]
+        if name in P10_EXPECTED_STDOUT:
+            ok = ok and py[1] == P10_EXPECTED_STDOUT[name]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -420,6 +501,28 @@ def main():
             print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
             print(f"  java: rc={results[1]} detail={details[1][-500:]}")
 
+    print("== P10 negative compile: variadic signature and call ordering ==")
+    for name, marker in P10_NEG_COMPILE.items():
+        details = []
+        results = []
+        for target in ("py", "java"):
+            outdir = os.path.join(OUT, "t_" + name.replace("/", "_") + "_" + target)
+            rc, so, se = run([sys.executable, LATENTC,
+                              os.path.join(TESTS, name + ".lt"),
+                              "-t", target, "-o", outdir])
+            details.append(so + se)
+            results.append(rc)
+        first_lines = [d.strip().splitlines()[0] if d.strip() else ""
+                       for d in details]
+        ok = (all(rc != 0 for rc in results) and
+              all(marker in detail for detail in details) and
+              first_lines[0] == first_lines[1])
+        print(("PASS " if ok else "FAIL ") + name)
+        if not ok:
+            fails += 1
+            print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
+            print(f"  java: rc={results[1]} detail={details[1][-500:]}")
+
     print("== negative inheritance compile: parent graph and super rules ==")
     for name in NEG_INHERITANCE_COMPILE:
         src = os.path.join(TESTS, name + ".lt")
@@ -457,9 +560,12 @@ def main():
         ok = (py[0] not in (0, "compile-fail", "timeout") and
               jv[0] not in (0, "compile-fail", "timeout") and
               has_source_locations(name, py) and has_source_locations(name, jv))
-        if name in P8_RUNTIME_ERROR_MARKERS or name in P9_RUNTIME_ERROR_MARKERS:
+        if (name in P8_RUNTIME_ERROR_MARKERS or
+                name in P9_RUNTIME_ERROR_MARKERS or
+                name in P10_RUNTIME_ERROR_MARKERS):
             expected = (P8_RUNTIME_ERROR_MARKERS.get(name) or
-                        P9_RUNTIME_ERROR_MARKERS[name])
+                        P9_RUNTIME_ERROR_MARKERS.get(name) or
+                        P10_RUNTIME_ERROR_MARKERS[name])
             py_error = next((line for line in py[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
             jv_error = next((line for line in jv[2].splitlines()
@@ -485,6 +591,8 @@ def main():
             ok = ok and py[1] == COOKBOOK_INHERITANCE_STDOUT
         elif name == "named_arguments":
             ok = ok and py[1] == "tea:3\n6\n"
+        elif name == "variadic_arguments":
+            ok = ok and py[1] == COOKBOOK_VARIADIC_STDOUT
         print(("PASS " if ok else "FAIL ") + "cookbook/" + name)
         if not ok:
             fails += 1
@@ -511,6 +619,8 @@ def main():
     total = (diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
              len(P8_NEG_COMPILE) +
+             len(P9_NEG_COMPILE) +
+             len(P10_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
              len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK))
     print(f"\n{total - fails} passed, {fails} failed")

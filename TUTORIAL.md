@@ -329,6 +329,23 @@ say fallback("x", nil)    # nil；显式 nil 是实参，不会启用默认值
 
 默认表达式只在对应实参被省略时执行，并在每次调用时按形参顺序重新求值。它可以读取更早的形参和调用时可见的词法绑定，但不能引用自己或后面的形参；例如 `fn segment(start, end=start + 1)` 合法。所有显式实参表达式仍先按源码顺序求值。该规则一致适用于普通函数、函数值/闭包、公开模块函数、Latent 方法（包括绑定/继承/`super` 调用）和构造器；内建函数及 Python/Java 互操作不获得 Latent 默认参数。使用默认形参的源码要求 v0.12.0 或更新版本。
 
+### P10/v0.13.0：变参与实参展开
+
+从 v0.13.0 起，Latent 函数可收集变长位置和命名实参，调用也可展开列表与映射；完整规则见 [P10 设计记录](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
+
+```latent
+fn collect(head, scale=2, *rest, **extra):
+    return [head, scale, rest, extra]
+
+say collect("plain")
+say collect(*["card", 3, "extra"], **{"color": "blue"})
+say collect(head="named", **{"scale": 4, "border": true})
+```
+
+形参顺序只能是必需位置形参、默认位置形参、可选 `*rest`、可选 `**extra`，每个收集器最多一个。`*rest` 收到 Latent 列表，`**extra` 收到 Latent 映射；没有多余值时分别为空列表和空映射。实参中的 `*items` 只接受 Latent 列表（不接受字符串或任意可迭代对象），`**mapping` 只接受字符串键映射，并按插入顺序展开。位置实参与位置展开必须先于第一个命名实参或 `**mapping`；所有实参表达式和每次展开都从左到右求值。
+
+该规则适用于 Latent 普通/闭包函数、函数值、公开模块函数、Latent 直接/绑定/继承方法、`super` 及构造器。重复值、缺少必需参数、未知名称及过量位置值按签名检查；展开引起的动态冲突在运行时检查。内建函数、Python/Java 互操作调用不接受展开参数，也没有新增仅限关键字形参。`range(...)` 返回 Latent 列表，因此其结果可以传给 `*items`。
+
 ---
 
 ## 9. 类
@@ -369,6 +386,8 @@ step(2, 3)               # self 已绑定为 p，只需传 dx、dy
 P8/v0.11.0 还允许按方法形参名调用绑定方法，并给 Latent 构造器命名：`p = Point.new(y=4, x=3)`、`step = p.move`、`step(dy=2, dx=1)`。绑定方法的调用者无需给 `self` 传参。
 
 v0.12.0/P9 允许方法和 `init` 声明默认参数；例如 `fn move(self, dx, dy=0)` 可通过 `p.move(2)` 调用，构造器默认值也由最终选中的 Latent `init` 提供。
+
+v0.13.0/P10 在这些路径上也支持 `*rest` / `**extra` 和展开实参，包括绑定/继承方法与构造器；v0.12.0 的发布基线仍只有 P9 默认参数。
 
 - `init` 是构造器，`Point.new(...)` 会自动调它；没写 `init` 时 `Point.new()` 得到空对象。
 - 方法第一个参数收实例，按惯例叫 `self`（和 Python 一样是显式的）。
@@ -562,12 +581,12 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - 同一个文件即使使用不同路径写法和别名导入，也只初始化一次；被导入模块先于当前模块执行。循环导入会在编译期报错。
 - 当前仅支持本地静态 `.lt` 文件导入，不支持通配符、动态导入或包管理。公开模块类可以作为父类，详见 §9。
 
-## 15. 已知限制（v0.12.0）
+## 15. 已知限制（v0.13.0）
 
 - 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。P5/v0.8.0 支持用户定义函数值、嵌套闭包和 `global`；P6/v0.9.0 增加 `nonlocal`；P7/v0.10.0 增加 Latent 实例绑定方法值。模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持基本类型类名（`java "int"` 不行）。
-- v0.11.0/P8 支持 Latent 函数、模块函数、方法和构造器的命名参数；v0.12.0/P9 加入相同范围的默认参数。内建函数及 Python/Java 互操作调用不支持 Latent 命名/默认参数；可变参数与仅限关键字参数仍未实现。
+- v0.11.0/P8 支持 Latent 函数、模块函数、方法和构造器的命名参数；v0.12.0/P9 加入相同范围的默认参数；v0.13.0/P10 增加变参收集与调用展开。内建函数及 Python/Java 互操作调用不接受 P10 展开参数；仅限关键字形参仍不支持。
 - 数字只有 float64 一种类型。
 - 性能只求正确：Java 后端全装箱，跨语言调用走 JSON 行协议。够用，不快。
 
@@ -575,9 +594,9 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 ## 库 cookbook
 
-`cookbook/` 里有 17 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`cookbook/` 里有 18 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
 `os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
-`BigDecimal`）常用库、函数值/闭包示例，以及一个双生态混用的例子。`named_arguments.lt` 展示 v0.11.0/P8 的命名参数；全部样例均已在双后端验证输出一致，
+`BigDecimal`）常用库、函数值/闭包示例，以及一个双生态混用的例子。`named_arguments.lt` 展示 v0.11.0/P8 的命名参数，`variadic_arguments.lt` 展示 v0.13.0/P10；全部样例均已在双后端验证输出一致，
 说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
 
 ---
@@ -586,5 +605,5 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（142 项：132 个双后端/集成场景和 10 个只读 CLI
-  诊断回归；正例/cookbook 双后端对拍）
+- 跑测试：`python3 tests/run_tests.py`（180 项：168 个双后端/集成场景和 12 个只读 CLI
+  诊断回归；当前汇总已计入此前未计数的 6 个 P9 静态负例，正例/cookbook 双后端对拍）

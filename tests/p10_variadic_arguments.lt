@@ -1,0 +1,51 @@
+fn collect(head, scale=2, *rest, **extra):
+    return [head, scale, rest, extra]
+
+say collect("default")
+say collect("mixed", 3, 4, 5, label="x", **{"mode": "fast"})
+say collect(*["expanded", 4, 6], **{"note": "ok"})
+say collect("empty", *[], **{})
+say collect(head="named", **{"scale": 5, "tag": "mapping"})
+say collect(*["many"], *[7, 8], **{"first": 1}, **{"second": 2})
+
+fn make_capture(amount):
+    fn capture(prefix="p", *items, **options):
+        return [amount, prefix, items, options]
+    return capture
+
+fn invoke(fn_value, *items, **options):
+    return fn_value(*items, **options)
+
+captured = make_capture(10)
+say invoke(captured, *["closure", 11], **{"flag": true})
+
+trace = ""
+fn mark(tag, value):
+    global trace
+    trace = trace + tag
+    return value
+
+fn observe(head, *rest, **extra):
+    return [head, rest, extra]
+
+say observe(mark("A", 1), *mark("S", [mark("1", 2), mark("2", 3)]), name=mark("N", 4), **mark("M", {"x": mark("V", 5)}))
+say trace
+
+class Base:
+    fn init(self, name="base", *items, **options):
+        self.data = [name, items, options]
+    fn gather(self, prefix="base", *items, **options):
+        return [prefix, items, options]
+
+class Child(Base):
+    fn parent_gather(self):
+        return super.gather(self, *["super", 9], **{"via": "parent"})
+
+base = Base.new(*["new", 1], **{"mode": "constructor"})
+say base.data
+child = Child.new("child", *[5], **{"inherited": true})
+say child.data
+say child.gather(*["inherited-method", 6], **{"key": "value"})
+bound = child.gather
+say bound(*["bound", 7], **{"bound-key": 8})
+say child.parent_gather()

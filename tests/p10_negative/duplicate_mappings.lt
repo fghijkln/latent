@@ -1,0 +1,4 @@
+fn collect(**extra):
+    return extra
+
+collect(**{"x": 1}, **{"x": 2})

@@ -6,12 +6,12 @@ import nodes
 
 
 FORMAT = "latent-ast"
-VERSION = 4
+VERSION = 5
 
 # The public dump shape is explicit: compiler-only attributes and Python object
 # reprs are never exposed. Version 2 adds NonlocalStmt, version 3 adds
-# NamedArg, and version 4 adds DefaultParam; all older node shapes and field
-# order remain unchanged.
+# NamedArg, version 4 adds DefaultParam, and version 5 adds variadic parameter
+# and unpacked-argument nodes; all older node shapes and field order remain.
 _FIELDS = {
     nodes.Program: (("statements", "stmts"),),
     nodes.ImportStmt: (("module_path", "module_path"), ("alias", "alias")),
@@ -33,6 +33,8 @@ _FIELDS = {
     nodes.FnDef: (("name", "name"), ("parameters", "params"),
                   ("body", "body")),
     nodes.DefaultParam: (("name", "name"), ("default", "default")),
+    nodes.RestParam: (("name", "name"),),
+    nodes.ExtraParam: (("name", "name"),),
     nodes.If: (("condition", "cond"), ("then", "then_body"),
                ("else", "else_body")),
     nodes.While: (("condition", "cond"), ("body", "body")),
@@ -59,6 +61,8 @@ _FIELDS = {
                   ("right", "right")),
     nodes.UnOp: (("operator", "op"), ("operand", "operand")),
     nodes.NamedArg: (("name", "name"), ("value", "value")),
+    nodes.StarArg: (("value", "value"),),
+    nodes.StarStarArg: (("value", "value"),),
     nodes.Call: (("function", "func"), ("arguments", "args")),
     nodes.PyImport: (("module", "module_expr"),),
     nodes.Dot: (("object", "obj"), ("attribute", "attr")),

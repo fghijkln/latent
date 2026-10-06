@@ -1,0 +1,2 @@
+fn bad(*first, *second):
+    return first

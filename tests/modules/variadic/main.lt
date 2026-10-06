@@ -1,0 +1,6 @@
+import "lib.lt" as lib
+
+say lib.summarize("module")
+say lib.summarize(*["expanded", 3, 4], **{"mode": "module"})
+summarize = lib.summarize
+say summarize(head="value", **{"factor": 5, "extra": "function-value"})

@@ -115,19 +115,53 @@ class DefaultParam(Node):
         self.default = default
 
 
+class RestParam(Node):
+    """Collect extra positional values into a Latent list."""
+    def __init__(self, name, **kw):
+        super().__init__(**kw)
+        self.name = name
+
+
+class ExtraParam(Node):
+    """Collect extra named values into a Latent map."""
+    def __init__(self, name, **kw):
+        super().__init__(**kw)
+        self.name = name
+
+
 def parameter_name(param):
-    return param.name if isinstance(param, DefaultParam) else param
+    return (param.name if isinstance(param, (DefaultParam, RestParam, ExtraParam))
+            else param)
 
 
 def parameter_names(params):
     return [parameter_name(param) for param in params]
 
 
+def fixed_parameter_names(params):
+    return [parameter_name(param) for param in params
+            if not isinstance(param, (RestParam, ExtraParam))]
+
+
+def rest_parameter_name(params):
+    return next((param.name for param in params if isinstance(param, RestParam)),
+                None)
+
+
+def extra_parameter_name(params):
+    return next((param.name for param in params if isinstance(param, ExtraParam)),
+                None)
+
+
 def required_parameter_count(params):
-    for index, param in enumerate(params):
+    count = 0
+    for param in params:
+        if isinstance(param, (RestParam, ExtraParam)):
+            break
         if isinstance(param, DefaultParam):
-            return index
-    return len(params)
+            return count
+        count += 1
+    return count
 
 
 class If(Node):
@@ -271,6 +305,20 @@ class NamedArg(Node):
     def __init__(self, name, value, **kw):
         super().__init__(**kw)
         self.name = name
+        self.value = value
+
+
+class StarArg(Node):
+    """Unpack a Latent list into positional actual arguments."""
+    def __init__(self, value, **kw):
+        super().__init__(**kw)
+        self.value = value
+
+
+class StarStarArg(Node):
+    """Unpack a Latent map into named actual arguments."""
+    def __init__(self, value, **kw):
+        super().__init__(**kw)
         self.value = value
 
 

@@ -1,0 +1,6 @@
+values = {}
+values[1] = "invalid-key"
+fn collect(**extra):
+    return extra
+
+collect(**values)

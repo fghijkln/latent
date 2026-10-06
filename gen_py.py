@@ -338,9 +338,11 @@ class _LtClass:
         if init is not None:
             # Latent-level dispatch: values stay Latent (no _wv_pyarg;
             # that int conversion is only for calling real Python functions)
-            init(o, *_wv_bind_args(_wv_method_params(init),
-                                   _wv_method_required(init), args,
-                                   self._name + ".new", _LtFunction.MISSING))
+                init(o, *_wv_bind_args(_wv_method_params(init),
+                                       _wv_method_required(init), args,
+                                       self._name + ".new", _LtFunction.MISSING,
+                                       _wv_method_rest(init),
+                                       _wv_method_extra(init)))
         elif args:
             _wv_bind_args((), 0, args, self._name + ".new",
                           _LtFunction.MISSING)
@@ -363,14 +365,72 @@ def _wv_named(name, value):
     return _LtNamedArg(name, value)
 
 
+class _LtStarArg:
+    __slots__ = ("values",)
+
+    def __init__(self, values):
+        self.values = tuple(values)
+
+
+class _LtStarStarArg:
+    __slots__ = ("items",)
+
+    def __init__(self, items):
+        self.items = tuple(items)
+
+
+def _wv_star(value):
+    if not isinstance(value, list):
+        raise _LtArgumentError("* unpacking requires a Latent list")
+    return _LtStarArg(value)
+
+
+def _wv_starstar(value):
+    if not isinstance(value, dict):
+        raise _LtArgumentError("** unpacking requires a Latent map")
+    items = list(value.items())
+    for key, _ in items:
+        if not isinstance(key, str):
+            raise _LtArgumentError("** unpacking requires string keys")
+    return _LtStarStarArg(items)
+
+
+def _wv_expand_args(args):
+    expanded = []
+    for arg in args:
+        if isinstance(arg, _LtStarArg):
+            expanded.extend(arg.values)
+        elif isinstance(arg, _LtStarStarArg):
+            expanded.extend(_LtNamedArg(key, value)
+                            for key, value in arg.items)
+        else:
+            expanded.append(arg)
+    return expanded
+
+
 def _wv_has_named(args):
     return any(isinstance(arg, _LtNamedArg) for arg in args)
 
 
-def _wv_bind_args(params, required_count, args, name, missing):
+def _wv_has_unpack(args):
+    return any(isinstance(arg, (_LtStarArg, _LtStarStarArg)) for arg in args)
+
+
+def _wv_reject_interop_args(args):
+    if _wv_has_named(args):
+        raise _LtArgumentError(
+            "named arguments are not supported for Python/Java interop calls")
+    if _wv_has_unpack(args):
+        raise _LtArgumentError(
+            "argument unpacking is not supported for Python/Java interop calls")
+
+
+def _wv_bind_args(params, required_count, args, name, missing,
+                  rest_name=None, extra_name=None):
     params = tuple(params)
+    args = _wv_expand_args(args)
     if not _wv_has_named(args):
-        if len(args) > len(params):
+        if len(args) > len(params) and rest_name is None:
             raise _LtArgumentError("%s() takes %d args, got %d" %
                                    (name, len(params), len(args)))
         if len(args) < required_count:
@@ -379,9 +439,16 @@ def _wv_bind_args(params, required_count, args, name, missing):
                                        (name, len(params), len(args)))
             raise _LtArgumentError("%s() missing required argument %r" %
                                    (name, params[len(args)]))
-        return list(args) + [missing] * (len(params) - len(args))
+        values = list(args[:len(params)]) + [missing] * max(0, len(params) - len(args))
+        if rest_name is not None:
+            values.append(list(args[len(params):]))
+        if extra_name is not None:
+            values.append({})
+        return values
     values = [missing] * len(params)
     supplied = [False] * len(params)
+    rest_values = []
+    extra_values = {}
     pos = 0
     seen_names = set()
     for arg in args:
@@ -391,45 +458,65 @@ def _wv_bind_args(params, required_count, args, name, missing):
                                        (name, arg.name))
             seen_names.add(arg.name)
             if arg.name not in params:
-                raise _LtArgumentError(
-                    "%s() got unexpected named argument %r" %
-                    (name, arg.name))
-            index = params.index(arg.name)
-            if supplied[index]:
-                raise _LtArgumentError(
-                    "%s() got multiple values for argument %r" %
-                    (name, arg.name))
-            values[index] = arg.value
-            supplied[index] = True
+                if extra_name is None:
+                    raise _LtArgumentError(
+                        "%s() got unexpected named argument %r" %
+                        (name, arg.name))
+                extra_values[arg.name] = arg.value
+            else:
+                index = params.index(arg.name)
+                if supplied[index]:
+                    raise _LtArgumentError(
+                        "%s() got multiple values for argument %r" %
+                        (name, arg.name))
+                values[index] = arg.value
+                supplied[index] = True
         else:
             if pos >= len(params):
-                raise _LtArgumentError("%s() takes %d args, got %d" %
-                                       (name, len(params), pos + 1))
-            values[pos] = arg
-            supplied[pos] = True
+                if rest_name is None:
+                    raise _LtArgumentError("%s() takes %d args, got %d" %
+                                           (name, len(params), pos + 1))
+                rest_values.append(arg)
+            else:
+                values[pos] = arg
+                supplied[pos] = True
             pos += 1
     for index in range(required_count):
         if not supplied[index]:
             raise _LtArgumentError("%s() missing required argument %r" %
                                    (name, params[index]))
+    if rest_name is not None:
+        values.append(rest_values)
+    if extra_name is not None:
+        values.append(extra_values)
     return values
 
 
 def _wv_method_params(method):
-    code = method.__code__
-    return code.co_varnames[1:code.co_argcount]
+    return tuple(getattr(method, "_lt_params",
+                         method.__code__.co_varnames[1:method.__code__.co_argcount]))
 
 
 def _wv_method_required(method):
     return getattr(method, "_lt_required_count", len(_wv_method_params(method)))
 
 
+def _wv_method_rest(method):
+    return getattr(method, "_lt_rest_name", None)
+
+
+def _wv_method_extra(method):
+    return getattr(method, "_lt_extra_name", None)
+
+
 class _LtFunction:
     """A first-class Latent function with backend-independent arity checks."""
     MISSING = object()
-    __slots__ = ("_fn", "_params", "_required", "_arity", "_name", "_display")
+    __slots__ = ("_fn", "_params", "_required", "_arity", "_name",
+                 "_display", "_rest", "_extra")
 
-    def __init__(self, fn, params, name, display=None, required_count=None):
+    def __init__(self, fn, params, name, display=None, required_count=None,
+                 rest_name=None, extra_name=None):
         self._fn = fn
         self._params = tuple(params)
         self._required = (len(self._params) if required_count is None
@@ -437,10 +524,13 @@ class _LtFunction:
         self._arity = len(self._params)
         self._name = name
         self._display = display
+        self._rest = rest_name
+        self._extra = extra_name
 
     def __call__(self, *args):
         return self._fn(*_wv_bind_args(self._params, self._required, args,
-                                        self._name, self.MISSING))
+                                        self._name, self.MISSING,
+                                        self._rest, self._extra))
 
 
 def _wv_call(fn, *args):
@@ -599,7 +689,9 @@ def _wv_wgetattr(h, attr):
             return _LtFunction(
                 lambda *args: method(h, *args), params, attr,
                 "<bound method %s.%s>" % (h._lt_class._name, attr),
-                required_count=_wv_method_required(method))
+                required_count=_wv_method_required(method),
+                rest_name=_wv_method_rest(method),
+                extra_name=_wv_method_extra(method))
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)
@@ -608,9 +700,7 @@ def _wv_wgetattr(h, attr):
 
 def _wv_wcall(h, attr, *args):
     if isinstance(h, (_JClass, _JHandle)):
-        if _wv_has_named(args):
-            raise _LtArgumentError(
-                "named arguments are not supported for Python/Java interop calls")
+        _wv_reject_interop_args(args)
         jvm = _JVM.inst()
         jargs = [_jvm_encode(a) for a in args]
         if isinstance(h, _JClass) and attr == "new":
@@ -627,12 +717,13 @@ def _wv_wcall(h, attr, *args):
             raise AttributeError("no method %r" % attr)
         return _LtFunction(lambda *values: m(h, *values),
                            _wv_method_params(m), attr,
-                           required_count=_wv_method_required(m))(*args)
+                           required_count=_wv_method_required(m),
+                           rest_name=_wv_method_rest(m),
+                           extra_name=_wv_method_extra(m))(*args)
     if isinstance(h, _LazyMod):
-        if _wv_has_named(args):
-            raise _LtArgumentError(
-                "named arguments are not supported for Python/Java interop calls")
+        _wv_reject_interop_args(args)
         return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
+    _wv_reject_interop_args(args)
     return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
 
 
@@ -650,7 +741,9 @@ def _wv_supercall(receiver, owner, attr, *args):
                              (attr, owner._name))
     return _LtFunction(lambda *values: method(receiver, *values),
                        _wv_method_params(method), attr,
-                       required_count=_wv_method_required(method))(*args)
+                       required_count=_wv_method_required(method),
+                       rest_name=_wv_method_rest(method),
+                       extra_name=_wv_method_extra(method))(*args)
 
 
 def _wv_wsetattr(h, attr, v):
@@ -934,7 +1027,16 @@ class Gen:
             f"{json.dumps(m.name)}: _LtMethods.{m.name}" for m in cd.methods)
         for method in cd.methods:
             required = required_parameter_count(method.params[1:])
+            fixed = fixed_parameter_names(method.params[1:])
+            rest = rest_parameter_name(method.params[1:])
+            extra = extra_parameter_name(method.params[1:])
+            self.w(f"_LtMethods.{method.name}._lt_params = "
+                   f"{json.dumps(fixed, ensure_ascii=False)}")
             self.w(f"_LtMethods.{method.name}._lt_required_count = {required}")
+            self.w(f"_LtMethods.{method.name}._lt_rest_name = "
+                   f"{rest!r}")
+            self.w(f"_LtMethods.{method.name}._lt_extra_name = "
+                   f"{extra!r}")
         self.w(f"return _LtClass({json.dumps(cd.source_name, ensure_ascii=False)}, "
                f"{parent}, {{{methods}}})")
         self.indent -= 1
@@ -1006,9 +1108,11 @@ class Gen:
         self.indent -= 1
         if not method:
             self.w(f"{fn.name} = _LtFunction({fn.name}, "
-                   f"{json.dumps(names, ensure_ascii=False)}, "
+                   f"{json.dumps(fixed_parameter_names(fn.params), ensure_ascii=False)}, "
                    f"{json.dumps(fn.source_name, ensure_ascii=False)}, "
-                   f"required_count={required_parameter_count(fn.params)})")
+                   f"required_count={required_parameter_count(fn.params)}, "
+                   f"rest_name={rest_parameter_name(fn.params)!r}, "
+                   f"extra_name={extra_parameter_name(fn.params)!r})")
 
     def _collect(self, stmts, out):
         for s in stmts:
@@ -1090,6 +1194,10 @@ class Gen:
         if isinstance(arg, NamedArg):
             return f"_wv_named({json.dumps(arg.name, ensure_ascii=False)}, " \
                    f"{self.expr(arg.value)})"
+        if isinstance(arg, StarArg):
+            return f"_wv_star({self.expr(arg.value)})"
+        if isinstance(arg, StarStarArg):
+            return f"_wv_starstar({self.expr(arg.value)})"
         return self.expr(arg)
 
     def expr(self, e):

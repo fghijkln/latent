@@ -1,0 +1,247 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Latent",
+  "scopeName": "source.latent",
+  "fileTypes": ["lt"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#functionParameters" },
+    { "include": "#callArguments" },
+    { "include": "#blockKeywords" },
+    { "include": "#constants" },
+    { "include": "#wordOperators" },
+    { "include": "#languageWords" },
+    { "include": "#numbers" },
+    { "include": "#functionNames" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.number-sign.latent", "match": "#.*$" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.latent",
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.latent" } },
+          "end": "\"",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.latent" } },
+          "patterns": [
+            { "name": "constant.character.escape.latent", "match": "\\\\." },
+            { "name": "variable.other.interpolation.latent", "match": "\\$[A-Za-z_][A-Za-z0-9_]*" },
+            {
+              "name": "meta.interpolation.latent",
+              "begin": "\\$\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.latent" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.latent" } },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.latent",
+          "begin": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.latent" } },
+          "end": "'",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.latent" } },
+          "patterns": [
+            { "name": "constant.character.escape.latent", "match": "\\\\." },
+            { "name": "variable.other.interpolation.latent", "match": "\\$[A-Za-z_][A-Za-z0-9_]*" },
+            {
+              "name": "meta.interpolation.latent",
+              "begin": "\\$\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.latent" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.latent" } },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "functionParameters": {
+      "name": "meta.function.parameters.latent",
+      "begin": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.latent" },
+        "2": { "name": "entity.name.function.latent" },
+        "3": { "name": "punctuation.section.parameters.begin.latent" }
+      },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.section.parameters.end.latent" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#parameterVariadics" },
+        { "include": "#parameterLabels" },
+        { "include": "#callArguments" },
+        { "include": "#nestedParentheses" },
+        { "include": "#nestedBrackets" },
+        { "include": "#nestedBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "parameterVariadics": {
+      "patterns": [
+        {
+          "match": "(?<=[(,])\\s*(\\*\\*)(\\s*)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.unpacking.named.latent" },
+            "3": { "name": "variable.parameter.variadic.named.latent" }
+          }
+        },
+        {
+          "match": "(?<=[(,])\\s*(\\*)(\\s*)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.unpacking.positional.latent" },
+            "3": { "name": "variable.parameter.variadic.positional.latent" }
+          }
+        }
+      ]
+    },
+    "parameterLabels": {
+      "name": "variable.parameter.latent",
+      "match": "(?<=[(,])\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*(?:=|,|\\)))"
+    },
+    "callArguments": {
+      "name": "meta.function-call.arguments.latent",
+      "begin": "\\b(?!(?:fn|if|elif|else|while|for|in|try|catch|return|break|continue|throw|and|or|not)\\b)([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "variable.function.call.latent" },
+        "2": { "name": "punctuation.section.arguments.begin.latent" }
+      },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.section.arguments.end.latent" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#callUnpacking" },
+        { "include": "#namedArguments" },
+        { "include": "#callArguments" },
+        { "include": "#nestedParentheses" },
+        { "include": "#nestedBrackets" },
+        { "include": "#nestedBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "callUnpacking": {
+      "patterns": [
+        {
+          "match": "(?<=[(,])\\s*(\\*\\*)(?=\\s*[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\s*\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.unpacking.named.latent" }
+          }
+        },
+        {
+          "match": "(?<=[(,])\\s*(\\*)(?=\\s*[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\s*\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.unpacking.positional.latent" }
+          }
+        },
+        {
+          "match": "(?<=[(,])\\s*(\\*\\*)(\\s*)([A-Za-z_][A-Za-z0-9_]*)(?!\\s*\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.unpacking.named.latent" },
+            "3": { "name": "variable.other.argument.unpacking.named.latent" }
+          }
+        },
+        {
+          "match": "(?<=[(,])\\s*(\\*)(\\s*)([A-Za-z_][A-Za-z0-9_]*)(?!\\s*\\()",
+          "captures": {
+            "1": { "name": "keyword.operator.unpacking.positional.latent" },
+            "3": { "name": "variable.other.argument.unpacking.positional.latent" }
+          }
+        }
+      ]
+    },
+    "namedArguments": {
+      "name": "variable.parameter.argument.latent",
+      "match": "(?<=[(,])\\s*([A-Za-z_][A-Za-z0-9_]*)(?=\\s*=)"
+    },
+    "nestedParentheses": {
+      "name": "meta.group.parentheses.latent",
+      "begin": "\\(",
+      "beginCaptures": { "0": { "name": "punctuation.section.group.begin.latent" } },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.section.group.end.latent" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#callArguments" },
+        { "include": "#nestedParentheses" },
+        { "include": "#nestedBrackets" },
+        { "include": "#nestedBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "nestedBrackets": {
+      "name": "meta.group.brackets.latent",
+      "begin": "\\[",
+      "beginCaptures": { "0": { "name": "punctuation.section.group.begin.latent" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.section.group.end.latent" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#callArguments" },
+        { "include": "#nestedParentheses" },
+        { "include": "#nestedBrackets" },
+        { "include": "#nestedBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "nestedBraces": {
+      "name": "meta.group.braces.latent",
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.section.group.begin.latent" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.section.group.end.latent" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#callArguments" },
+        { "include": "#nestedParentheses" },
+        { "include": "#nestedBrackets" },
+        { "include": "#nestedBraces" },
+        { "include": "$self" }
+      ]
+    },
+    "blockKeywords": {
+      "name": "keyword.control.latent",
+      "match": "\\b(?:fn|class|if|elif|else|while|for|in|try|catch|return|break|continue|throw)\\b"
+    },
+    "constants": {
+      "name": "constant.language.latent",
+      "match": "\\b(?:true|false|nil)\\b"
+    },
+    "wordOperators": {
+      "name": "keyword.operator.word.latent",
+      "match": "\\b(?:and|or|not)\\b"
+    },
+    "languageWords": {
+      "name": "support.function.builtin.latent",
+      "match": "\\b(?:say|py|java|super|import|as)\\b"
+    },
+    "numbers": {
+      "name": "constant.numeric.latent",
+      "match": "(?<![\\w.])(?:\\d+\\.?\\d*|\\.\\d+)(?![\\w.])"
+    },
+    "functionNames": {
+      "name": "entity.name.function.latent",
+      "match": "(?<=\\bfn\\s)[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "operators": {
+      "name": "keyword.operator.latent",
+      "match": "(?:==|!=|<=|>=|\\*\\*|[+*/%<>=-])"
+    }
+  }
+}

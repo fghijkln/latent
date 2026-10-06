@@ -1,0 +1,105 @@
+{
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:args}):",
+      "    ${0:pass}"
+    ],
+    "description": "Define a Latent function"
+  },
+  "Function with defaults": {
+    "prefix": "fndef",
+    "body": [
+      "fn ${1:name}(${2:required}, ${3:optional}=nil):",
+      "    ${0:pass}"
+    ],
+    "description": "Define a function with a default parameter"
+  },
+  "Function with variadic arguments": {
+    "prefix": "fnv",
+    "body": [
+      "fn ${1:name}(${2:required}, *${3:rest}, **${4:extra}):",
+      "    ${0:pass}"
+    ],
+    "description": "Define a function with positional and named collectors"
+  },
+  "Named call": {
+    "prefix": "callnamed",
+    "body": [
+      "${1:function}(${2:required}, ${3:option}=${4:value})"
+    ],
+    "description": "Call a Latent function with a named argument"
+  },
+  "Call with unpacked arguments": {
+    "prefix": "callspread",
+    "body": [
+      "${1:function}(*${2:items}, ${3:option}=${4:value}, **${5:mapping})"
+    ],
+    "description": "Call a Latent function with positional and named argument unpacking"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name}${2/(.+)/($1)/}:",
+      "    fn init(self${3/(.+)/, $1/}):",
+      "        ${0:pass}"
+    ],
+    "description": "Define a Latent class"
+  },
+  "If / else": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition}:",
+      "    ${2:pass}",
+      "else:",
+      "    ${0:pass}"
+    ],
+    "description": "Conditional with an else block"
+  },
+  "For loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:items}:",
+      "    ${0:pass}"
+    ],
+    "description": "Iterate over a Latent value"
+  },
+  "Try / catch": {
+    "prefix": "try",
+    "body": [
+      "try:",
+      "    ${1:work()}",
+      "catch ${2:error}:",
+      "    ${0:say error}"
+    ],
+    "description": "Handle a thrown Latent error"
+  },
+  "Import module": {
+    "prefix": "import",
+    "body": [
+      "import \"${1:module.lt}\" as ${2:module}"
+    ],
+    "description": "Import a local Latent module"
+  },
+  "Print value": {
+    "prefix": "say",
+    "body": [
+      "say ${0:value}"
+    ],
+    "description": "Print a value"
+  },
+  "Python module handle": {
+    "prefix": "py",
+    "body": [
+      "${1:module} = py \"${2:module_name}\""
+    ],
+    "description": "Lazily load a Python module"
+  },
+  "Java class handle": {
+    "prefix": "java",
+    "body": [
+      "${1:Class} = java \"${2:java.lang.ClassName}\""
+    ],
+    "description": "Lazily load a Java class"
+  }
+}

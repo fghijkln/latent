@@ -1,0 +1,4 @@
+fn target(value):
+    return value
+
+target(value=1, *[2])

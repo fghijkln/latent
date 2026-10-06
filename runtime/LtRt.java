@@ -344,20 +344,69 @@ public class LtRt {
     public static Object named(String name, Object value) {
         return new NamedArg(name, value);
     }
+    private static class StarArg {
+        final Object[] values;
+        StarArg(Object[] values) { this.values = values; }
+    }
+    private static class StarStarArg {
+        final LinkedHashMap<String, Object> values;
+        StarStarArg(LinkedHashMap<String, Object> values) { this.values = values; }
+    }
+    public static Object star(Object value) {
+        if (!(value instanceof List))
+            throw new ArgumentError("* unpacking requires a Latent list");
+        return new StarArg(((List<?>) value).toArray());
+    }
+    public static Object starstar(Object value) {
+        if (!(value instanceof Map))
+            throw new ArgumentError("** unpacking requires a Latent map");
+        LinkedHashMap<String, Object> copy = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+            if (!(entry.getKey() instanceof String))
+                throw new ArgumentError("** unpacking requires string keys");
+            copy.put((String) entry.getKey(), entry.getValue());
+        }
+        return new StarStarArg(copy);
+    }
+    private static Object[] expandArgs(Object[] args) {
+        List<Object> expanded = new ArrayList<>();
+        for (Object arg : args) {
+            if (arg instanceof StarArg) {
+                expanded.addAll(Arrays.asList(((StarArg) arg).values));
+            } else if (arg instanceof StarStarArg) {
+                for (Map.Entry<String, Object> entry :
+                        ((StarStarArg) arg).values.entrySet())
+                    expanded.add(new NamedArg(entry.getKey(), entry.getValue()));
+            } else {
+                expanded.add(arg);
+            }
+        }
+        return expanded.toArray();
+    }
     public static final Object MISSING = new Object();
     private static boolean hasNamedArgs(Object[] args) {
         for (Object arg : args) if (arg instanceof NamedArg) return true;
         return false;
     }
-    private static void rejectNamedInteropArgs(Object[] args) {
+    private static void rejectInteropArgs(Object[] args) {
         if (hasNamedArgs(args))
             throw new ArgumentError(
                 "named arguments are not supported for Python/Java interop calls");
+        for (Object arg : args)
+            if (arg instanceof StarArg || arg instanceof StarStarArg)
+                throw new ArgumentError(
+                    "argument unpacking is not supported for Python/Java interop calls");
     }
     private static Object[] bindArgs(String[] params, int requiredCount,
                                      Object[] args, String name) {
+        return bindArgs(params, requiredCount, null, null, args, name);
+    }
+    private static Object[] bindArgs(String[] params, int requiredCount,
+                                     String restName, String extraName,
+                                     Object[] rawArgs, String name) {
+        Object[] args = expandArgs(rawArgs);
         if (!hasNamedArgs(args)) {
-            if (args.length > params.length)
+            if (args.length > params.length && restName == null)
                 throw new ArgumentError(name + "() takes " + params.length +
                     " args, got " + args.length);
             if (args.length < requiredCount) {
@@ -367,13 +416,24 @@ public class LtRt {
                 throw new ArgumentError(name +
                     "() missing required argument '" + params[args.length] + "'");
             }
-            Object[] values = Arrays.copyOf(args, params.length);
-            Arrays.fill(values, args.length, params.length, MISSING);
+            int fixedCount = params.length;
+            Object[] values = Arrays.copyOf(args, fixedCount +
+                (restName == null ? 0 : 1) + (extraName == null ? 0 : 1));
+            Arrays.fill(values, Math.min(args.length, fixedCount), fixedCount, MISSING);
+            int next = fixedCount;
+            if (restName != null) {
+                List<Object> rest = new ArrayList<>();
+                for (int i = fixedCount; i < args.length; i++) rest.add(args[i]);
+                values[next++] = rest;
+            }
+            if (extraName != null) values[next] = new LinkedHashMap<String, Object>();
             return values;
         }
         Object[] values = new Object[params.length];
         Arrays.fill(values, MISSING);
         boolean[] supplied = new boolean[params.length];
+        List<Object> restValues = new ArrayList<>();
+        LinkedHashMap<String, Object> extraValues = new LinkedHashMap<>();
         Set<String> seenNames = new HashSet<>();
         int pos = 0;
         for (Object arg : args) {
@@ -383,20 +443,28 @@ public class LtRt {
                     throw new ArgumentError(name +
                         "() got duplicate named argument '" + named.name + "'");
                 int index = Arrays.asList(params).indexOf(named.name);
-                if (index < 0)
-                    throw new ArgumentError(name +
-                        "() got unexpected named argument '" + named.name + "'");
-                if (supplied[index])
-                    throw new ArgumentError(name +
-                        "() got multiple values for argument '" + named.name + "'");
-                values[index] = named.value;
-                supplied[index] = true;
+                if (index < 0) {
+                    if (extraName == null)
+                        throw new ArgumentError(name +
+                            "() got unexpected named argument '" + named.name + "'");
+                    extraValues.put(named.name, named.value);
+                } else {
+                    if (supplied[index])
+                        throw new ArgumentError(name +
+                            "() got multiple values for argument '" + named.name + "'");
+                    values[index] = named.value;
+                    supplied[index] = true;
+                }
             } else {
-                if (pos >= params.length)
-                    throw new ArgumentError(name + "() takes " + params.length +
-                        " args, got " + (pos + 1));
-                values[pos] = arg;
-                supplied[pos] = true;
+                if (pos >= params.length) {
+                    if (restName == null)
+                        throw new ArgumentError(name + "() takes " + params.length +
+                            " args, got " + (pos + 1));
+                    restValues.add(arg);
+                } else {
+                    values[pos] = arg;
+                    supplied[pos] = true;
+                }
                 pos++;
             }
         }
@@ -405,7 +473,12 @@ public class LtRt {
                 throw new ArgumentError(name +
                     "() missing required argument '" + params[i] + "'");
         }
-        return values;
+        Object[] bound = Arrays.copyOf(values, params.length +
+            (restName == null ? 0 : 1) + (extraName == null ? 0 : 1));
+        int next = params.length;
+        if (restName != null) bound[next++] = restValues;
+        if (extraName != null) bound[next] = extraValues;
+        return bound;
     }
     public static class LtFunction {
         final int arity;
@@ -413,21 +486,32 @@ public class LtRt {
         final String name;
         final String display;
         final String[] params;
+        final String restName;
+        final String extraName;
         final LtBody body;
         LtFunction(String[] params, int requiredCount, String name, LtBody body) {
-            this(params, requiredCount, name, "<function " + name + ">", body);
+            this(params, requiredCount, name, "<function " + name + ">",
+                 null, null, body);
         }
         LtFunction(String[] params, int requiredCount, String name,
                    String display, LtBody body) {
+            this(params, requiredCount, name, display, null, null, body);
+        }
+        LtFunction(String[] params, int requiredCount, String name,
+                   String display, String restName, String extraName,
+                   LtBody body) {
             this.params = params.clone();
             this.arity = params.length;
             this.requiredCount = requiredCount;
             this.name = name;
             this.display = display;
+            this.restName = restName;
+            this.extraName = extraName;
             this.body = body;
         }
         Object invoke(Object[] args) {
-            return body.call(bindArgs(params, requiredCount, args, name));
+            return body.call(bindArgs(params, requiredCount, restName,
+                                      extraName, args, name));
         }
     }
     /** Per-invocation binding cells; nested functions retain this frame. */
@@ -462,6 +546,12 @@ public class LtRt {
                                       String name, LtBody body) {
         return new LtFunction(params, requiredCount, name, body);
     }
+    public static LtFunction function(String[] params, int requiredCount,
+                                      String name, String restName,
+                                      String extraName, LtBody body) {
+        return new LtFunction(params, requiredCount, name,
+            "<function " + name + ">", restName, extraName, body);
+    }
     public static Object callValue(Object value, Object... args) {
         if (!(value instanceof LtFunction))
             throw new RuntimeException("call on non-function value");
@@ -475,16 +565,22 @@ public class LtRt {
         public final Map<String, Integer> methodArities;
         public final Map<String, String[]> methodParameters;
         public final Map<String, Integer> methodRequiredCounts;
+        public final Map<String, String> methodRestNames;
+        public final Map<String, String> methodExtraNames;
         LtClass(String name, LtClass parent, Map<String, LtMethod> methods,
                 Map<String, Integer> methodArities,
                 Map<String, String[]> methodParameters,
-                Map<String, Integer> methodRequiredCounts) {
+                Map<String, Integer> methodRequiredCounts,
+                Map<String, String> methodRestNames,
+                Map<String, String> methodExtraNames) {
             this.name = name;
             this.parent = parent;
             this.methods = methods;
             this.methodArities = methodArities;
             this.methodParameters = methodParameters;
             this.methodRequiredCounts = methodRequiredCounts;
+            this.methodRestNames = methodRestNames;
+            this.methodExtraNames = methodExtraNames;
         }
     }
 
@@ -498,17 +594,31 @@ public class LtRt {
                                     String[] names, LtMethod[] methods,
                                     int[] arities, String[][] parameters,
                                     int[] requiredCounts) {
+        return makeClass(name, parent, names, methods, arities, parameters,
+                         requiredCounts, new String[names.length],
+                         new String[names.length]);
+    }
+
+    public static LtClass makeClass(String name, LtClass parent,
+                                    String[] names, LtMethod[] methods,
+                                    int[] arities, String[][] parameters,
+                                    int[] requiredCounts, String[] restNames,
+                                    String[] extraNames) {
         Map<String, LtMethod> m = new LinkedHashMap<>();
         Map<String, Integer> a = new LinkedHashMap<>();
         Map<String, String[]> p = new LinkedHashMap<>();
         Map<String, Integer> r = new LinkedHashMap<>();
+        Map<String, String> rest = new LinkedHashMap<>();
+        Map<String, String> extra = new LinkedHashMap<>();
         for (int i = 0; i < names.length; i++) {
             m.put(names[i], methods[i]);
             a.put(names[i], arities[i]);
             p.put(names[i], parameters[i].clone());
             r.put(names[i], requiredCounts[i]);
+            rest.put(names[i], restNames[i]);
+            extra.put(names[i], extraNames[i]);
         }
-        return new LtClass(name, parent, m, a, p, r);
+        return new LtClass(name, parent, m, a, p, r, rest, extra);
     }
 
     static LtMethod findMethod(LtClass cls, String name) {
@@ -543,6 +653,20 @@ public class LtRt {
         return 0;
     }
 
+    static String findMethodRestName(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent)
+            if (c.methodRestNames.containsKey(name))
+                return c.methodRestNames.get(name);
+        return null;
+    }
+
+    static String findMethodExtraName(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent)
+            if (c.methodExtraNames.containsKey(name))
+                return c.methodExtraNames.get(name);
+        return null;
+    }
+
     /** Dispatch a Latent method beginning at the current class's parent. */
     public static Object superCall(Object receiver, LtClass owner,
                                    String method, Object... args) {
@@ -557,7 +681,9 @@ public class LtRt {
             throw new RuntimeException("no parent method '" + method + "' on class " + owner.name);
         return target.call(receiver,
             bindArgs(findMethodParameters(owner.parent, method),
-                     findMethodRequiredCount(owner.parent, method), args, method));
+                     findMethodRequiredCount(owner.parent, method),
+                     findMethodRestName(owner.parent, method),
+                     findMethodExtraName(owner.parent, method), args, method));
     }
 
     public static Object pymod(Object name) {
@@ -599,6 +725,8 @@ public class LtRt {
                 return new LtFunction(params,
                     findMethodRequiredCount(o.cls, attr), attr,
                     "<bound method " + o.cls.name + "." + attr + ">",
+                    findMethodRestName(o.cls, attr),
+                    findMethodExtraName(o.cls, attr),
                     args -> method.call(o, args));
             }
             throw new RuntimeException("no field '" + attr + "'");
@@ -615,7 +743,7 @@ public class LtRt {
     /** Unified call: py handles, java static/instance methods, C.new() constructors. */
     public static Object wcall(Object h, String attr, Object... args) {
         if (h instanceof PyHandle) {
-            rejectNamedInteropArgs(args);
+            rejectInteropArgs(args);
             return pycall(h, attr, args);
         }
         if (h instanceof LtClass) {
@@ -625,7 +753,9 @@ public class LtRt {
                 LtMethod init = findMethod(c, "init");
                 String[] params = findMethodParameters(c, "init");
                 if (init != null) init.call(o, bindArgs(params,
-                    findMethodRequiredCount(c, "init"), args, c.name + ".new"));
+                    findMethodRequiredCount(c, "init"),
+                    findMethodRestName(c, "init"),
+                    findMethodExtraName(c, "init"), args, c.name + ".new"));
                 else if (args.length > 0) bindArgs(new String[0], 0, args, c.name + ".new");
                 return o;
             }
@@ -639,16 +769,18 @@ public class LtRt {
                 throw new RuntimeException("no method '" + attr +
                     "' on " + o.cls.name);
             return m.call(o, bindArgs(findMethodParameters(o.cls, attr),
-                findMethodRequiredCount(o.cls, attr), args, attr));
+                findMethodRequiredCount(o.cls, attr),
+                findMethodRestName(o.cls, attr),
+                findMethodExtraName(o.cls, attr), args, attr));
         }
         if (h instanceof JReflect.JClass) {
-            rejectNamedInteropArgs(args);
+            rejectInteropArgs(args);
             if (attr.equals("new"))
                 return JReflect.construct((JReflect.JClass) h, args);
             return JReflect.callStatic((JReflect.JClass) h, attr, args);
         }
         if (h instanceof JReflect.JObj) {
-            rejectNamedInteropArgs(args);
+            rejectInteropArgs(args);
             return JReflect.call((JReflect.JObj) h, attr, args);
         }
         throw new RuntimeException("call on non-handle value: " + typeName(h));

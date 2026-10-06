@@ -1,0 +1,3 @@
+ArrayList = java "java.util.ArrayList"
+items = ArrayList.new()
+items.add(**{})

@@ -151,6 +151,9 @@ class Gen:
     def string_array(self, values):
         return "new String[]{" + ", ".join(java_str(v) for v in values) + "}"
 
+    def _nullable_string(self, value):
+        return "null" if value is None else java_str(value)
+
     def generate(self, prog):
         self._prepare_functions(prog)
         modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
@@ -178,9 +181,11 @@ class Gen:
                 self.w(f"static Object {ident(g)};")
             else:
                 self.w(f"static Object {ident(g)} = LtRt.function(" +
-                       f"{self.string_array(parameter_names(fn.params))}, "
+                       f"{self.string_array(fixed_parameter_names(fn.params))}, "
                        f"{required_parameter_count(fn.params)}, "
-                       f"{java_str(fn.source_name)}, " +
+                       f"{java_str(fn.source_name)}, "
+                       f"{self._nullable_string(rest_parameter_name(fn.params))}, "
+                       f"{self._nullable_string(extra_parameter_name(fn.params))}, " +
                        f"args -> {self.fn_helpers[id(fn)]}(null, args));")
         for module in modules:
             self.w(f"private static int {module.state_name};")
@@ -318,12 +323,18 @@ class Gen:
         names = ", ".join(java_str(m.name) for m in cd.methods)
         lambdas = ", ".join(
             f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
-        arities = ", ".join(str(max(0, len(m.params) - 1))
+        arities = ", ".join(str(len(fixed_parameter_names(m.params[1:])))
                              for m in cd.methods)
-        parameters = ", ".join(self.string_array(parameter_names(m.params)[1:])
+        parameters = ", ".join(self.string_array(fixed_parameter_names(m.params[1:]))
                                 for m in cd.methods)
         required_counts = ", ".join(
             str(required_parameter_count(m.params[1:])) for m in cd.methods)
+        rest_names = ", ".join(
+            self._nullable_string(rest_parameter_name(m.params[1:]))
+            for m in cd.methods)
+        extra_names = ", ".join(
+            self._nullable_string(extra_parameter_name(m.params[1:]))
+            for m in cd.methods)
         parent = ident(cd.parent.name) if cd.parent else "null"
         self.w(f"static LtRt.LtClass {ident(cd.name)} = LtRt.makeClass(")
         self.ind += 1
@@ -333,21 +344,16 @@ class Gen:
         self.w(f"new LtRt.LtMethod[]{{{lambdas}}},")
         self.w(f"new int[]{{{arities}}},")
         self.w(f"new String[][]{{{parameters}}},")
-        self.w(f"new int[]{{{required_counts}}});")
+        self.w(f"new int[]{{{required_counts}}},")
+        self.w(f"new String[]{{{rest_names}}},")
+        self.w(f"new String[]{{{extra_names}}});")
         self.ind -= 1
 
     def methoddef(self, cd, m):
-        params = parameter_names(m.params)
-        restp = params[1:] if params else []
         self.w(f"static Object {cd.name}_{m.name}(Object self, Object[] args) " + "{",
                m.line, m.source_path)
         self.ind += 1
-        self.w(f"if (args.length != {len(restp)})")
-        self.ind += 1
-        self.w(f'throw new RuntimeException("{m.name}() takes {len(restp)} '
-               f'args, got " + args.length);')
-        self.ind -= 1
-        self.w(f"Object[] _all_args = new Object[{len(restp) + 1}];")
+        self.w("Object[] _all_args = new Object[args.length + 1];")
         self.w("_all_args[0] = self;")
         self.w("System.arraycopy(args, 0, _all_args, 1, args.length);")
         self.w(f"return {self.fn_helpers[id(m)]}(null, _all_args);")
@@ -511,9 +517,11 @@ class Gen:
         if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
-            closure = f"LtRt.function({self.string_array(parameter_names(s.params))}, " \
+            closure = f"LtRt.function({self.string_array(fixed_parameter_names(s.params))}, " \
                       f"{required_parameter_count(s.params)}, " \
                       f"{java_str(s.source_name)}, " \
+                      f"{self._nullable_string(rest_parameter_name(s.params))}, " \
+                      f"{self._nullable_string(extra_parameter_name(s.params))}, " \
                       f"args -> {self.fn_helpers[id(s)]}(_env, args))"
             self.w(self._assign(s.name, closure), s.line, s.source_path)
         elif isinstance(s, Assign):
@@ -664,6 +672,10 @@ class Gen:
     def argument(self, arg):
         if isinstance(arg, NamedArg):
             return f"LtRt.named({java_str(arg.name)}, {self.expr(arg.value)})"
+        if isinstance(arg, StarArg):
+            return f"LtRt.star({self.expr(arg.value)})"
+        if isinstance(arg, StarStarArg):
+            return f"LtRt.starstar({self.expr(arg.value)})"
         return self.expr(arg)
 
     def _object_vararg(self, value):

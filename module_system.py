@@ -240,6 +240,9 @@ def _rewrite_expr(expr, unit, locals_, allow_function=False):
     if isinstance(expr, nodes.NamedArg):
         expr.value = _rewrite_expr(expr.value, unit, locals_)
         return expr
+    if isinstance(expr, (nodes.StarArg, nodes.StarStarArg)):
+        expr.value = _rewrite_expr(expr.value, unit, locals_)
+        return expr
     if isinstance(expr, nodes.Name):
         if locals_ is not None and expr.id in locals_:
             return expr

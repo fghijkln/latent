@@ -177,6 +177,10 @@ class Desugar:
         if isinstance(arg, NamedArg):
             return NamedArg(arg.name, self.expr(arg.value),
                             line=arg.line, col=arg.col)
+        if isinstance(arg, StarArg):
+            return StarArg(self.expr(arg.value), line=arg.line, col=arg.col)
+        if isinstance(arg, StarStarArg):
+            return StarStarArg(self.expr(arg.value), line=arg.line, col=arg.col)
         return self.expr(arg)
 
     def expr(self, e):

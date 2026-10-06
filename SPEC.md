@@ -1,4 +1,4 @@
-# Latent 语言规范 v0.12.0
+# Latent 语言规范 v0.13.0
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -12,8 +12,9 @@
 > v0.10.0（P7）允许 Latent 实例绑定方法作为函数值。
 > v0.11.0（P8）增加 Latent 调用的命名参数；`latent-ast` JSON schema 升级到版本 3。
 > v0.12.0（P9）增加 Latent 默认参数；`latent-ast` JSON schema 升级到版本 4。
+> v0.13.0（P10）增加变参形参与调用展开；`latent-ast` JSON schema 升级到版本 5。
 >
-> **发布状态：** 本规范描述 v0.12.0 已发布语义。
+> **发布状态：** 本规范描述 Latent v0.13.0 已发布语义；历史版本章节用于说明各版本引入的兼容行为。
 
 ## 1. 设计目标
 
@@ -132,7 +133,13 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
 
 默认表达式可读取已提供或已求默认值的更早形参，以及调用时可见的词法/全局绑定；不能引用自身或后续形参，违反时为编译期错误。默认值适用于普通函数、函数值和闭包、公开模块函数、Latent 直接/绑定方法、继承/覆盖方法、`super` 调用、`init` 和构造调用。运行时选中的 `init`（包括继承的 `init`）决定构造器默认值。静态可知的必需实参缺失会在编译期报错，动态函数值或无法静态判定的方法则按相同签名元数据在运行期检查。
 
-内建函数及 Python/Java 互操作方法与构造器不受 Latent 默认值规则影响；可变参数和仅限关键字参数仍不支持。使用默认形参的源码需要 v0.12.0 或更新版本。AST schema v4 以 `DefaultParam(name, default)` 表示默认形参；既有必需形参仍以字符串表示，历史节点字段结构不变。
+内建函数及 Python/Java 互操作方法与构造器不受 Latent 默认值规则影响。在 v0.12.0 发布基线上，可变参数、实参展开和仅限关键字参数尚不支持；v0.13.0/P10 增加的可变参数与实参展开语义见下节。使用默认形参的源码需要 v0.12.0 或更新版本。v0.13.0 的 AST schema v5 以 `DefaultParam(name, default)` 表示默认形参；既有必需形参仍以字符串表示，历史节点字段结构不变。
+
+### P10/v0.13.0：变参与实参展开
+
+v0.13.0/P10 增加 `*rest`、`**extra` 形参与 Latent 调用中的 `*items`、`**mapping`。签名顺序为必需位置形参、默认位置形参、可选 `*rest`、可选 `**extra`；不增加关键字专用形参。位置实参/位置展开必须先于命名实参或 `**mapping`。`*items` 限定为 Latent 列表，字符串不直接作为展开输入；`**mapping` 限定为 Latent 映射，键必须为字符串，按插入顺序展开。表达式及展开快照依源码顺序发生，重复键和值、缺少必需形参、未知名称和过量位置值均拒绝。
+
+支持范围包括函数值/闭包、公开模块函数、Latent 绑定/继承方法、`super` 与构造器。默认值继续遵循 P9 的调用时求值规则。内建函数与 Python/Java 互操作调用不接受展开实参。稳定诊断 AST 在 v0.13.0 升至 schema v5，新增 `RestParam(name)`、`ExtraParam(name)`、`StarArg(value)`、`StarStarArg(value)`；v1–v4 已有节点字段与顺序保持不变。完整绑定及错误规则见 [P10 设计记录](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
 
 ## 5. 类（v0.3 新增）
 
@@ -324,10 +331,11 @@ python3 latent.py prog.lt --show-ast       # --dump-ast 是同义别名
 python3 latent.py prog.lt --show-desugar
 ```
 
-两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 4`；
+两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 5`；
 包含阶段名、源文件路径，以及显式定义字段的节点树。每个源节点都记录 1 起算的行、列；
 没有语法位置的 `Program` 容器使用 null。schema v2 增加 `NonlocalStmt`，v3 增加
-`NamedArg`，v4 增加 `DefaultParam(name, default)`。既有节点的字段顺序、名称与 JSON
+`NamedArg`，v4 增加 `DefaultParam(name, default)`，v5 增加 `RestParam(name)`、
+`ExtraParam(name)`、`StarArg(value)` 与 `StarStarArg(value)`。既有节点的字段顺序、名称与 JSON
 形状保持不变，必需形参仍为字符串。未来变更不兼容结构时必须升级版本号。
 非有限浮点字面值以 `"inf"`、`"-inf"` 或 `"nan"` 字符串表示，以保持合法 JSON。
 
@@ -373,11 +381,11 @@ class Box:
 
 P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模块初始化、命名空间可见性及父类分派语义。
 
-## 12. 仍不支持（已记录，不算遗漏）
+## 12. 仍不支持（以已发布 v0.13.0 为准）
 
 - 多继承、接口、Java 类继承、类/静态方法、运算符重载。
 - 类方法/内建函数/Python 与 Java 句柄方法的一等值化；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
-- 默认参数、可变参数、仅限关键字参数；`py` 内联代码块（`py:` 多行 Python 源码）。
+- v0.12.0 发布语义不含可变参数或实参展开；v0.13.0/P10 已加入两者，但仍不支持仅限关键字参数。`py` 内联代码块（`py:` 多行 Python 源码）也不支持。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。

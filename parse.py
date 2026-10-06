@@ -169,18 +169,41 @@ class Parser:
         self.expect("(")
         params = []
         saw_default = False
+        saw_rest = False
+        saw_extra = False
         if self.peek().kind != ")":
             while True:
-                param = self.expect("NAME")
-                if self.match("="):
-                    saw_default = True
-                    params.append(DefaultParam(param.value, self.expr(),
-                                               line=param.line, col=param.col))
+                if self.peek().kind == "**":
+                    marker = self.next()
+                    if saw_extra:
+                        self.err("multiple **extra parameters", marker)
+                    param = self.expect("NAME")
+                    params.append(ExtraParam(param.value, line=marker.line,
+                                             col=marker.col))
+                    saw_extra = True
+                elif self.peek().kind == "*":
+                    marker = self.next()
+                    if saw_rest or saw_extra:
+                        self.err("*rest must precede **extra and appear once",
+                                 marker)
+                    param = self.expect("NAME")
+                    params.append(RestParam(param.value, line=marker.line,
+                                            col=marker.col))
+                    saw_rest = True
                 else:
-                    if saw_default:
-                        self.err("required parameter follows defaulted parameter",
+                    param = self.expect("NAME")
+                    if saw_rest or saw_extra:
+                        self.err("positional parameter follows variadic parameter",
                                  param)
-                    params.append(param.value)
+                    if self.match("="):
+                        saw_default = True
+                        params.append(DefaultParam(param.value, self.expr(),
+                                                   line=param.line, col=param.col))
+                    else:
+                        if saw_default:
+                            self.err("required parameter follows defaulted parameter",
+                                     param)
+                        params.append(param.value)
                 if not self.match(","):
                     break
         self.expect(")")
@@ -315,21 +338,30 @@ class Parser:
 
     def call_args(self):
         args = []
-        saw_named = False
+        saw_keyword = False
         if self.peek().kind == ")":
             return args
         while True:
             current = self.peek()
-            is_named = (current.kind == "NAME" and
-                        self.toks[self.pos + 1].kind == "=")
-            if is_named:
+            if current.kind == "**":
+                marker = self.next()
+                args.append(StarStarArg(self.expr(), line=marker.line,
+                                         col=marker.col))
+                saw_keyword = True
+            elif current.kind == "*":
+                marker = self.next()
+                if saw_keyword:
+                    self.err("positional unpacking follows named argument", marker)
+                args.append(StarArg(self.expr(), line=marker.line, col=marker.col))
+            elif (current.kind == "NAME" and
+                  self.toks[self.pos + 1].kind == "="):
                 name = self.next()
                 self.next()  # '='
                 args.append(NamedArg(name.value, self.expr(),
                                      line=name.line, col=name.col))
-                saw_named = True
+                saw_keyword = True
             else:
-                if saw_named:
+                if saw_keyword:
                     self.err("positional argument follows named argument", current)
                 args.append(self.expr())
             if not self.match(","):

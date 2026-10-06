@@ -1,0 +1,2 @@
+fn summarize(head, factor=2, *rest, **extra):
+    return [head, factor, rest, extra]

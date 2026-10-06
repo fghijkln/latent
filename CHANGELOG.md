@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.13.0 — 2026-10-06
+
+### Added
+
+- Latent 函数支持 `*rest` 位置收集器和 `**extra` 命名收集器；调用支持 `*items` / `**mapping`，与 P8 命名参数及 P9 默认参数组合。
+- 适用普通函数/闭包/函数值、公开模块函数、Latent 绑定/继承方法、`super` 和构造器。位置收集器产生 Latent 列表；命名收集器产生保留插入顺序的 Latent 映射。
+- `latent-ast` 从 v4 升至 v5，新增 `RestParam`、`ExtraParam`、`StarArg`、`StarStarArg`，旧节点字段继续保持。
+- 随版本发布 VS Code 扩展 0.6.2，包含 P10 语法高亮和代码片段；提供编译、运行、测试命令及 Restricted Mode 执行阻断。
+
+### Boundaries
+
+- 形参顺序固定为必需位置、默认位置、`*rest`、`**extra`；不增加仅限关键字形参。`*items` 只接受 Latent 列表；`**mapping` 只接受字符串键映射并按插入顺序展开。重复、未知、缺失和过量值均报错。
+- 内建函数和 Python/Java 互操作调用不接受展开实参；其既有调用协议不变。P9 默认参数仍由 v0.12.0 引入，P10 变参与 AST v5 于 v0.13.0 发布。详见 [P10 设计记录](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
+
+### Verification
+
+- 在不含受保护 VS Code/用户文件的隔离副本运行 `python3 tests/run_tests.py`：**180 passed, 0 failed**（12 项 AST/CLI 诊断）；当前合计显式计入此前遗漏的 6 个 P9 静态编译负例，P10 增加 25 项回归。
+- 13 个 tracked Python 文件 `py_compile` 通过；`javac runtime/*.java` 成功（class 输出放在临时目录）；`git diff --check` 通过。P8/P9 Python 与 Java 冒烟样例的输出逐字节一致。
+- VSIX 0.6.2 作为 GitHub Release 资产单独提供；历史 VSIX、`node_modules`、缓存与测试输出不纳入发布范围。`P7_PLAN.md` 保持原样。
+
 ## v0.12.0 — 2026-10-06
 
 ### Added

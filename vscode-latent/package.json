@@ -1,0 +1,136 @@
+{
+  "name": "latent-language-support",
+  "displayName": "Latent Language Support",
+  "description": "Latent language syntax, snippets, diagnostics, and compiler commands.",
+  "version": "0.6.2",
+  "publisher": "fghijkln",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fghijkln/latent.git",
+    "directory": "vscode-latent"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:latent",
+    "onCommand:latent.compilePython",
+    "onCommand:latent.compileJava",
+    "onCommand:latent.runPython",
+    "onCommand:latent.runJava",
+    "onCommand:latent.runTests"
+  ],
+  "main": "./extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "%untrustedWorkspaces.description%",
+      "restrictedConfigurations": [
+        "latent.pythonPath",
+        "latent.outputDirectory"
+      ]
+    }
+  },
+  "files": [
+    "extension.js",
+    "package.nls.json",
+    "language-configuration.json",
+    "syntaxes/**",
+    "snippets/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "latent",
+        "aliases": [
+          "Latent",
+          "latent"
+        ],
+        "extensions": [
+          ".lt"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "latent",
+        "scopeName": "source.latent",
+        "path": "./syntaxes/latent.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "latent",
+        "path": "./snippets/latent.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "latent.compilePython",
+        "title": "Latent: 编译到 Python"
+      },
+      {
+        "command": "latent.compileJava",
+        "title": "Latent: 编译到 Java"
+      },
+      {
+        "command": "latent.runPython",
+        "title": "Latent: 运行（Python）"
+      },
+      {
+        "command": "latent.runJava",
+        "title": "Latent: 运行（Java）"
+      },
+      {
+        "command": "latent.runTests",
+        "title": "Latent: 运行项目测试"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "latent.runPython",
+          "when": "resourceLangId == latent",
+          "group": "navigation@1"
+        },
+        {
+          "command": "latent.runJava",
+          "when": "resourceLangId == latent",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Latent",
+      "properties": {
+        "latent.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python executable used to invoke latent.py and the test suite. Set this to an executable path, not a shell command with arguments."
+        },
+        "latent.outputDirectory": {
+          "type": "string",
+          "default": ".latent-vscode/out",
+          "description": "Compiler output directory relative to the Latent project root. Absolute paths and paths outside the workspace are rejected."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node ./tests/tokenization.test.js && node ./tests/runTest.js && node ./tests/runRestrictedTest.js",
+    "package": "npx --yes @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^2.5.2",
+    "mocha": "^12.0.3",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}

@@ -1,13 +1,13 @@
 # Latent 库 Cookbook
 
-`cookbook/` 有 17 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。`named_arguments.lt` 展示 v0.11.0/P8 已发布语法。运行方式：
+`cookbook/` 有 18 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。`named_arguments.lt` 展示 v0.11.0/P8 已发布语法；`variadic_arguments.lt` 展示 v0.13.0/P10 变参与调用展开。运行方式：
 
 ```bash
 python3 latent.py cookbook/py_json.lt -t py -o out --run
 python3 latent.py cookbook/py_json.lt -t java -o out --run
 ```
 
-`tests/run_tests.py` 会把全部 17 个例子自动双后端对拍。
+`tests/run_tests.py` 会把全部 18 个例子自动双后端对拍。
 
 ## Python 生态
 
@@ -36,6 +36,7 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `inheritance.lt` | Latent 单继承 | `Dog(Animal)`、显式 `super.init`、覆盖方法与继承分派 |
 | `functions.lt` | 函数值与闭包 | 函数作参数/返回值、词法捕获、`nonlocal` 计数器状态闭包 |
 | `named_arguments.lt` | P8/v0.11.0 命名参数 | 命名函数调用、Latent 构造器与绑定方法调用；位置实参仍必须排在命名实参前 |
+| `variadic_arguments.lt` | P10/v0.13.0 变参 | `*rest` / `**extra`、位置/映射展开与默认形参混用；仅 Latent 调用 |
 | `pipeline.lt` | 旗舰 demo | 双生态销售管道：Python 写 CSV → Java NIO 读 → re 解析 → try/catch 跳坏行 → numpy 均值 → BigDecimal 求和 → java.time 时间戳 |
 
 ## 本地 `.lt` 模块
@@ -56,6 +57,7 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - Python 的 tuple 过边界变成 Latent list（`say` 两边都打印成 `[...]`，索引通用）。
 - `==` 在句柄上是 identity 语义。
 - v0.11.0/P8 为 Latent 函数/方法提供命名参数；Python/Java 互操作调用与内建函数仍只支持位置参数。例如对句柄写 `timedelta(hours=36)` 会被拒绝。
+- v0.13.0/P10 为 Latent 调用增加变参及展开；内建函数和 Python/Java 互操作调用不接受 `*items` / `**mapping`。
 
 ## 已知的坑
 
