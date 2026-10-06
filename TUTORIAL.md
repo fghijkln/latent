@@ -39,6 +39,18 @@ python3 latent.py prog.lt -t java -o out --run    # 编译为 Java 并运行
 
 `-o out` 指定输出目录，`--run` 表示编完直接运行。去掉 `--run` 就只编译不运行。
 
+需要检查前端树时，可输出带源码位置的 JSON，而不生成或执行 Python/Java 程序：
+
+```bash
+python3 latent.py tests/diagnostics_sample.lt --show-ast
+python3 latent.py tests/diagnostics_sample.lt --show-desugar
+```
+
+`--show-ast`（也可写 `--dump-ast`）显示解析后的 AST；`--show-desugar` 显示脱糖结果，
+例如属性读写会变成内部调用。诊断只处理指定文件，不遍历导入模块、不做语义检查或代码生成，
+不会导入/启动 py 或 Java 互操作运行时，也不会改动 `out/` 或 `-o` 目录。错误仍带有原有的
+`文件:行:列`、源码行和 `^`；诊断选项不能与 `--run` 一起使用。
+
 ---
 
 ## 2. 第一个程序
@@ -62,8 +74,8 @@ hello latent
 ```
 
 `say` 是打印语句，不需要括号。这是全教程最重要的约定：**同一份源码，
-`-t py` 和 `-t java` 的运行结果一致**。编译器的 82 项测试覆盖单文件/模块正例、
-编译错误、运行错误与 cookbook；每次都验证双后端输出或相应的失败诊断。
+`-t py` 和 `-t java` 的运行结果一致**。编译器的 82 个双后端/集成场景覆盖单文件/模块
+正例、编译错误、运行错误与 cookbook，另有 7 个只读 CLI 诊断回归测试。
 
 ---
 
@@ -438,7 +450,7 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - 同一个文件即使使用不同路径写法和别名导入，也只初始化一次；被导入模块先于当前模块执行。循环导入会在编译期报错。
 - 当前仅支持本地静态 `.lt` 文件导入，不支持通配符、动态导入或包管理。公开模块类可以作为父类，详见 §9。
 
-## 15. 已知限制（v0.6.0）
+## 15. 已知限制（v0.7.0）
 
 - 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。仍无闭包捕获；模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
@@ -462,5 +474,5 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（82 项：21 正例、30 编译负例、16 运行负例、
-  15 cookbook；正例/cookbook 双后端对拍）
+- 跑测试：`python3 tests/run_tests.py`（89 项：82 个双后端/集成场景和 7 个只读 CLI
+  诊断回归；正例/cookbook 双后端对拍）

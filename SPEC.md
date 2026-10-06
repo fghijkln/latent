@@ -1,4 +1,4 @@
-# Latent 语言规范 v0.6.0
+# Latent 语言规范 v0.7.0
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -6,6 +6,7 @@
 > v0.2 变更：Python 与 Java 本体彻底纳入范围——`py "mod"` 与
 > `java "com.foo.Bar"` 对称，两个后端都能直接用两个生态的库。
 > v0.6.0 在 v0.5.0 基线上发布 P2 本地模块与 P3 单继承；两项功能在 Python、Java 后端共用同一套静态语义。
+> v0.7.0 增加只读的版本化 JSON AST 与脱糖诊断命令；不改变常规编译和运行行为。
 
 ## 1. 设计目标
 
@@ -257,6 +258,25 @@ for x in a:                      # Java List/数组可迭代
 - `runtime/`：`LtRt.java`（Java 后端运行时）、`JReflect.java`（Java 反射互操作核心，
   Java 后端直调、Python 后端经 `LtJavaDaemon` 调）、`ltpy.py`（Python 守护进程）、
   `LtJavaDaemon.java`（JVM 守护进程，供 Python 后端用）。
+
+### 只读 CLI 内省（P4）
+
+```bash
+python3 latent.py prog.lt --show-ast       # --dump-ast 是同义别名
+python3 latent.py prog.lt --show-desugar
+```
+
+两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 1`；
+包含阶段名、源文件路径，以及显式定义字段的节点树。每个源节点都记录 1 起算的行、列；
+没有语法位置的 `Program` 容器使用 null。字段顺序、节点名与 JSON 形状属于格式版本 1 的
+稳定接口；变更不兼容结构时必须升级版本号。非有限浮点字面值以 `"inf"`、`"-inf"` 或
+`"nan"` 字符串表示，以保持合法 JSON。
+
+`--show-ast` 只词法分析并解析指定文件；`--show-desugar` 再运行脱糖变换。两者均不做语义
+检查、不遍历模块依赖、不生成或执行 Python/Java 程序、不加载或启动 py/JVM 互操作运行时，
+也不创建或改动常规编译目录（包括给定的 `-o`）。`-t`、`-o` 在诊断模式下忽略；`--run`
+不能与诊断选项组合。词法、语法与脱糖错误沿用结构化编译错误路径（文件、行、列、源码行、
+插入符），退出状态非零。
 
 ## 11. 模块系统（P2，v0.6.0）
 

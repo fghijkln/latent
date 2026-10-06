@@ -1,0 +1,18 @@
+class Box:
+    fn init(self, value):
+        self.value = value
+
+    fn adjust(self, amount):
+        if amount > 0:
+            self.value = self.value + amount
+        else:
+            self.value = self.value - amount
+        return self.value
+
+box = Box.new(1)
+while box.value < 3:
+    box.value = box.value + 1
+say box.value
+
+python = py "latent_diagnostic_probe_that_does_not_exist"
+java_class = java "latent.diagnostic.ProbeThatDoesNotExist"

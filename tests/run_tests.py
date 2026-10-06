@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Latent dual-backend differential test: same .lt -> py & java must agree."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -288,7 +289,25 @@ def main():
             print(f"  py:   rc={py[0]} out={py[1]!r} err={py[2][-500:]}")
             print(f"  java: rc={jv[0]} out={jv[1]!r} err={jv[2][-500:]}")
 
-    total = (len(POSITIVE) + len(MODULE_POSITIVE) + len(NEG_COMPILE) +
+    print("== read-only CLI diagnostics: AST / desugar and no runtime execution ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS,
+                                                   "test_diagnostics.py")])
+    diagnostic_output = so + se
+    count_match = re.search(r"Ran (\d+) tests?", diagnostic_output)
+    diagnostic_total = int(count_match.group(1)) if count_match else 1
+    print(("PASS " if rc == 0 else "FAIL ") +
+          f"CLI diagnostics ({diagnostic_total} unit/regression tests)")
+    if rc != 0:
+        failure_match = re.search(
+            r"FAILED \(failures=(\d+)(?:, errors=(\d+))?\)",
+            diagnostic_output)
+        diagnostic_failures = (sum(int(n or 0) for n in failure_match.groups())
+                               if failure_match else diagnostic_total)
+        fails += diagnostic_failures
+        print(f"  {diagnostic_output[-1500:]}")
+
+    total = (diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
+             len(NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
              len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK))
     print(f"\n{total - fails} passed, {fails} failed")

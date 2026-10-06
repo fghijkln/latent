@@ -16,8 +16,6 @@ import nodes
 import parse as parse_mod
 import desugar
 import semant
-import gen_py
-import gen_java
 import module_system
 
 
@@ -178,7 +176,44 @@ def main():
     ap.add_argument("-t", "--target", choices=["py", "java"], default="py")
     ap.add_argument("-o", "--outdir", default=None)
     ap.add_argument("--run", action="store_true", help="compile and run")
+    diagnostics = ap.add_mutually_exclusive_group()
+    diagnostics.add_argument("--show-ast", "--dump-ast", dest="show_ast",
+                             action="store_true",
+                             help="print the parsed AST as stable JSON; do not compile")
+    diagnostics.add_argument("--show-desugar", action="store_true",
+                             help="print the desugared AST as stable JSON; do not compile")
     args = ap.parse_args()
+
+    if args.show_ast or args.show_desugar:
+        if args.run:
+            ap.error("diagnostic options cannot be combined with --run")
+        path = os.path.realpath(args.src)
+        try:
+            with open(path, encoding="utf-8") as f:
+                src = f.read()
+        except OSError as e:
+            print(f"{path}: input error: {e}", file=sys.stderr)
+            return 1
+        try:
+            tree = parse_mod.parse(lex.lex(src))
+        except lex.LexError as e:
+            print(render_error(path, src, "lex", str(e)), file=sys.stderr)
+            return 1
+        except parse_mod.ParseError as e:
+            print(render_error(path, src, "parse", str(e)), file=sys.stderr)
+            return 1
+        phase = "parsed"
+        if args.show_desugar:
+            try:
+                tree = desugar.desugar(tree)
+            except desugar.DesugarError as e:
+                print(render_error(path, src, "desugar", str(e)),
+                      file=sys.stderr)
+                return 1
+            phase = "desugared"
+        import ast_dump
+        sys.stdout.write(ast_dump.dumps(tree, path, phase))
+        return 0
 
     prog, err = module_system.compile_module_graph(args.src)
     if err:
@@ -196,6 +231,7 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     if args.target == "py":
+        import gen_py
         code = gen_py.generate(prog, source_path=os.path.realpath(args.src))
         out = os.path.join(outdir, stem + ".py")
         with open(out, "w", encoding="utf-8") as f:
@@ -223,6 +259,7 @@ def main():
             r = subprocess.run([sys.executable, out])
             return r.returncode
     else:
+        import gen_java
         cls = gen_java.cls_name(stem)
         code = gen_java.generate(prog, cls,
                                  source_path=os.path.realpath(args.src))

@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.7.0 — 2026-10-06
+
+### Added
+
+- P4 read-only CLI diagnostics: `--show-ast` (`--dump-ast` alias) emits the parsed AST; `--show-desugar` emits the desugared tree.
+- Stable, versioned `latent-ast` JSON output (format version 1) with explicit node fields and source line/column positions.
+- Structured lexer, parser, and desugar error reporting for diagnostic commands, plus regression coverage for attribute access/assignment and control flow.
+
+### Compatibility
+
+- Diagnostic modes stop before module-graph traversal, semantic analysis, code generation, and execution; they do not import/start Python or Java interop runtimes or modify normal compile artifacts.
+- Normal compilation behavior and the VS Code extension files are unchanged. Diagnostic flags reject `--run`; `-t` and `-o` are ignored in diagnostic mode.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 89 passed, 0 failed (82 existing dual-backend/integration cases plus 7 diagnostic regressions).
+- Python `py_compile` and `git diff --check` passed.
+- VS Code Stable 1.140.0 extension-host integration suite: 5 passing; its `latent.runTests` command also verified the 89-case project suite.
+
 ## v0.6.0 — 2026-10-06
 
 ### Added
