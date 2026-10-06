@@ -13,6 +13,7 @@ VERSION = 1
 _FIELDS = {
     nodes.Program: (("statements", "stmts"),),
     nodes.ImportStmt: (("module_path", "module_path"), ("alias", "alias")),
+    nodes.GlobalStmt: (("names", "names"),),
     nodes.ModuleInit: (("module_id", "module_id"),
                        ("dependencies", "deps"), ("body", "body"),
                        ("globals", "globals_"),

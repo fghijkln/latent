@@ -23,6 +23,13 @@ class ImportStmt(Node):
         self.alias = alias
 
 
+class GlobalStmt(Node):
+    """Declare names in a function body as module-global bindings."""
+    def __init__(self, names, **kw):
+        super().__init__(**kw)
+        self.names = names
+
+
 class ModuleInit(Node):
     """One namespaced module body in a bundled multi-module program."""
     def __init__(self, module_id, deps, body, globals_, init_name,
@@ -88,6 +95,7 @@ class FnDef(Node):
     def __init__(self, name, params, body, **kw):
         super().__init__(**kw)
         self.name = name
+        self.source_name = name
         self.params = params
         self.body = body  # list of stmts
 

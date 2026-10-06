@@ -1,0 +1,13 @@
+counter = 3
+
+fn make():
+    counter = 100
+    fn bump():
+        global counter
+        counter = counter + 1
+        return counter
+    current = bump()
+    return counter * 1000 + current
+
+say make()
+say counter

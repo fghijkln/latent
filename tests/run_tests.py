@@ -15,11 +15,16 @@ OUT = os.path.join(ROOT, "out")
 POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "str_interp", "py_basic", "py_numpy", "py_lazy",
             "java_basic", "java_lazy", "mixed", "indexing",
-            "class_basic", "inheritance", "setassign", "try_basic"]
+            "class_basic", "inheritance", "setassign", "try_basic",
+            "p5_values", "p5_closure_capture", "p5_shared_capture",
+            "p5_recursion", "p5_shadowing", "p5_global",
+            "p5_invalid_calls"]
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
-                   "modules/inheritance/main"]
+                   "modules/inheritance/main",
+                   "modules/function_values/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
-               "err_break", "err_dupmethod", "err_assign_target"]
+               "err_break", "err_dupmethod", "err_assign_target",
+               "err_nested_readbefore"]
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
     "inheritance_negative/self_cycle", "inheritance_negative/cycle",
@@ -78,7 +83,7 @@ MODULE_COMPILE_MARKERS = {
     "modules/negative/cycle/main": "module import cycle",
     "modules/negative/collision/main": "conflicts with a local binding",
     "modules/negative/leak/main": "undefined name 'value'",
-    "modules/negative/function_value/main": "functions are not values",
+    "modules/negative/function_value/main": "built-in functions are not first-class values",
     "modules/negative/inherit_private/main": "module member '_Hidden' is private",
     "modules/negative/inherit_not_class/main": "is not a Latent class",
 }
@@ -121,7 +126,7 @@ COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_strings", "java_collections", "java_time", "java_nio",
             "java_bigdecimal", "mixed_io", "classes", "inheritance",
-            "pipeline", "modules"]
+            "pipeline", "modules", "functions"]
 
 TRY_BASIC_STDOUT = ("caught: index out of range: 5\n"
                     "k=key not found: zz\n"
@@ -140,6 +145,18 @@ INHERITANCE_STDOUT = ("root-init\nroot-init\nvalue:inherited\n"
                       "empty\ntrue\nfalse\n<Leaf object>\n")
 MODULE_INHERITANCE_STDOUT = "base:module+derived\nright\n<class Derived>\n"
 COOKBOOK_INHERITANCE_STDOUT = "animal:Milo (shiba)\n<Dog object>\n"
+P5_EXPECTED_STDOUT = {
+    "p5_values": "<function add>\n5\n9\n9\n",
+    "p5_closure_capture": "2\n",
+    "p5_shared_capture": "27\n",
+    "p5_recursion": "true\nfalse\n",
+    "p5_shadowing": "8\n",
+    "p5_global": "100004\n4\n",
+    "p5_invalid_calls": ("one() takes 1 args, got 0\n"
+                         "one() takes 1 args, got 2\n"
+                         "call on non-function value\n"),
+    "modules/function_values/main": "6\n15\n100008\n8\n",
+}
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -210,6 +227,8 @@ def main():
             ok = ok and py[1] == INHERITANCE_STDOUT
         elif name == "modules/inheritance/main":
             ok = ok and py[1] == MODULE_INHERITANCE_STDOUT
+        if name in P5_EXPECTED_STDOUT:
+            ok = ok and py[1] == P5_EXPECTED_STDOUT[name]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1

@@ -43,6 +43,7 @@ public class LtRt {
         if (v instanceof Boolean) return "bool";
         if (v instanceof List) return "list";
         if (v instanceof Map) return "map";
+        if (v instanceof LtFunction) return "function";
         if (v instanceof PyHandle) return "py";
         if (v instanceof JReflect.JClass) return "java class";
         if (v instanceof JReflect.JObj) return "java obj";
@@ -191,6 +192,8 @@ public class LtRt {
         if (v instanceof String) return (String) v;
         if (v instanceof PyHandle) return Daemon.inst().repr((PyHandle) v);
         if (v instanceof LtClass) return "<class " + ((LtClass) v).name + ">";
+        if (v instanceof LtFunction)
+            return "<function " + ((LtFunction) v).name + ">";
         if (v instanceof LtObj) return "<" + ((LtObj) v).cls.name + " object>";
         if (v instanceof JReflect.JClass || v instanceof JReflect.JObj)
             return JReflect.repr(v);
@@ -319,6 +322,54 @@ public class LtRt {
     a name -> implementation table without reflection. */
     public interface LtMethod {
         Object call(Object self, Object[] args);
+    }
+
+    /** A first-class Latent function value with an immutable lexical parent. */
+    public interface LtBody {
+        Object call(Object[] args);
+    }
+    public static class LtFunction {
+        final int arity;
+        final String name;
+        final LtBody body;
+        LtFunction(int arity, String name, LtBody body) {
+            this.arity = arity;
+            this.name = name;
+            this.body = body;
+        }
+        Object invoke(Object[] args) {
+            if (args.length != arity)
+                throw new RuntimeException(name + "() takes " + arity +
+                    " args, got " + args.length);
+            return body.call(args);
+        }
+    }
+    /** Per-invocation binding cells; nested functions retain this frame. */
+    public static class Env {
+        final Env parent;
+        final Map<String, Object> values = new LinkedHashMap<>();
+        public Env(Env parent, String[] names) {
+            this.parent = parent;
+            for (String name : names) values.put(name, null);
+        }
+        public void setLocal(String name, Object value) {
+            if (!values.containsKey(name))
+                throw new RuntimeException("unknown local binding '" + name + "'");
+            values.put(name, value);
+        }
+        public Object get(String name) {
+            for (Env frame = this; frame != null; frame = frame.parent)
+                if (frame.values.containsKey(name)) return frame.values.get(name);
+            throw new RuntimeException("unknown lexical binding '" + name + "'");
+        }
+    }
+    public static LtFunction function(int arity, String name, LtBody body) {
+        return new LtFunction(arity, name, body);
+    }
+    public static Object callValue(Object value, Object... args) {
+        if (!(value instanceof LtFunction))
+            throw new RuntimeException("call on non-function value");
+        return ((LtFunction) value).invoke(args);
     }
 
     public static class LtClass {

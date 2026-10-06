@@ -1,0 +1,10 @@
+fn make_reader():
+    value = 1
+    fn read():
+        return value
+    reader = read
+    value = 2
+    return reader
+
+reader = make_reader()
+say reader()

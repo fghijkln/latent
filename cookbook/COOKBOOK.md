@@ -1,13 +1,13 @@
 # Latent 库 Cookbook
 
-`cookbook/` 有 15 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。运行方式：
+`cookbook/` 有 16 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。运行方式：
 
 ```bash
 python3 latent.py cookbook/py_json.lt -t py -o out --run
 python3 latent.py cookbook/py_json.lt -t java -o out --run
 ```
 
-`tests/run_tests.py` 会把全部 15 个例子自动双后端对拍。
+`tests/run_tests.py` 会把全部 16 个例子自动双后端对拍。
 
 ## Python 生态
 
@@ -34,6 +34,7 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `mixed_io.lt` | 混用 | Python `open()` 写文件，Java NIO 读回来——两个生态在同一个程序里 |
 | `classes.lt` | Latent 类 | `Account` 存取款：`init`/`new`/方法/字段，`==` 为 identity |
 | `inheritance.lt` | Latent 单继承 | `Dog(Animal)`、显式 `super.init`、覆盖方法与继承分派 |
+| `functions.lt` | 函数值与闭包 | 函数作参数/返回值、嵌套词法捕获与闭包调用 |
 | `pipeline.lt` | 旗舰 demo | 双生态销售管道：Python 写 CSV → Java NIO 读 → re 解析 → try/catch 跳坏行 → numpy 均值 → BigDecimal 求和 → java.time 时间戳 |
 
 ## 本地 `.lt` 模块
@@ -58,7 +59,7 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 ## 已知的坑
 
 1. **Latent 字符串是原生值，不是 Java 对象**：`"hi".toUpperCase()` 调不动。用 `S.join` / `S.format` 这类静态方法，或 `StringBuilder` 做拼接。
-2. **内建函数不是一等值**：`collections.defaultdict(int)` 写不出来（`int` 传不进去）。v0.2 不支持把函数当值传。
+2. **只有用户定义函数是一等值**：普通函数和嵌套闭包可以赋值、传递、返回、间接调用；内建函数（如 `int`）、Latent 类方法和 Python/Java 句柄方法仍不可作为函数值。`collections.defaultdict(int)` 仍不能把内建 `int` 作为回调传入。
 3. **下标写支持范围**：Latent 列表/映射、py 句柄，以及 Java `List`/`Map` 句柄都支持 `xs[0] = v` / `m["k"] = v`；字符串仍不可写。负索引适用于序列。
 4. **Java 方法重载按“第一个能对上”的来**：`coerce` 会把 Latent 数字转成 `int/long/double` 等，歧义时别依赖重载解析。
 5. **跨边界有 JSON 行协议开销**：循环里逐个调 Java/Python 方法优先保证正确，不保证性能。真要快，把循环写进对端的一次调用里。

@@ -145,13 +145,11 @@ def _bound_names(stmts):
     for stmt in stmts:
         if isinstance(stmt, nodes.FnDef):
             out.add(stmt.name)
-            out.update(stmt.params)
-            out.update(_assigned_names(stmt.body))
+            out.update(_function_locals(stmt))
         elif isinstance(stmt, nodes.ClassDef):
             out.add(stmt.name)
             for method in stmt.methods:
-                out.update(method.params)
-                out.update(_assigned_names(method.body))
+                out.update(_function_locals(method))
         elif not isinstance(stmt, nodes.ImportStmt):
             out.update(_assigned_names([stmt]))
     return out
@@ -180,8 +178,43 @@ def _meta(new_node, old_node):
     return new_node
 
 
+def _scope_globals(stmts):
+    out = set()
+    for stmt in stmts:
+        if isinstance(stmt, nodes.GlobalStmt):
+            out.update(stmt.names)
+        elif isinstance(stmt, nodes.FnDef):
+            continue
+        elif isinstance(stmt, nodes.If):
+            out.update(_scope_globals(stmt.then_body))
+            out.update(_scope_globals(stmt.else_body or []))
+        elif isinstance(stmt, (nodes.For, nodes.While)):
+            out.update(_scope_globals(stmt.body))
+        elif isinstance(stmt, nodes.Try):
+            out.update(_scope_globals(stmt.body))
+            out.update(_scope_globals(stmt.handler))
+    return out
+
+
+def _nested_function_names(stmts):
+    out = set()
+    for stmt in stmts:
+        if isinstance(stmt, nodes.FnDef):
+            out.add(stmt.name)
+        elif isinstance(stmt, nodes.If):
+            out.update(_nested_function_names(stmt.then_body))
+            out.update(_nested_function_names(stmt.else_body or []))
+        elif isinstance(stmt, (nodes.For, nodes.While)):
+            out.update(_nested_function_names(stmt.body))
+        elif isinstance(stmt, nodes.Try):
+            out.update(_nested_function_names(stmt.body))
+            out.update(_nested_function_names(stmt.handler))
+    return out
+
+
 def _function_locals(fn):
-    return set(fn.params) | _assigned_names(fn.body)
+    return ((set(fn.params) | _assigned_names(fn.body) |
+             _nested_function_names(fn.body)) - _scope_globals(fn.body))
 
 
 def _rewrite_expr(expr, unit, locals_, allow_function=False):
@@ -203,9 +236,6 @@ def _rewrite_expr(expr, unit, locals_, allow_function=False):
             if kind is None:
                 raise ModuleCompileError("module", unit.path, expr.line, expr.col,
                                          f"module has no exported name {expr.attr!r}")
-            if kind == "function" and not allow_function:
-                raise ModuleCompileError("semant", unit.path, expr.line, expr.col,
-                                         "functions are not values; call the imported function")
             return _meta(nodes.Name(symbol[1],
                                     line=expr.line, col=expr.col), expr)
         expr.obj = _rewrite_expr(expr.obj, unit, locals_)
@@ -226,9 +256,6 @@ def _rewrite_expr(expr, unit, locals_, allow_function=False):
             if kind is None:
                 raise ModuleCompileError("module", unit.path, expr.line, expr.col,
                                          f"module has no exported name {attr!r}")
-            if kind == "function":
-                raise ModuleCompileError("semant", unit.path, expr.line, expr.col,
-                                         "functions are not values; call the imported function")
             return _meta(nodes.Name(symbol[1],
                                     line=expr.line, col=expr.col), expr)
         if isinstance(expr.func, nodes.Name) and expr.func.id == "__wcall" \
@@ -297,11 +324,16 @@ def _rewrite_expr(expr, unit, locals_, allow_function=False):
 def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
     if isinstance(stmt, nodes.ImportStmt):
         return None
+    if isinstance(stmt, nodes.GlobalStmt):
+        stmt.names = [unit.symbols[name][1] if name in unit.symbols else name
+                      for name in stmt.names]
+        return stmt
     if isinstance(stmt, nodes.FnDef):
         if module_top:
             stmt.name = unit.symbols[stmt.name][1]
-        fn_locals = _function_locals(stmt)
-        stmt.body = [x for x in (_rewrite_stmt(s, unit, fn_locals) for s in stmt.body)
+        visible = set(locals_ or ()) | _function_locals(stmt)
+        visible.difference_update(_scope_globals(stmt.body))
+        stmt.body = [x for x in (_rewrite_stmt(s, unit, visible) for s in stmt.body)
                      if x is not None]
         return stmt
     if isinstance(stmt, nodes.ClassDef):
@@ -343,7 +375,8 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
                                        for s in method.body) if x is not None]
         return stmt
     if isinstance(stmt, nodes.Assign):
-        if locals_ is None and stmt.name in unit.symbols:
+        if (locals_ is None or stmt.name not in locals_) and \
+                stmt.name in unit.symbols:
             stmt.name = unit.symbols[stmt.name][1]
         stmt.value = _rewrite_expr(stmt.value, unit, locals_)
     elif isinstance(stmt, nodes.SetAttr):
@@ -369,12 +402,14 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
                                  for s in stmt.body) if x is not None]
     elif isinstance(stmt, nodes.For):
         stmt.iter = _rewrite_expr(stmt.iter, unit, locals_)
-        if locals_ is None and stmt.var in unit.symbols:
+        if (locals_ is None or stmt.var not in locals_) and \
+                stmt.var in unit.symbols:
             stmt.var = unit.symbols[stmt.var][1]
         stmt.body = [x for x in (_rewrite_stmt(s, unit, locals_)
                                  for s in stmt.body) if x is not None]
     elif isinstance(stmt, nodes.Try):
-        if locals_ is None and stmt.var in unit.symbols:
+        if (locals_ is None or stmt.var not in locals_) and \
+                stmt.var in unit.symbols:
             stmt.var = unit.symbols[stmt.var][1]
         stmt.body = [x for x in (_rewrite_stmt(s, unit, locals_)
                                  for s in stmt.body) if x is not None]

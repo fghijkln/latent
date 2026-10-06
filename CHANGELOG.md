@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.0 — 2026-10-06
+
+### Added
+
+- User-defined ordinary functions are first-class values: they can be assigned, passed as arguments, returned, and called indirectly through variables. Public functions from imported modules can also be read as values.
+- Nested functions use lexical closures that capture shared mutable bindings, including later updates; recursion, mutual recursion, and lexical shadowing are supported.
+- Function-local `global x, y` declarations read and write module-level bindings, even when an enclosing local has the same name. The declaration applies throughout its function body; a nested function declares its own globals.
+- Function values have the stable display form `<function name>`. Python and Java backends use aligned runtime function wrappers, arity checks, and non-function-call errors for indirect calls.
+
+### Compatibility
+
+- `global` is now a reserved keyword; existing programs that used it as an identifier must rename it.
+- Direct named calls retain compile-time arity checks. Calls through function-valued variables perform arity checks at runtime.
+- Only user-defined ordinary functions are first-class. Latent class methods, built-ins, and Python/Java interop handle methods remain direct-call-only; `nonlocal` is not supported.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 100 passed, 0 failed (92 dual-backend/integration scenarios plus 8 read-only CLI regressions).
+- Python `py_compile` and `git diff --check` passed.
+
 ## v0.7.0 — 2026-10-06
 
 ### Added

@@ -1,0 +1,9 @@
+fn outer(value):
+    value = value + 1
+    fn middle(value):
+        fn read():
+            return value
+        return read()
+    return middle(5) + value
+
+say outer(2)

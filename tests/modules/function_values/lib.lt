@@ -1,0 +1,18 @@
+value = 7
+
+fn add(a, b):
+    return a + b
+
+fn make_adder(value):
+    fn plus(other):
+        return value + other
+    return plus
+
+fn shadow_global():
+    value = 100
+    fn bump():
+        global value
+        value = value + 1
+        return value
+    current = bump()
+    return value * 1000 + current

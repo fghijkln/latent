@@ -54,6 +54,8 @@ def _wv_repr(v):
         return "<module %s>" % v.__dict__["_name"]
     if isinstance(v, _LtClass):
         return "<class %s>" % v._name
+    if isinstance(v, _LtFunction):
+        return "<function %s>" % v._name
     if isinstance(v, _LtObj):
         return "<%s object>" % v._lt_class._name
     if isinstance(v, _JClass):
@@ -339,6 +341,28 @@ class _LtClass:
             raise TypeError(
                 "%s.new() takes no arguments (no init defined)" % self._name)
         return o
+
+
+class _LtFunction:
+    """A first-class Latent function with backend-independent arity checks."""
+    __slots__ = ("_fn", "_arity", "_name")
+
+    def __init__(self, fn, arity, name):
+        self._fn = fn
+        self._arity = arity
+        self._name = name
+
+    def __call__(self, *args):
+        if len(args) != self._arity:
+            raise RuntimeError("%s() takes %d args, got %d" %
+                               (self._name, self._arity, len(args)))
+        return self._fn(*args)
+
+
+def _wv_call(fn, *args):
+    if not isinstance(fn, _LtFunction):
+        raise TypeError("call on non-function value")
+    return fn(*args)
 
 
 def _jvm_encode(v):
@@ -786,7 +810,7 @@ class Gen:
         self.w("class _LtMethods:")
         self.indent += 1
         for m in cd.methods:
-            self.fndef(m)
+            self.fndef(m, method=True)
         self.indent -= 1
         parent = cd.parent.name if cd.parent else "None"
         methods = ", ".join(
@@ -796,14 +820,34 @@ class Gen:
         self.indent -= 1
         self.w(f"{cd.name} = {factory}()")
 
-    def fndef(self, fn):
+    def _scope_globals(self, stmts):
+        out = set()
+        for s in stmts:
+            if isinstance(s, GlobalStmt):
+                out.update(s.names)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                out.update(self._scope_globals(s.then_body))
+                out.update(self._scope_globals(s.else_body or []))
+            elif isinstance(s, (For, While)):
+                out.update(self._scope_globals(s.body))
+            elif isinstance(s, Try):
+                out.update(self._scope_globals(s.body))
+                out.update(self._scope_globals(s.handler))
+        return out
+
+    def fndef(self, fn, method=False):
         # locals default to nil (matches Java backend)
         assigned = set()
         self._collect(fn.body, assigned)
-        assigned -= set(fn.params)
+        global_names = self._scope_globals(fn.body)
+        assigned -= set(fn.params) | global_names
         self.w(f"def {fn.name}({', '.join(fn.params)}):", fn.line,
                fn.source_path)
         self.indent += 1
+        if global_names:
+            self.w("global " + ", ".join(sorted(global_names)))
         for name in sorted(assigned):
             self.w(f"{name} = None")
         for s in fn.body:
@@ -811,6 +855,9 @@ class Gen:
         if not any(isinstance(s, Return) for s in fn.body):
             pass
         self.indent -= 1
+        if not method:
+            self.w(f"{fn.name} = _LtFunction({fn.name}, {len(fn.params)}, "
+                   f"{json.dumps(fn.source_name, ensure_ascii=False)})")
 
     def _collect(self, stmts, out):
         for s in stmts:
@@ -829,9 +876,15 @@ class Gen:
                 out.add(s.var)
                 self._collect(s.body, out)
                 self._collect(s.handler, out)
+            elif isinstance(s, FnDef):
+                out.add(s.name)
 
     def stmt(self, s):
-        if isinstance(s, Assign):
+        if isinstance(s, GlobalStmt):
+            return
+        if isinstance(s, FnDef):
+            self.fndef(s)
+        elif isinstance(s, Assign):
             self.w(f"{s.name} = {self.expr(s.value)}", s.line, s.source_path)
         elif isinstance(s, ExprStmt):
             self.w(self.expr(s.expr), s.line, s.source_path)
@@ -907,7 +960,8 @@ class Gen:
             args = ", ".join(self.expr(a) for a in e.args)
             if isinstance(e.func, Name) and e.func.id in BUILTIN_PY:
                 return f"{BUILTIN_PY[e.func.id]}({args})"
-            return f"{self.expr(e.func)}({args})"
+            suffix = ", " + args if args else ""
+            return f"_wv_call({self.expr(e.func)}{suffix})"
         if isinstance(e, SuperCall):
             receiver = self.expr(e.args[0])
             args = [self.expr(a) for a in e.args[1:]]

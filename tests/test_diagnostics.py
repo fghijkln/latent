@@ -129,6 +129,22 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("desugar error:", error)
         self.assertIn("^", error)
 
+    def test_global_statement_is_read_only_ast_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "global_scope.lt"
+            source.write_text(
+                "counter = 0\nfn bump():\n    global counter\n"
+                "    counter = counter + 1\n", encoding="utf-8")
+            parsed = self.invoke(str(source), "--show-ast")
+            desugared = self.invoke(str(source), "--show-desugar")
+        for result, output, error in (parsed, desugared):
+            self.assertEqual((result, error), (0, ""))
+            nodes_in_tree = list(_nodes(json.loads(output)["tree"]))
+            global_nodes = [node for node in nodes_in_tree
+                            if node["node"] == "GlobalStmt"]
+            self.assertEqual(len(global_nodes), 1)
+            self.assertEqual(global_nodes[0]["fields"], {"names": ["counter"]})
+
     def test_diagnostic_flags_are_mutually_exclusive(self):
         result, output, error = self.invoke(
             SAMPLE, "--show-ast", "--show-desugar")

@@ -71,6 +71,13 @@ class Parser:
             alias = self.expect("NAME")
             self.expect("NEWLINE")
             return ImportStmt(path.value, alias.value, line=t.line, col=t.col)
+        if t.kind == "GLOBAL":
+            self.next()
+            names = [self.expect("NAME").value]
+            while self.match(","):
+                names.append(self.expect("NAME").value)
+            self.expect("NEWLINE")
+            return GlobalStmt(names, line=t.line, col=t.col)
         if t.kind == "FN":
             return self.fndef()
         if t.kind == "IF":

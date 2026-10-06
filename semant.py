@@ -25,6 +25,7 @@ class Checker:
         self.functions = {}   # name -> FnDef (top level)
         self.classes = {}     # name -> ClassDef (top level)
         self.globals = set()
+        self.module_bindings = set()
 
     def run(self, prog):
         if any(isinstance(s, ModuleInit) for s in prog.stmts):
@@ -52,6 +53,7 @@ class Checker:
                     if not m.params:
                         _err(m, f"method {s.name}.{m.name} must declare a receiver parameter")
                 self.classes[s.name] = s
+        self.module_bindings = self._top_bindings(prog.stmts)
         self._validate_inheritance()
         # generated Java method names must not collide with user functions
         for cname, cd in self.classes.items():
@@ -74,6 +76,7 @@ class Checker:
         # Collect all declarations before checking any body so cross-module
         # qualified references are visible regardless of file order.
         self.globals = set(all_globals)
+        self.module_bindings = set(all_globals)
         for s in defs:
             if isinstance(s, FnDef):
                 if s.name in self.functions or s.name in self.classes:
@@ -97,6 +100,8 @@ class Checker:
                     if not method.params:
                         _err(method, f"method {s.name}.{method.name} must declare a receiver parameter")
                 self.classes[s.name] = s
+        self.module_bindings.update(self.functions)
+        self.module_bindings.update(self.classes)
         self._validate_inheritance()
         for cname, cd in self.classes.items():
             for method in cd.methods:
@@ -180,14 +185,100 @@ class Checker:
         self._expr(e, None, in_loop)
 
     # ---- function bodies ----
-    def fn_body(self, fn, classdef=None):
-        assigned = set()          # names assigned anywhere in fn -> locals
+    def _top_bindings(self, stmts):
+        out = set(self.functions) | set(self.classes)
+
+        def visit(items):
+            for item in items:
+                if isinstance(item, (FnDef, ClassDef, ImportStmt)):
+                    continue
+                if isinstance(item, Assign):
+                    out.add(item.name)
+                elif isinstance(item, For):
+                    out.add(item.var)
+                    visit(item.body)
+                elif isinstance(item, If):
+                    visit(item.then_body)
+                    if item.else_body:
+                        visit(item.else_body)
+                elif isinstance(item, While):
+                    visit(item.body)
+                elif isinstance(item, Try):
+                    out.add(item.var)
+                    visit(item.body)
+                    visit(item.handler)
+        visit(stmts)
+        return out
+
+    def _collect_globals(self, stmts, out):
+        for s in stmts:
+            if isinstance(s, GlobalStmt):
+                out.update(s.names)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                self._collect_globals(s.then_body, out)
+                self._collect_globals(s.else_body or [], out)
+            elif isinstance(s, (For, While)):
+                self._collect_globals(s.body, out)
+            elif isinstance(s, Try):
+                self._collect_globals(s.body, out)
+                self._collect_globals(s.handler, out)
+
+    def _collect_nested_defs(self, stmts, out):
+        for s in stmts:
+            if isinstance(s, FnDef):
+                out[s.name] = s
+            elif isinstance(s, If):
+                self._collect_nested_defs(s.then_body, out)
+                self._collect_nested_defs(s.else_body or [], out)
+            elif isinstance(s, (For, While)):
+                self._collect_nested_defs(s.body, out)
+            elif isinstance(s, Try):
+                self._collect_nested_defs(s.body, out)
+                self._collect_nested_defs(s.handler, out)
+
+    def fn_body(self, fn, classdef=None, parent_ctx=None):
+        assigned = set()
         self._collect_assigned(fn.body, assigned)
-        assigned |= set(fn.params)
-        ctx = {"params": set(fn.params), "assigned": assigned,
-               "done": set(), "fn": fn, "classdef": classdef}
+        globals_ = set()
+        self._collect_globals(fn.body, globals_)
+        if len(globals_) != sum(1 for s in self._global_nodes(fn.body)
+                                for _ in s.names):
+            _err(fn, "duplicate name in global declaration")
+        params = set(fn.params)
+        conflict = params & globals_
+        if conflict:
+            _err(fn, f"parameter {sorted(conflict)[0]!r} cannot be global")
+        for name in globals_:
+            if name not in self.module_bindings:
+                _err(fn, f"global name {name!r} is not declared at module scope")
+        assigned.difference_update(globals_)
+        assigned.update(params)
+        nested = {}
+        self._collect_nested_defs(fn.body, nested)
+        ctx = {"params": params, "assigned": assigned, "done": set(),
+               "globals": globals_, "nested_functions": nested,
+               "parent": parent_ctx, "fn": fn, "classdef": classdef}
         for s in fn.body:
             self.fn_stmt(s, ctx, in_loop=0)
+
+    def _global_nodes(self, stmts):
+        found = []
+        for s in stmts:
+            if isinstance(s, GlobalStmt):
+                found.append(s)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                found.extend(self._global_nodes(s.then_body))
+                found.extend(self._global_nodes(s.else_body or []))
+            elif isinstance(s, (For, While)):
+                found.extend(self._global_nodes(s.body))
+            elif isinstance(s, Try):
+                found.extend(self._global_nodes(s.body))
+                found.extend(self._global_nodes(s.handler))
+        return found
 
     def _collect_assigned(self, stmts, out):
         for s in stmts:
@@ -207,14 +298,19 @@ class Checker:
                 self._collect_assigned(s.body, out)
                 self._collect_assigned(s.handler, out)
             elif isinstance(s, FnDef):
-                _err(s, "nested functions not supported in v0.1")
+                out.add(s.name)
 
     def fn_stmt(self, s, ctx, in_loop):
+        if isinstance(s, GlobalStmt):
+            return
         if isinstance(s, FnDef):
-            _err(s, "nested functions not supported in v0.1")
+            if s.name not in ctx["globals"]:
+                ctx["done"].add(s.name)
+            self.fn_body(s, parent_ctx=ctx)
         elif isinstance(s, Assign):
             self._expr(s.value, ctx, in_loop)
-            ctx["done"].add(s.name)
+            if s.name not in ctx["globals"]:
+                ctx["done"].add(s.name)
         elif isinstance(s, If):
             self._expr(s.cond, ctx, in_loop)
             for x in s.then_body:
@@ -228,7 +324,8 @@ class Checker:
                 self.fn_stmt(x, ctx, in_loop + 1)
         elif isinstance(s, For):
             self._expr(s.iter, ctx, in_loop)
-            ctx["done"].add(s.var)
+            if s.var not in ctx["globals"]:
+                ctx["done"].add(s.var)
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop + 1)
         elif isinstance(s, ExprStmt):
@@ -237,8 +334,9 @@ class Checker:
         elif isinstance(s, Try):
             for x in s.body:
                 self.fn_stmt(x, ctx, in_loop)
-            ctx["assigned"].add(s.var)
-            ctx["done"].add(s.var)
+            if s.var not in ctx["globals"]:
+                ctx["assigned"].add(s.var)
+                ctx["done"].add(s.var)
             for x in s.handler:
                 self.fn_stmt(x, ctx, in_loop)
         elif isinstance(s, Throw):
@@ -253,11 +351,11 @@ class Checker:
             _err(s, f"unexpected {type(s).__name__}")
 
     # ---- expressions ----
-    def _expr(self, e, ctx, in_loop):
+    def _expr(self, e, ctx, in_loop, as_callee=False):
         if isinstance(e, (Num, Str, Bool, Nil)):
             return
         if isinstance(e, Name):
-            self._resolve(e, ctx)
+            self._resolve(e, ctx, as_callee=as_callee)
             return
         if isinstance(e, Super):
             _err(e, "super must be called as super.method(self, ...)")
@@ -309,10 +407,9 @@ class Checker:
             _err(e, "attribute access only allowed on py handles "
                     "(should have been desugared)")
         if isinstance(e, Call):
+            self._expr(e.func, ctx, in_loop, as_callee=True)
             for a in e.args:
                 self._expr(a, ctx, in_loop)
-            if not isinstance(e.func, Name):
-                _err(e, "cannot call non-function in v0.1")
             self._check_call(e, ctx)
             return
         _err(e, f"unexpected {type(e).__name__}")
@@ -389,40 +486,68 @@ class Checker:
             _err(s, "expression statement does nothing; "
                     "did you mean to call it or 'say' it?")
 
-    def _resolve(self, e, ctx):
+    def _binding(self, name, ctx):
+        scope = ctx
+        while scope is not None:
+            if name in scope["globals"]:
+                return ("global", scope)
+            if name in scope["params"] or name in scope["assigned"]:
+                return ("local", scope)
+            scope = scope["parent"]
+        if name in self.functions:
+            return ("function", None)
+        if name in self.classes:
+            return ("class", None)
+        if name in self.globals:
+            return ("global", None)
+        return None
+
+    def _resolve(self, e, ctx, as_callee=False):
         name = e.id
-        if name in BUILTINS or name in self.functions or name in self.classes:
+        binding = self._binding(name, ctx)
+        if binding and binding[0] == "local":
+            owner = binding[1]
+            if owner is ctx and name not in owner["params"] and \
+                    name in owner["assigned"] and \
+                    name not in owner["done"]:
+                _err(e, f"local {name!r} read before assignment")
             return
-        if ctx is not None:
-            if name in ctx["params"] or name == ctx["fn"].name:
-                return
-            if name in ctx["assigned"]:
-                if name not in ctx["done"]:
-                    _err(e, f"local {name!r} read before assignment")
-                return
-            if name in self.globals:
-                return
-            _err(e, f"undefined name {name!r}")
-        else:
-            if name in self.globals:
-                return
-            _err(e, f"undefined name {name!r}")
+        if name in BUILTINS:
+            if not as_callee:
+                _err(e, "built-in functions are not first-class values")
+            return
+        if binding:
+            if binding[0] == "global" and name not in self.module_bindings and \
+                    name not in self.globals:
+                _err(e, f"undefined global name {name!r}")
+            return
+        if ctx is None and name in self.globals:
+            return
+        _err(e, f"undefined name {name!r}")
 
     def _check_call(self, e, ctx):
-        name = e.func.id
         n = len(e.args)
-        if name in BUILTINS:
+        if not isinstance(e.func, Name):
+            return
+        name = e.func.id
+        if name in BUILTINS and not (ctx is not None and
+                self._binding(name, ctx) and
+                self._binding(name, ctx)[0] == "local"):
             lo, hi = BUILTINS[name]
             if n < lo or (hi is not None and n > hi):
                 _err(e, f"{name}() takes "
                         f"{lo}..{hi if hi is not None else 'many'} args, got {n}")
             return
-        if name in self.functions:
-            want = len(self.functions[name].params)
+        binding = self._binding(name, ctx)
+        target = None
+        if binding and binding[0] == "function":
+            target = self.functions.get(name)
+        elif binding and binding[0] == "local":
+            target = binding[1]["nested_functions"].get(name)
+        if target is not None:
+            want = len(target.params)
             if n != want:
                 _err(e, f"{name}() takes {want} args, got {n}")
-            return
-        self._resolve(e.func, ctx)
 
 
 def check(prog):

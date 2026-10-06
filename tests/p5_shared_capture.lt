@@ -1,0 +1,15 @@
+fn combine(first, second):
+    return first() + second()
+
+fn make_shared():
+    state = 1
+    fn read():
+        return state
+    fn doubled():
+        return state * 2
+    first = read
+    second = doubled
+    state = 9
+    return combine(first, second)
+
+say make_shared()

@@ -1,0 +1,18 @@
+fn one(value):
+    return value
+
+f = one
+try:
+    f()
+catch error:
+    say error
+try:
+    f(1, 2)
+catch error:
+    say error
+
+not_function = 7
+try:
+    not_function()
+catch error:
+    say error

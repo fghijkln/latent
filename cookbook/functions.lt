@@ -1,0 +1,10 @@
+fn apply(fn_value, value):
+    return fn_value(value)
+
+fn scale_by(factor):
+    fn scale(value):
+        return factor * value
+    return scale
+
+twice = scale_by(2)
+say apply(twice, 21)

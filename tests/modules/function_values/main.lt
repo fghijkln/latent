@@ -1,0 +1,13 @@
+import "lib.lt" as lib
+
+fn apply(fn_value, value):
+    return fn_value(value)
+
+sum = lib.add
+say sum(2, 4)
+make = lib.make_adder
+plus10 = make(10)
+say apply(plus10, 5)
+shadow = lib.shadow_global
+say shadow()
+say lib.value

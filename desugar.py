@@ -107,6 +107,8 @@ class Desugar:
         if isinstance(s, ImportStmt):
             return ImportStmt(s.module_path, s.alias,
                               line=s.line, col=s.col)
+        if isinstance(s, GlobalStmt):
+            return GlobalStmt(list(s.names), line=s.line, col=s.col)
         if isinstance(s, Assign):
             return Assign(s.name, self.expr(s.value), line=s.line, col=s.col)
         if isinstance(s, SetAttr):
@@ -131,7 +133,9 @@ class Desugar:
                             line=s.line, col=s.col)
         if isinstance(s, FnDef):
             body = self._implicit_return([self.stmt(x) for x in s.body])
-            return FnDef(s.name, s.params, body, line=s.line, col=s.col)
+            fn = FnDef(s.name, s.params, body, line=s.line, col=s.col)
+            fn.source_name = s.source_name
+            return fn
         if isinstance(s, Try):
             return Try([self.stmt(x) for x in s.body], s.var,
                        [self.stmt(x) for x in s.handler],

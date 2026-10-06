@@ -76,6 +76,70 @@ class Gen:
         self.tmp = 0
         self.source_path = source_path
         self.source_map = {}
+        self.fn_helpers = {}
+        self.fn_parents = {}
+        self.function_nodes = []
+        self.scope = None
+        self.used_java_names = set()
+
+    def _fresh_java(self, base):
+        name = base
+        while name in self.used_java_names or name in JAVA_KW:
+            name = "_" + name
+        self.used_java_names.add(name)
+        return name
+
+    def _nested_functions(self, stmts):
+        for s in stmts:
+            if isinstance(s, FnDef):
+                yield s
+            elif isinstance(s, If):
+                yield from self._nested_functions(s.then_body)
+                yield from self._nested_functions(s.else_body or [])
+            elif isinstance(s, (For, While)):
+                yield from self._nested_functions(s.body)
+            elif isinstance(s, Try):
+                yield from self._nested_functions(s.body)
+                yield from self._nested_functions(s.handler)
+
+    def _prepare_functions(self, prog):
+        for node in self._walk_nodes(prog):
+            if isinstance(node, (Name, FnDef, ClassDef, Assign, For, Try)):
+                if isinstance(node, Name):
+                    self.used_java_names.add(node.id)
+                elif isinstance(node, (FnDef, ClassDef, Assign)):
+                    self.used_java_names.add(node.name)
+                elif isinstance(node, (For, Try)):
+                    self.used_java_names.add(node.var)
+        top = [s for s in prog.stmts if isinstance(s, FnDef)]
+        methods = [m for s in prog.stmts if isinstance(s, ClassDef)
+                   for m in s.methods]
+
+        def register(fn, parent):
+            self.fn_helpers[id(fn)] = self._fresh_java("_lt_fn_body_" +
+                                                       str(len(self.function_nodes)))
+            self.fn_parents[id(fn)] = parent
+            self.function_nodes.append(fn)
+            for child in self._nested_functions(fn.body):
+                register(child, fn)
+
+        for fn in top + methods:
+            register(fn, None)
+
+    def _walk_nodes(self, value, seen=None):
+        if seen is None:
+            seen = set()
+        if isinstance(value, Node):
+            if id(value) in seen:
+                return
+            seen.add(id(value))
+            yield value
+            for child in vars(value).values():
+                if isinstance(child, (Node, list, tuple)):
+                    yield from self._walk_nodes(child, seen)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                yield from self._walk_nodes(child, seen)
 
     def w(self, s="", source_line=None, source_path=None):
         generated_line = len(self.out) + 1
@@ -85,6 +149,7 @@ class Gen:
                                                source_line)
 
     def generate(self, prog):
+        self._prepare_functions(prog)
         modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
         clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
@@ -98,10 +163,20 @@ class Gen:
                         gnames.append(name)
         else:
             self._collect_top(rest, gnames)
+        for fn in fns:
+            if fn.name not in gnames:
+                gnames.append(fn.name)
         self.w(f"public class {self.cls} " + "{")
         self.ind += 1
+        top_functions = {fn.name: fn for fn in fns}
         for g in gnames:
-            self.w(f"static Object {ident(g)};")
+            fn = top_functions.get(g)
+            if fn is None:
+                self.w(f"static Object {ident(g)};")
+            else:
+                self.w(f"static Object {ident(g)} = LtRt.function(" +
+                       f"{len(fn.params)}, {java_str(fn.source_name)}, " +
+                       f"args -> {self.fn_helpers[id(fn)]}(null, args));")
         for module in modules:
             self.w(f"private static int {module.state_name};")
         if gnames:
@@ -133,13 +208,13 @@ class Gen:
         self.w("}")
         self.ind -= 1
         self.w("}")
-        for fn in fns:
-            self.w("")
-            self.fndef(fn)
         for cd in clss:
             for m in cd.methods:
                 self.w("")
                 self.methoddef(cd, m)
+        for fn in self.function_nodes:
+            self.w("")
+            self.fndef(fn)
         for module in modules:
             self.w("")
             self.module_init(module, modules)
@@ -247,9 +322,8 @@ class Gen:
 
     def methoddef(self, cd, m):
         params = m.params
-        selfname = ident(params[0]) if params else "self"
         restp = params[1:] if params else []
-        self.w(f"static Object {cd.name}_{m.name}(Object {selfname}, Object[] args) " + "{",
+        self.w(f"static Object {cd.name}_{m.name}(Object self, Object[] args) " + "{",
                m.line, m.source_path)
         self.ind += 1
         self.w(f"if (args.length != {len(restp)})")
@@ -257,36 +331,81 @@ class Gen:
         self.w(f'throw new RuntimeException("{m.name}() takes {len(restp)} '
                f'arguments, got " + args.length);')
         self.ind -= 1
-        for i, p in enumerate(restp):
-            self.w(f"Object {ident(p)} = args[{i}];")
-        assigned = set()
-        self._collect(m.body, assigned)
-        assigned -= set(params)
-        for name in sorted(assigned):
-            self.w(f"Object {ident(name)} = null; // local defaults to nil")
-        for s in m.body:
-            self.stmt(s)
-        if not self._always_returns(m.body):
-            self.w("return null;")
+        self.w(f"Object[] _all_args = new Object[{len(restp) + 1}];")
+        self.w("_all_args[0] = self;")
+        self.w("System.arraycopy(args, 0, _all_args, 1, args.length);")
+        self.w(f"return {self.fn_helpers[id(m)]}(null, _all_args);")
         self.ind -= 1
         self.w("}")
 
     def fndef(self, fn):
-        params = ", ".join(f"Object {ident(p)}" for p in fn.params)
-        self.w(f"static Object {ident(fn.name)}({params}) " + "{",
+        previous_scope = self.scope
+        self.scope = self._fn_context(fn)
+        helper = self.fn_helpers[id(fn)]
+        self.w(f"static Object {helper}(LtRt.Env _closure, Object[] _args) " + "{",
                fn.line, fn.source_path)
         self.ind += 1
-        assigned = set()
-        self._collect(fn.body, assigned)
-        assigned -= set(fn.params)
-        for name in sorted(assigned):
-            self.w(f"Object {ident(name)} = null; // local defaults to nil")
+        names = sorted(self.scope["locals"])
+        self.w("LtRt.Env _env = new LtRt.Env(_closure, new String[]{" +
+               ", ".join(java_str(name) for name in names) + "});")
+        for i, param in enumerate(fn.params):
+            self.w(f"_env.setLocal({java_str(param)}, _args[{i}]);")
         for s in fn.body:
             self.stmt(s)
         if not self._always_returns(fn.body):
             self.w("return null;")
         self.ind -= 1
         self.w("}")
+        self.scope = previous_scope
+
+    def _scope_globals(self, stmts):
+        out = set()
+        for s in stmts:
+            if isinstance(s, GlobalStmt):
+                out.update(s.names)
+            elif isinstance(s, FnDef):
+                continue
+            elif isinstance(s, If):
+                out.update(self._scope_globals(s.then_body))
+                out.update(self._scope_globals(s.else_body or []))
+            elif isinstance(s, (For, While)):
+                out.update(self._scope_globals(s.body))
+            elif isinstance(s, Try):
+                out.update(self._scope_globals(s.body))
+                out.update(self._scope_globals(s.handler))
+        return out
+
+    def _fn_context(self, fn):
+        cached = getattr(self, "fn_contexts", {})
+        if id(fn) in cached:
+            return cached[id(fn)]
+        parent_fn = self.fn_parents.get(id(fn))
+        parent = self._fn_context(parent_fn) if parent_fn is not None else None
+        names = set(fn.params)
+        self._collect(fn.body, names)
+        globals_ = self._scope_globals(fn.body)
+        names.difference_update(globals_)
+        context = {"fn": fn, "locals": names, "globals": globals_,
+                   "parent": parent}
+        if not hasattr(self, "fn_contexts"):
+            self.fn_contexts = {}
+        self.fn_contexts[id(fn)] = context
+        return context
+
+    def _is_global(self, name):
+        scope = self.scope
+        while scope is not None:
+            if name in scope["globals"]:
+                return True
+            if name in scope["locals"]:
+                return False
+            scope = scope["parent"]
+        return False
+
+    def _assign(self, name, value):
+        if self.scope is not None and not self._is_global(name):
+            return f"_env.setLocal({java_str(name)}, {value});"
+        return f"{ident(name)} = {value};"
 
     def _always_returns(self, stmts):
         if not stmts:
@@ -343,10 +462,18 @@ class Gen:
                 out.add(s.var)
                 self._collect(s.body, out)
                 self._collect(s.handler, out)
+            elif isinstance(s, FnDef):
+                out.add(s.name)
 
     def stmt(self, s):
-        if isinstance(s, Assign):
-            self.w(f"{ident(s.name)} = {self.expr(s.value)};", s.line,
+        if isinstance(s, GlobalStmt):
+            return
+        if isinstance(s, FnDef):
+            closure = f"LtRt.function({len(s.params)}, {java_str(s.source_name)}, " \
+                      f"args -> {self.fn_helpers[id(s)]}(_env, args))"
+            self.w(self._assign(s.name, closure), s.line, s.source_path)
+        elif isinstance(s, Assign):
+            self.w(self._assign(s.name, self.expr(s.value)), s.line,
                    s.source_path)
         elif isinstance(s, ExprStmt):
             self.w(f"{self.expr(s.expr)};", s.line, s.source_path)
@@ -369,7 +496,7 @@ class Gen:
             self.w(f"for (Object {t} : LtRt.iter({self.expr(s.iter)})) " + "{",
                    s.line, s.source_path)
             self.ind += 1
-            self.w(f"{ident(s.var)} = {t};")
+            self.w(self._assign(s.var, t))
             for x in s.body:
                 self.stmt(x)
             self.ind -= 1
@@ -382,14 +509,13 @@ class Gen:
         elif isinstance(s, Continue):
             self.w("continue;", s.line, s.source_path)
         elif isinstance(s, Try):
-            v = ident(s.var)
             self.w("try {", s.line, s.source_path)
             self.suite(s.body)
             self.w("} catch (Exception _lt_e) {")
             self.ind += 1
             self.w("String _lt_m = _lt_e.getMessage();")
             self.w("if (_lt_m == null) _lt_m = _lt_e.toString();")
-            self.w(f"{v} = _lt_m;")
+            self.w(self._assign(s.var, "_lt_m"))
             for x in s.handler:
                 self.stmt(x)
             self.ind -= 1
@@ -417,6 +543,13 @@ class Gen:
         if isinstance(e, Nil):
             return "null"
         if isinstance(e, Name):
+            scope = self.scope
+            while scope is not None:
+                if e.id in scope["globals"]:
+                    return ident(e.id)
+                if e.id in scope["locals"]:
+                    return f"_env.get({java_str(e.id)})"
+                scope = scope["parent"]
             return ident(e.id)
         if isinstance(e, List):
             return "LtRt.listOf(" + ", ".join(self.expr(x) for x in e.elts) + ")"
@@ -479,9 +612,8 @@ class Gen:
         raise Exception(f"java backend: bad op {op}")
 
     def call(self, e):
-        assert isinstance(e.func, Name)
-        name = e.func.id
         args = [self.expr(a) for a in e.args]
+        name = e.func.id if isinstance(e.func, Name) else None
         if name == "__wgetattr":
             return f"LtRt.wgetattr({args[0]}, {args[1]})"
         if name == "__wcall":
@@ -489,7 +621,9 @@ class Gen:
                 ("".join(", " + a for a in args[2:])) + ")"
         if name in BUILTIN_JAVA:
             return f"{BUILTIN_JAVA[name]}({', '.join(args)})"
-        return f"{ident(name)}({', '.join(args)})"
+        callee = self.expr(e.func)
+        return f"LtRt.callValue({callee}" + \
+            ("".join(", " + a for a in args)) + ")"
 
 
 def generate(prog, cls, source_path="<src>"):

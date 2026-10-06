@@ -74,8 +74,8 @@ hello latent
 ```
 
 `say` 是打印语句，不需要括号。这是全教程最重要的约定：**同一份源码，
-`-t py` 和 `-t java` 的运行结果一致**。编译器的 82 个双后端/集成场景覆盖单文件/模块
-正例、编译错误、运行错误与 cookbook，另有 7 个只读 CLI 诊断回归测试。
+`-t py` 和 `-t java` 的运行结果一致**。编译器的 92 个双后端/集成场景覆盖单文件/模块
+正例、编译错误、运行错误与 cookbook，另有 8 个只读 CLI 诊断回归测试。
 
 ---
 
@@ -232,6 +232,38 @@ fn f():
     say y        # 编译报错：local 'y' read before assignment
     y = 1
 ```
+
+P5 起，用户定义函数可以像普通值一样赋值、传参、返回，再经变量调用；嵌套函数会按
+词法作用域捕获外层局部绑定：
+
+```latent
+fn apply(fn_value, value):
+    return fn_value(value)
+
+fn make_adder(amount):
+    fn add(value):
+        return amount + value
+    return add
+
+add10 = make_adder(10)   # 返回的闭包仍持有 amount
+say apply(add10, 32)     # 42
+say add10                # <function add>
+```
+
+闭包捕获共享的可变绑定，因此外层函数在闭包创建后继续赋值，闭包调用时会看到新值。
+同名内层局部会遮蔽外层绑定。若要访问模块变量（即使中间有同名外层局部），显式写
+`global name`；它指向模块全局，不会捕获同名局部：
+
+```latent
+counter = 0
+fn bump():
+    global counter
+    counter = counter + 1
+    return counter
+```
+
+边界：类方法仍不是一等值；内建函数以及 Python/Java 句柄方法也仍只能按原语法直接调用。
+当前没有 `nonlocal`；嵌套函数中给名字赋值会创建当前函数局部绑定。
 
 ---
 
@@ -450,12 +482,12 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - 同一个文件即使使用不同路径写法和别名导入，也只初始化一次；被导入模块先于当前模块执行。循环导入会在编译期报错。
 - 当前仅支持本地静态 `.lt` 文件导入，不支持通配符、动态导入或包管理。公开模块类可以作为父类，详见 §9。
 
-## 15. 已知限制（v0.7.0）
+## 15. 已知限制（v0.8.0）
 
-- 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。仍无闭包捕获；模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
+- 仅支持 Latent 单继承；不支持多继承、接口、Java 类继承、类/静态方法或运算符重载。P5 支持用户定义函数值与嵌套闭包，但不支持 `nonlocal`；模块系统仅支持 §14 所述的本地静态 `.lt` 导入，不支持循环/通配/动态导入或包管理。
 - `py` 只支持模块句柄，不支持内联 Python 代码块。
 - `java` 不支持基本类型类名（`java "int"` 不行）。
-- 调用只有位置参数，没有关键字参数；函数不能当作值传递。
+- 调用只有位置参数，没有关键字参数；类方法、内建函数和 Python/Java 句柄方法不能当作函数值。
 - 数字只有 float64 一种类型。
 - 性能只求正确：Java 后端全装箱，跨语言调用走 JSON 行协议。够用，不快。
 
@@ -463,9 +495,9 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 ## 库 cookbook
 
-`cookbook/` 里有 15 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
+`cookbook/` 里有 16 个可运行的例子，覆盖 Python（`math`/`datetime`/`json`/`re`/
 `os`/`collections`/`random`/`itertools`）和 Java（`String`/`集合`/`time`/`nio`/
-`BigDecimal`）常用库，外加一个双生态混用的例子。每个都在双后端验证过输出一致，
+`BigDecimal`）常用库、函数值/闭包示例，以及一个双生态混用的例子。每个都在双后端验证过输出一致，
 说明和坑点见 [cookbook/COOKBOOK.md](cookbook/COOKBOOK.md)。
 
 ---
@@ -474,5 +506,5 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 
 - 想看完整语言定义：[SPEC.md](SPEC.md)
 - 想看编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 跑测试：`python3 tests/run_tests.py`（89 项：82 个双后端/集成场景和 7 个只读 CLI
+- 跑测试：`python3 tests/run_tests.py`（100 项：92 个双后端/集成场景和 8 个只读 CLI
   诊断回归；正例/cookbook 双后端对拍）

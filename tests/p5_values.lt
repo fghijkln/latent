@@ -1,0 +1,17 @@
+fn add(a, b):
+    return a + b
+
+fn apply(fn_value, first, second):
+    return fn_value(first, second)
+
+fn choose():
+    fn increment(value):
+        value + 1
+    return increment
+
+by_name = add
+say by_name
+say by_name(2, 3)
+say apply(by_name, 4, 5)
+returned = choose()
+say returned(8)

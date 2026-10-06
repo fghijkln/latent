@@ -1,2 +1,2 @@
 import "lib.lt" as lib
-say lib.answer
+f = len
