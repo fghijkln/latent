@@ -344,6 +344,7 @@ public class LtRt {
     public static Object named(String name, Object value) {
         return new NamedArg(name, value);
     }
+    public static final Object MISSING = new Object();
     private static boolean hasNamedArgs(Object[] args) {
         for (Object arg : args) if (arg instanceof NamedArg) return true;
         return false;
@@ -353,14 +354,25 @@ public class LtRt {
             throw new ArgumentError(
                 "named arguments are not supported for Python/Java interop calls");
     }
-    private static Object[] bindArgs(String[] params, Object[] args, String name) {
+    private static Object[] bindArgs(String[] params, int requiredCount,
+                                     Object[] args, String name) {
         if (!hasNamedArgs(args)) {
-            if (args.length != params.length)
+            if (args.length > params.length)
                 throw new ArgumentError(name + "() takes " + params.length +
                     " args, got " + args.length);
-            return args;
+            if (args.length < requiredCount) {
+                if (requiredCount == params.length)
+                    throw new ArgumentError(name + "() takes " + params.length +
+                        " args, got " + args.length);
+                throw new ArgumentError(name +
+                    "() missing required argument '" + params[args.length] + "'");
+            }
+            Object[] values = Arrays.copyOf(args, params.length);
+            Arrays.fill(values, args.length, params.length, MISSING);
+            return values;
         }
         Object[] values = new Object[params.length];
+        Arrays.fill(values, MISSING);
         boolean[] supplied = new boolean[params.length];
         Set<String> seenNames = new HashSet<>();
         int pos = 0;
@@ -388,7 +400,7 @@ public class LtRt {
                 pos++;
             }
         }
-        for (int i = 0; i < params.length; i++) {
+        for (int i = 0; i < requiredCount; i++) {
             if (!supplied[i])
                 throw new ArgumentError(name +
                     "() missing required argument '" + params[i] + "'");
@@ -397,22 +409,25 @@ public class LtRt {
     }
     public static class LtFunction {
         final int arity;
+        final int requiredCount;
         final String name;
         final String display;
         final String[] params;
         final LtBody body;
-        LtFunction(String[] params, String name, LtBody body) {
-            this(params, name, "<function " + name + ">", body);
+        LtFunction(String[] params, int requiredCount, String name, LtBody body) {
+            this(params, requiredCount, name, "<function " + name + ">", body);
         }
-        LtFunction(String[] params, String name, String display, LtBody body) {
+        LtFunction(String[] params, int requiredCount, String name,
+                   String display, LtBody body) {
             this.params = params.clone();
             this.arity = params.length;
+            this.requiredCount = requiredCount;
             this.name = name;
             this.display = display;
             this.body = body;
         }
         Object invoke(Object[] args) {
-            return body.call(bindArgs(params, args, name));
+            return body.call(bindArgs(params, requiredCount, args, name));
         }
     }
     /** Per-invocation binding cells; nested functions retain this frame. */
@@ -443,8 +458,9 @@ public class LtRt {
             throw new RuntimeException("unknown lexical binding '" + name + "'");
         }
     }
-    public static LtFunction function(String[] params, String name, LtBody body) {
-        return new LtFunction(params, name, body);
+    public static LtFunction function(String[] params, int requiredCount,
+                                      String name, LtBody body) {
+        return new LtFunction(params, requiredCount, name, body);
     }
     public static Object callValue(Object value, Object... args) {
         if (!(value instanceof LtFunction))
@@ -458,14 +474,17 @@ public class LtRt {
         public final Map<String, LtMethod> methods;
         public final Map<String, Integer> methodArities;
         public final Map<String, String[]> methodParameters;
+        public final Map<String, Integer> methodRequiredCounts;
         LtClass(String name, LtClass parent, Map<String, LtMethod> methods,
                 Map<String, Integer> methodArities,
-                Map<String, String[]> methodParameters) {
+                Map<String, String[]> methodParameters,
+                Map<String, Integer> methodRequiredCounts) {
             this.name = name;
             this.parent = parent;
             this.methods = methods;
             this.methodArities = methodArities;
             this.methodParameters = methodParameters;
+            this.methodRequiredCounts = methodRequiredCounts;
         }
     }
 
@@ -477,16 +496,19 @@ public class LtRt {
 
     public static LtClass makeClass(String name, LtClass parent,
                                     String[] names, LtMethod[] methods,
-                                    int[] arities, String[][] parameters) {
+                                    int[] arities, String[][] parameters,
+                                    int[] requiredCounts) {
         Map<String, LtMethod> m = new LinkedHashMap<>();
         Map<String, Integer> a = new LinkedHashMap<>();
         Map<String, String[]> p = new LinkedHashMap<>();
+        Map<String, Integer> r = new LinkedHashMap<>();
         for (int i = 0; i < names.length; i++) {
             m.put(names[i], methods[i]);
             a.put(names[i], arities[i]);
             p.put(names[i], parameters[i].clone());
+            r.put(names[i], requiredCounts[i]);
         }
-        return new LtClass(name, parent, m, a, p);
+        return new LtClass(name, parent, m, a, p, r);
     }
 
     static LtMethod findMethod(LtClass cls, String name) {
@@ -513,6 +535,14 @@ public class LtRt {
         return new String[0];
     }
 
+    static int findMethodRequiredCount(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent) {
+            Integer required = c.methodRequiredCounts.get(name);
+            if (required != null) return required;
+        }
+        return 0;
+    }
+
     /** Dispatch a Latent method beginning at the current class's parent. */
     public static Object superCall(Object receiver, LtClass owner,
                                    String method, Object... args) {
@@ -526,7 +556,8 @@ public class LtRt {
         if (target == null)
             throw new RuntimeException("no parent method '" + method + "' on class " + owner.name);
         return target.call(receiver,
-            bindArgs(findMethodParameters(owner.parent, method), args, method));
+            bindArgs(findMethodParameters(owner.parent, method),
+                     findMethodRequiredCount(owner.parent, method), args, method));
     }
 
     public static Object pymod(Object name) {
@@ -565,7 +596,8 @@ public class LtRt {
             LtMethod method = findMethod(o.cls, attr);
             if (method != null) {
                 String[] params = findMethodParameters(o.cls, attr);
-                return new LtFunction(params, attr,
+                return new LtFunction(params,
+                    findMethodRequiredCount(o.cls, attr), attr,
                     "<bound method " + o.cls.name + "." + attr + ">",
                     args -> method.call(o, args));
             }
@@ -592,8 +624,9 @@ public class LtRt {
                 LtObj o = new LtObj(c);
                 LtMethod init = findMethod(c, "init");
                 String[] params = findMethodParameters(c, "init");
-                if (init != null) init.call(o, bindArgs(params, args, c.name + ".new"));
-                else if (args.length > 0) bindArgs(new String[0], args, c.name + ".new");
+                if (init != null) init.call(o, bindArgs(params,
+                    findMethodRequiredCount(c, "init"), args, c.name + ".new"));
+                else if (args.length > 0) bindArgs(new String[0], 0, args, c.name + ".new");
                 return o;
             }
             throw new RuntimeException("no class-level method '" + attr +
@@ -605,7 +638,8 @@ public class LtRt {
             if (m == null)
                 throw new RuntimeException("no method '" + attr +
                     "' on " + o.cls.name);
-            return m.call(o, bindArgs(findMethodParameters(o.cls, attr), args, attr));
+            return m.call(o, bindArgs(findMethodParameters(o.cls, attr),
+                findMethodRequiredCount(o.cls, attr), args, attr));
         }
         if (h instanceof JReflect.JClass) {
             rejectNamedInteropArgs(args);

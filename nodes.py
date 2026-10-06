@@ -107,6 +107,29 @@ class FnDef(Node):
         self.body = body  # list of stmts
 
 
+class DefaultParam(Node):
+    """One formal parameter with a call-time default expression."""
+    def __init__(self, name, default, **kw):
+        super().__init__(**kw)
+        self.name = name
+        self.default = default
+
+
+def parameter_name(param):
+    return param.name if isinstance(param, DefaultParam) else param
+
+
+def parameter_names(params):
+    return [parameter_name(param) for param in params]
+
+
+def required_parameter_count(params):
+    for index, param in enumerate(params):
+        if isinstance(param, DefaultParam):
+            return index
+    return len(params)
+
+
 class If(Node):
     def __init__(self, cond, then_body, else_body, **kw):
         super().__init__(**kw)

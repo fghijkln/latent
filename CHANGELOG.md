@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.12.0 — 2026-10-06
+
+### Added
+
+- Call-time defaults for Latent functions, closures/function values, module functions, Latent methods, inherited methods, `super` calls, constructors, and `init`; required formals precede defaulted formals.
+- Defaults are evaluated only for omitted arguments, on every call, in formal order. Earlier bound formals and lexical bindings are available; explicit `nil` suppresses a default.
+- The stable `latent-ast` schema advances from v3 to v4 with `DefaultParam(name, default)`; legacy required-parameter strings and prior node fields retain their shapes.
+
+### Compatibility
+
+- P8 named/positional binding rules remain in force; duplicate, unknown, missing-required, and method/constructor checks apply statically where the target is known and dynamically to Latent function values/methods.
+- Variadic and keyword-only parameters are not added. Built-ins and Python/Java interop remain unchanged.
+- Programs without default parameters retain v0.11.0 call behavior. The v0.11.0 tag and release artifacts remain unchanged.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 149 passed, 0 failed, including 11 AST/CLI diagnostics regressions; the focused P9 coverage includes 2 positive programs, 6 static compile negatives, and 4 dynamic runtime negatives on both backends.
+- Python syntax checks, Java runtime compilation, and `git diff --check` passed.
+
 ## v0.11.0 — 2026-10-06
 
 ### Added

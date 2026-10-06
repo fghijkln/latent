@@ -1,0 +1,4 @@
+fn pair(left, right=2):
+    return left + right
+callable = pair
+say callable(1, left=3)

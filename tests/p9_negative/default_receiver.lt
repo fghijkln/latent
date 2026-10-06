@@ -1,0 +1,3 @@
+class Invalid:
+    fn init(self=1):
+        return self

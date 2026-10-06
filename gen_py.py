@@ -338,10 +338,12 @@ class _LtClass:
         if init is not None:
             # Latent-level dispatch: values stay Latent (no _wv_pyarg;
             # that int conversion is only for calling real Python functions)
-            init(o, *_wv_bind_args(_wv_method_params(init), args,
-                                   self._name + ".new"))
+            init(o, *_wv_bind_args(_wv_method_params(init),
+                                   _wv_method_required(init), args,
+                                   self._name + ".new", _LtFunction.MISSING))
         elif args:
-            _wv_bind_args((), args, self._name + ".new")
+            _wv_bind_args((), 0, args, self._name + ".new",
+                          _LtFunction.MISSING)
         return o
 
 
@@ -365,14 +367,20 @@ def _wv_has_named(args):
     return any(isinstance(arg, _LtNamedArg) for arg in args)
 
 
-def _wv_bind_args(params, args, name):
+def _wv_bind_args(params, required_count, args, name, missing):
     params = tuple(params)
     if not _wv_has_named(args):
-        if len(args) != len(params):
+        if len(args) > len(params):
             raise _LtArgumentError("%s() takes %d args, got %d" %
                                    (name, len(params), len(args)))
-        return list(args)
-    values = [None] * len(params)
+        if len(args) < required_count:
+            if required_count == len(params):
+                raise _LtArgumentError("%s() takes %d args, got %d" %
+                                       (name, len(params), len(args)))
+            raise _LtArgumentError("%s() missing required argument %r" %
+                                   (name, params[len(args)]))
+        return list(args) + [missing] * (len(params) - len(args))
+    values = [missing] * len(params)
     supplied = [False] * len(params)
     pos = 0
     seen_names = set()
@@ -400,8 +408,8 @@ def _wv_bind_args(params, args, name):
             values[pos] = arg
             supplied[pos] = True
             pos += 1
-    for index, was_supplied in enumerate(supplied):
-        if not was_supplied:
+    for index in range(required_count):
+        if not supplied[index]:
             raise _LtArgumentError("%s() missing required argument %r" %
                                    (name, params[index]))
     return values
@@ -412,19 +420,27 @@ def _wv_method_params(method):
     return code.co_varnames[1:code.co_argcount]
 
 
+def _wv_method_required(method):
+    return getattr(method, "_lt_required_count", len(_wv_method_params(method)))
+
+
 class _LtFunction:
     """A first-class Latent function with backend-independent arity checks."""
-    __slots__ = ("_fn", "_params", "_arity", "_name", "_display")
+    MISSING = object()
+    __slots__ = ("_fn", "_params", "_required", "_arity", "_name", "_display")
 
-    def __init__(self, fn, params, name, display=None):
+    def __init__(self, fn, params, name, display=None, required_count=None):
         self._fn = fn
         self._params = tuple(params)
+        self._required = (len(self._params) if required_count is None
+                          else required_count)
         self._arity = len(self._params)
         self._name = name
         self._display = display
 
     def __call__(self, *args):
-        return self._fn(*_wv_bind_args(self._params, args, self._name))
+        return self._fn(*_wv_bind_args(self._params, self._required, args,
+                                        self._name, self.MISSING))
 
 
 def _wv_call(fn, *args):
@@ -582,7 +598,8 @@ def _wv_wgetattr(h, attr):
             params = _wv_method_params(method)
             return _LtFunction(
                 lambda *args: method(h, *args), params, attr,
-                "<bound method %s.%s>" % (h._lt_class._name, attr))
+                "<bound method %s.%s>" % (h._lt_class._name, attr),
+                required_count=_wv_method_required(method))
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)
@@ -609,7 +626,8 @@ def _wv_wcall(h, attr, *args):
         if m is None:
             raise AttributeError("no method %r" % attr)
         return _LtFunction(lambda *values: m(h, *values),
-                           _wv_method_params(m), attr)(*args)
+                           _wv_method_params(m), attr,
+                           required_count=_wv_method_required(m))(*args)
     if isinstance(h, _LazyMod):
         if _wv_has_named(args):
             raise _LtArgumentError(
@@ -631,7 +649,8 @@ def _wv_supercall(receiver, owner, attr, *args):
         raise AttributeError("no parent method %r on class %s" %
                              (attr, owner._name))
     return _LtFunction(lambda *values: method(receiver, *values),
-                       _wv_method_params(method), attr)(*args)
+                       _wv_method_params(method), attr,
+                       required_count=_wv_method_required(method))(*args)
 
 
 def _wv_wsetattr(h, attr, v):
@@ -737,6 +756,7 @@ class Gen:
         self.source_map = {}
         self._used_internal_names = set()
         self._reserved_nodes = set()
+        self._missing_name = None
 
     def _reserve_source_names(self, value):
         if isinstance(value, Node):
@@ -749,6 +769,8 @@ class Gen:
                 self._used_internal_names.add(value.name)
                 if isinstance(value, ClassDef):
                     self._used_internal_names.add(value.source_name)
+                if isinstance(value, FnDef):
+                    self._used_internal_names.update(parameter_names(value.params))
             if isinstance(value, ClassRef):
                 self._used_internal_names.add(value.name)
                 if value.alias:
@@ -772,6 +794,12 @@ class Gen:
         self._used_internal_names.add(name)
         return name
 
+    def _prepare_missing_alias(self):
+        self._missing_name = self._fresh_internal("_lt_missing")
+
+    def _emit_missing_alias(self):
+        self.w(f"{self._missing_name} = _LtFunction.MISSING")
+
     def w(self, s="", source_line=None, source_path=None):
         physical_line = len(self.out) + 1 + sum(x.count("\n") for x in self.out)
         self.out.append("    " * self.indent + s)
@@ -781,9 +809,11 @@ class Gen:
 
     def generate(self, prog):
         self._reserve_source_names(prog)
+        self._prepare_missing_alias()
         if any(isinstance(s, ModuleInit) for s in prog.stmts):
             return self.generate_modules(prog)
         self.w(PRELUDE.strip("\n"))
+        self._emit_missing_alias()
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
         clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
         rest = [s for s in prog.stmts
@@ -819,6 +849,7 @@ class Gen:
 
     def generate_modules(self, prog):
         self.w(PRELUDE.strip("\n"))
+        self._emit_missing_alias()
         modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
         clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
@@ -901,6 +932,9 @@ class Gen:
         parent = cd.parent.name if cd.parent else "None"
         methods = ", ".join(
             f"{json.dumps(m.name)}: _LtMethods.{m.name}" for m in cd.methods)
+        for method in cd.methods:
+            required = required_parameter_count(method.params[1:])
+            self.w(f"_LtMethods.{method.name}._lt_required_count = {required}")
         self.w(f"return _LtClass({json.dumps(cd.source_name, ensure_ascii=False)}, "
                f"{parent}, {{{methods}}})")
         self.indent -= 1
@@ -946,8 +980,9 @@ class Gen:
         self._collect(fn.body, assigned)
         global_names = self._scope_globals(fn.body)
         nonlocal_names = self._scope_nonlocals(fn.body)
-        assigned -= set(fn.params) | global_names | nonlocal_names
-        self.w(f"def {fn.name}({', '.join(fn.params)}):", fn.line,
+        names = parameter_names(fn.params)
+        assigned -= set(names) | global_names | nonlocal_names
+        self.w(f"def {fn.name}({', '.join(names)}):", fn.line,
                fn.source_path)
         self.indent += 1
         if global_names:
@@ -956,6 +991,14 @@ class Gen:
             self.w("nonlocal " + ", ".join(sorted(nonlocal_names)))
         for name in sorted(assigned):
             self.w(f"{name} = None")
+        for param in fn.params:
+            if isinstance(param, DefaultParam):
+                self.w(f"if {param.name} is {self._missing_name}:",
+                       param.line, param.source_path)
+                self.indent += 1
+                self.w(f"{param.name} = {self.expr(param.default)}",
+                       param.line, param.source_path)
+                self.indent -= 1
         for s in fn.body:
             self.stmt(s)
         if not any(isinstance(s, Return) for s in fn.body):
@@ -963,8 +1006,9 @@ class Gen:
         self.indent -= 1
         if not method:
             self.w(f"{fn.name} = _LtFunction({fn.name}, "
-                   f"{json.dumps(fn.params, ensure_ascii=False)}, "
-                   f"{json.dumps(fn.source_name, ensure_ascii=False)})")
+                   f"{json.dumps(names, ensure_ascii=False)}, "
+                   f"{json.dumps(fn.source_name, ensure_ascii=False)}, "
+                   f"required_count={required_parameter_count(fn.params)})")
 
     def _collect(self, stmts, out):
         for s in stmts:

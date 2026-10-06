@@ -135,7 +135,11 @@ class Desugar:
                             line=s.line, col=s.col)
         if isinstance(s, FnDef):
             body = self._implicit_return([self.stmt(x) for x in s.body])
-            fn = FnDef(s.name, s.params, body, line=s.line, col=s.col)
+            params = [DefaultParam(p.name, self.expr(p.default),
+                                   line=p.line, col=p.col)
+                      if isinstance(p, DefaultParam) else p
+                      for p in s.params]
+            fn = FnDef(s.name, params, body, line=s.line, col=s.col)
             fn.source_name = s.source_name
             return fn
         if isinstance(s, Try):

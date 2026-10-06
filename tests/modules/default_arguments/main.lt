@@ -1,0 +1,8 @@
+import "lib.lt" as lib
+say lib.add(2)
+say lib.add(2, 3)
+say lib.add(2, extra=4)
+add = lib.add
+say add(5)
+box = lib.Box.new()
+say box.value

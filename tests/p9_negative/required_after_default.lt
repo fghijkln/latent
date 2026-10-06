@@ -1,0 +1,2 @@
+fn invalid(optional=1, required):
+    return required

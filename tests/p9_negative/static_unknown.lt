@@ -1,0 +1,3 @@
+fn pair(left, right=2):
+    return left + right
+say pair(1, other=4)

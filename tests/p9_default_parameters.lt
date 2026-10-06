@@ -1,0 +1,95 @@
+fn scale(x, factor=2) => x * factor
+say scale(3)
+say scale(3, 4)
+say scale(3, factor=5)
+say scale(x=4)
+
+fn dependent(base, a=base + 1, b=a + 1):
+    return base + a + b
+say dependent(1)
+say dependent(1, b=9)
+say dependent(base=2, a=6, b=7)
+
+fn make_scaler():
+    factor = 2
+    fn apply(x, multiplier=factor):
+        return x * multiplier
+    fn update(value):
+        nonlocal factor
+        factor = value
+    return [apply, update]
+
+functions = make_scaler()
+apply = functions[0]
+update = functions[1]
+say apply(3)
+update(4)
+say apply(3)
+
+ticks = 0
+fn tick():
+    global ticks
+    ticks = ticks + 1
+    return ticks
+fn fresh(value=tick()):
+    return value
+say fresh()
+say fresh()
+say fresh(9)
+say ticks
+fn identity(value="fallback"):
+    return value
+say identity(nil)
+
+trace = ""
+fn mark(tag):
+    global trace
+    trace = trace + tag
+    return 1
+fn combine(a=mark("a"), b=mark("b")):
+    return a + b
+say combine(b=mark("B"))
+say trace
+trace = ""
+say combine()
+say trace
+trace = ""
+say combine(mark("X"), mark("Y"))
+say trace
+
+class Counter:
+    fn init(self, start=10):
+        self.value = start
+    fn add(self, amount=1):
+        self.value = self.value + amount
+        return self.value
+
+class ChildCounter(Counter):
+    fn init(self, start=20, bonus=2):
+        super.init(self, start)
+        self.value = self.value + bonus
+    fn add(self, amount=3):
+        self.value = self.value + amount
+        return self.value
+    fn parent_add(self):
+        return super.add(self)
+
+class Inherited(Counter):
+    fn marker(self):
+        return 0
+
+base = Counter.new()
+say base.value
+say base.add()
+bound = base.add
+say bound()
+say Counter.new(start=5).value
+say ChildCounter.new(bonus=4).value
+child = ChildCounter.new()
+say child.value
+say child.add()
+say child.add(amount=4)
+say child.parent_add()
+inherited = Inherited.new()
+say inherited.value
+say inherited.add()

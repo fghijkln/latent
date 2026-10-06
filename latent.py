@@ -110,6 +110,9 @@ def _exec_chunk(chunk, ns, checker):
               file=sys.stderr)
         return
     g = gen_py.Gen()
+    g._reserve_source_names(prog)
+    g._prepare_missing_alias()
+    g._emit_missing_alias()
     for s in prog.stmts:
         if isinstance(s, nodes.FnDef):
             g.fndef(s)

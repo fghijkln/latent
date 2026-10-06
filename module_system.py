@@ -231,7 +231,7 @@ def _nested_function_names(stmts):
 
 
 def _function_locals(fn):
-    return ((set(fn.params) | _assigned_names(fn.body) |
+    return ((set(nodes.parameter_names(fn.params)) | _assigned_names(fn.body) |
              _nested_function_names(fn.body)) -
             (_scope_globals(fn.body) | _scope_nonlocals(fn.body)))
 
@@ -357,6 +357,9 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
             stmt.name = unit.symbols[stmt.name][1]
         visible = set(locals_ or ()) | _function_locals(stmt)
         visible.difference_update(_scope_globals(stmt.body))
+        for param in stmt.params:
+            if isinstance(param, nodes.DefaultParam):
+                param.default = _rewrite_expr(param.default, unit, visible)
         stmt.body = [x for x in (_rewrite_stmt(s, unit, visible) for s in stmt.body)
                      if x is not None]
         return stmt
@@ -394,8 +397,13 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
                         f"parent {ref.display!r} is not a Latent class")
                 ref.name = symbol
         for method in stmt.methods:
+            method_locals = _function_locals(method)
+            for param in method.params:
+                if isinstance(param, nodes.DefaultParam):
+                    param.default = _rewrite_expr(param.default, unit,
+                                                   method_locals)
             method.body = [x for x in (_rewrite_stmt(s, unit,
-                                                     _function_locals(method))
+                                                     method_locals)
                                        for s in method.body) if x is not None]
         return stmt
     if isinstance(stmt, nodes.Assign):

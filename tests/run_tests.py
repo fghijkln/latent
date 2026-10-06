@@ -22,11 +22,13 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
             "p6_nonlocal_shared", "p6_nonlocal_returned",
             "p6_nonlocal_nested_scope", "p7_bound_methods"]
 POSITIVE.append("p8_named_arguments")
+POSITIVE.append("p9_default_parameters")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
                    "modules/function_values/main", "modules/nonlocal/main",
                    "modules/bound_methods/main",
-                   "modules/named_arguments/main"]
+                   "modules/named_arguments/main",
+                   "modules/default_arguments/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target",
                "err_nested_readbefore", "err_p6_nonlocal_missing",
@@ -56,6 +58,14 @@ P8_NEG_COMPILE = {
     "p8_negative/super_unknown": "super.combine() got unexpected named argument 'other'",
     "modules/named_negative/main": "pair() got unexpected named argument 'other'",
     "inheritance_bad_init_arity": "Child.new() takes 1 args, got 0",
+}
+P9_NEG_COMPILE = {
+    "p9_negative/static_missing": "pair() missing required argument 'left'",
+    "p9_negative/static_duplicate": "pair() got multiple values for argument 'left'",
+    "p9_negative/static_unknown": "pair() got unexpected named argument 'other'",
+    "p9_negative/required_after_default": "required parameter follows defaulted parameter",
+    "p9_negative/default_future_parameter": "cannot reference parameter 'later' before it is bound",
+    "p9_negative/default_receiver": "receiver parameter cannot have a default",
 }
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
@@ -148,7 +158,11 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "p8_negative/bound_unknown",
                "p8_negative/python_interop",
                "p8_negative/java_interop_method",
-               "p8_negative/java_interop_constructor"]
+               "p8_negative/java_interop_constructor",
+               "p9_negative/indirect_missing",
+               "p9_negative/indirect_unknown",
+               "p9_negative/indirect_duplicate",
+               "p9_negative/bound_missing"]
 RUNTIME_SOURCE_LINES = {
     "py_lazy_use": [2], "java_lazy_use": [2],
     "err_index_range": [2], "err_index_key": [2],
@@ -167,6 +181,10 @@ RUNTIME_SOURCE_LINES = {
     "p8_negative/python_interop": [2],
     "p8_negative/java_interop_method": [2],
     "p8_negative/java_interop_constructor": [2],
+    "p9_negative/indirect_missing": [4],
+    "p9_negative/indirect_unknown": [4],
+    "p9_negative/indirect_duplicate": [4],
+    "p9_negative/bound_missing": [6],
 }
 RUNTIME_SOURCE_MARKERS = {
     "modules/runtime/main": ["main.lt:2", "lib.lt:3"],
@@ -184,6 +202,12 @@ P8_RUNTIME_ERROR_MARKERS = {
     "p8_negative/python_interop": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
     "p8_negative/java_interop_method": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
     "p8_negative/java_interop_constructor": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
+}
+P9_RUNTIME_ERROR_MARKERS = {
+    "p9_negative/indirect_missing": "Latent runtime error: ArgumentError: pair() missing required argument 'left'",
+    "p9_negative/indirect_unknown": "Latent runtime error: ArgumentError: pair() got unexpected named argument 'other'",
+    "p9_negative/indirect_duplicate": "Latent runtime error: ArgumentError: pair() got multiple values for argument 'left'",
+    "p9_negative/bound_missing": "Latent runtime error: ArgumentError: combine() missing required argument 'left'",
 }
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
@@ -241,6 +265,12 @@ P7_EXPECTED_STDOUT = {
 P8_EXPECTED_STDOUT = {
     "p8_named_arguments": "123\n123\n15\n123\nACB\n12\n34\n78\n122\n56\n9\n10\n11\n",
     "modules/named_arguments/main": "12\n34\n",
+}
+P9_EXPECTED_STDOUT = {
+    "p9_default_parameters": (
+        "6\n12\n15\n8\n6\n12\n15\n6\n12\n1\n2\n9\n2\n"
+        "nil\n2\nBa\n2\nab\n2\nXY\n10\n11\n12\n5\n24\n22\n25\n29\n30\n10\n11\n"),
+    "modules/default_arguments/main": "12\n5\n6\n15\n10\n",
 }
 
 
@@ -323,6 +353,8 @@ def main():
             ok = ok and py[1] == P7_EXPECTED_STDOUT[name]
         if name in P8_EXPECTED_STDOUT:
             ok = ok and py[1] == P8_EXPECTED_STDOUT[name]
+        if name in P9_EXPECTED_STDOUT:
+            ok = ok and py[1] == P9_EXPECTED_STDOUT[name]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -354,6 +386,28 @@ def main():
                               "-t", target, "-o", outdir])
             detail = so + se
             details.append(detail)
+            results.append(rc)
+        first_lines = [d.strip().splitlines()[0] if d.strip() else ""
+                       for d in details]
+        ok = (all(rc != 0 for rc in results) and
+              all(marker in detail for detail in details) and
+              first_lines[0] == first_lines[1])
+        print(("PASS " if ok else "FAIL ") + name)
+        if not ok:
+            fails += 1
+            print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
+            print(f"  java: rc={results[1]} detail={details[1][-500:]}")
+
+    print("== P9 negative compile: default-parameter binding and syntax ==")
+    for name, marker in P9_NEG_COMPILE.items():
+        details = []
+        results = []
+        for target in ("py", "java"):
+            outdir = os.path.join(OUT, "t_" + name.replace("/", "_") + "_" + target)
+            rc, so, se = run([sys.executable, LATENTC,
+                              os.path.join(TESTS, name + ".lt"),
+                              "-t", target, "-o", outdir])
+            details.append(so + se)
             results.append(rc)
         first_lines = [d.strip().splitlines()[0] if d.strip() else ""
                        for d in details]
@@ -403,8 +457,9 @@ def main():
         ok = (py[0] not in (0, "compile-fail", "timeout") and
               jv[0] not in (0, "compile-fail", "timeout") and
               has_source_locations(name, py) and has_source_locations(name, jv))
-        if name in P8_RUNTIME_ERROR_MARKERS:
-            expected = P8_RUNTIME_ERROR_MARKERS[name]
+        if name in P8_RUNTIME_ERROR_MARKERS or name in P9_RUNTIME_ERROR_MARKERS:
+            expected = (P8_RUNTIME_ERROR_MARKERS.get(name) or
+                        P9_RUNTIME_ERROR_MARKERS[name])
             py_error = next((line for line in py[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
             jv_error = next((line for line in jv[2].splitlines()

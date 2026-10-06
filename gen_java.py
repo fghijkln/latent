@@ -178,7 +178,8 @@ class Gen:
                 self.w(f"static Object {ident(g)};")
             else:
                 self.w(f"static Object {ident(g)} = LtRt.function(" +
-                       f"{self.string_array(fn.params)}, "
+                       f"{self.string_array(parameter_names(fn.params))}, "
+                       f"{required_parameter_count(fn.params)}, "
                        f"{java_str(fn.source_name)}, " +
                        f"args -> {self.fn_helpers[id(fn)]}(null, args));")
         for module in modules:
@@ -319,8 +320,10 @@ class Gen:
             f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
         arities = ", ".join(str(max(0, len(m.params) - 1))
                              for m in cd.methods)
-        parameters = ", ".join(self.string_array(m.params[1:])
+        parameters = ", ".join(self.string_array(parameter_names(m.params)[1:])
                                 for m in cd.methods)
+        required_counts = ", ".join(
+            str(required_parameter_count(m.params[1:])) for m in cd.methods)
         parent = ident(cd.parent.name) if cd.parent else "null"
         self.w(f"static LtRt.LtClass {ident(cd.name)} = LtRt.makeClass(")
         self.ind += 1
@@ -329,11 +332,12 @@ class Gen:
         self.w(f"new String[]{{{names}}},")
         self.w(f"new LtRt.LtMethod[]{{{lambdas}}},")
         self.w(f"new int[]{{{arities}}},")
-        self.w(f"new String[][]{{{parameters}}});")
+        self.w(f"new String[][]{{{parameters}}},")
+        self.w(f"new int[]{{{required_counts}}});")
         self.ind -= 1
 
     def methoddef(self, cd, m):
-        params = m.params
+        params = parameter_names(m.params)
         restp = params[1:] if params else []
         self.w(f"static Object {cd.name}_{m.name}(Object self, Object[] args) " + "{",
                m.line, m.source_path)
@@ -361,7 +365,12 @@ class Gen:
         self.w("LtRt.Env _env = new LtRt.Env(_closure, new String[]{" +
                ", ".join(java_str(name) for name in names) + "});")
         for i, param in enumerate(fn.params):
-            self.w(f"_env.setLocal({java_str(param)}, _args[{i}]);")
+            name = parameter_name(param)
+            self.w(f"_env.setLocal({java_str(name)}, _args[{i}]);")
+            if isinstance(param, DefaultParam):
+                self.w(f"if (_args[{i}] == LtRt.MISSING) "
+                       f"_env.setLocal({java_str(name)}, "
+                       f"{self.expr(param.default)});")
         for s in fn.body:
             self.stmt(s)
         if not self._always_returns(fn.body):
@@ -410,7 +419,7 @@ class Gen:
             return cached[id(fn)]
         parent_fn = self.fn_parents.get(id(fn))
         parent = self._fn_context(parent_fn) if parent_fn is not None else None
-        names = set(fn.params)
+        names = set(parameter_names(fn.params))
         self._collect(fn.body, names)
         globals_ = self._scope_globals(fn.body)
         nonlocals = self._scope_nonlocals(fn.body)
@@ -502,7 +511,8 @@ class Gen:
         if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
-            closure = f"LtRt.function({self.string_array(s.params)}, " \
+            closure = f"LtRt.function({self.string_array(parameter_names(s.params))}, " \
+                      f"{required_parameter_count(s.params)}, " \
                       f"{java_str(s.source_name)}, " \
                       f"args -> {self.fn_helpers[id(s)]}(_env, args))"
             self.w(self._assign(s.name, closure), s.line, s.source_path)
@@ -588,13 +598,16 @@ class Gen:
                 scope = scope["parent"]
             return ident(e.id)
         if isinstance(e, List):
-            return "LtRt.listOf(" + ", ".join(self.expr(x) for x in e.elts) + ")"
+            values = [self.expr(x) for x in e.elts]
+            return "LtRt.listOf(" + ", ".join(
+                self._object_vararg(value) for value in values) + ")"
         if isinstance(e, Map):
             parts = []
             for k, v in e.pairs:
                 parts.append(java_str(k))
                 parts.append(self.expr(v))
-            return "LtRt.mapOf(" + ", ".join(parts) + ")"
+            return "LtRt.mapOf(" + ", ".join(
+                self._object_vararg(value) for value in parts) + ")"
         if isinstance(e, BinOp):
             return self.binop(e)
         if isinstance(e, UnOp):
@@ -604,7 +617,8 @@ class Gen:
             return self.call(e)
         if isinstance(e, SuperCall):
             receiver = self.expr(e.args[0])
-            args = [self.argument(a) for a in e.args[1:]]
+            args = [self._object_vararg(self.argument(a))
+                    for a in e.args[1:]]
             rendered = ", ".join([receiver, ident(e.owner.name),
                                     java_str(e.method)] + args)
             return f"LtRt.superCall({rendered})"
@@ -652,6 +666,11 @@ class Gen:
             return f"LtRt.named({java_str(arg.name)}, {self.expr(arg.value)})"
         return self.expr(arg)
 
+    def _object_vararg(self, value):
+        # A bare Java `null` passed as the sole vararg is interpreted as the
+        # entire Object[] rather than one Latent nil value. Force one Object.
+        return f"(Object) ({value})"
+
     def call(self, e):
         args = [self.argument(a) for a in e.args]
         name = e.func.id if isinstance(e.func, Name) else None
@@ -659,12 +678,13 @@ class Gen:
             return f"LtRt.wgetattr({args[0]}, {args[1]})"
         if name == "__wcall":
             return f"LtRt.wcall({args[0]}, {args[1]}" + \
-                ("".join(", " + a for a in args[2:])) + ")"
+                ("".join(", " + self._object_vararg(a)
+                         for a in args[2:])) + ")"
         if name in BUILTIN_JAVA:
             return f"{BUILTIN_JAVA[name]}({', '.join(args)})"
         callee = self.expr(e.func)
         return f"LtRt.callValue({callee}" + \
-            ("".join(", " + a for a in args)) + ")"
+            ("".join(", " + self._object_vararg(a) for a in args)) + ")"
 
 
 def generate(prog, cls, source_path="<src>"):

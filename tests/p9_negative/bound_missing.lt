@@ -1,0 +1,6 @@
+class C:
+    fn combine(self, left, right=2):
+        return left + right
+c = C.new()
+callable = c.combine
+say callable()

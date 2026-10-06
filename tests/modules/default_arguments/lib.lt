@@ -1,0 +1,7 @@
+offset = 10
+fn add(value, extra=offset):
+    return value + extra
+
+class Box:
+    fn init(self, value=offset):
+        self.value = value

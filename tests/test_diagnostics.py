@@ -47,7 +47,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual((result, error), (0, ""))
         document = json.loads(output)
         self.assertEqual(document["format"], "latent-ast")
-        self.assertEqual(document["version"], 3)
+        self.assertEqual(document["version"], 4)
         self.assertEqual(document["phase"], "parsed")
         self.assertEqual(document["source"], os.path.realpath(SAMPLE))
         tree_digest = hashlib.sha256(json.dumps(
@@ -152,7 +152,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(len(global_nodes), 1)
             self.assertEqual(global_nodes[0]["fields"], {"names": ["counter"]})
 
-    def test_nonlocal_statement_retains_stable_ast_shape_in_v3(self):
+    def test_nonlocal_statement_retains_stable_ast_shape_in_v4(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "nonlocal_scope.lt"
             source.write_text(
@@ -164,7 +164,7 @@ class DiagnosticTests(unittest.TestCase):
         for result, output, error in (parsed, desugared):
             self.assertEqual((result, error), (0, ""))
             document = json.loads(output)
-            self.assertEqual(document["version"], 3)
+            self.assertEqual(document["version"], 4)
             nodes_in_tree = list(_nodes(document["tree"]))
             declarations = [node for node in nodes_in_tree
                             if node["node"] == "NonlocalStmt"]
@@ -174,7 +174,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(declarations[0]["position"],
                              {"line": 4, "column": 9})
 
-    def test_named_argument_schema_v3_keeps_existing_call_field_shape(self):
+    def test_named_argument_schema_v4_keeps_existing_call_field_shape(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "named_call.lt"
             source.write_text(
@@ -185,7 +185,7 @@ class DiagnosticTests(unittest.TestCase):
         for result, output, error in (parsed, desugared):
             self.assertEqual((result, error), (0, ""))
             document = json.loads(output)
-            self.assertEqual(document["version"], 3)
+            self.assertEqual(document["version"], 4)
             nodes_in_tree = list(_nodes(document["tree"]))
             calls = [node for node in nodes_in_tree if node["node"] == "Call"]
             named = [node for node in nodes_in_tree
@@ -198,6 +198,33 @@ class DiagnosticTests(unittest.TestCase):
                               "value": {"node": "Num",
                                         "position": {"line": 3, "column": 15},
                                         "fields": {"value": 2.0}}})
+
+    def test_default_parameter_schema_v4_preserves_legacy_parameter_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "default_parameter.lt"
+            source.write_text(
+                "fn old(left, right):\n    return left + right\n"
+                "fn scale(x, factor=2):\n    return x * factor\n",
+                encoding="utf-8")
+            parsed = self.invoke(str(source), "--show-ast")
+            desugared = self.invoke(str(source), "--show-desugar")
+        for result, output, error in (parsed, desugared):
+            self.assertEqual((result, error), (0, ""))
+            document = json.loads(output)
+            self.assertEqual(document["version"], 4)
+            fn_nodes = [node for node in _nodes(document["tree"])
+                        if node["node"] == "FnDef"]
+            old = next(node for node in fn_nodes
+                       if node["fields"]["name"] == "old")
+            scale = next(node for node in fn_nodes
+                         if node["fields"]["name"] == "scale")
+            self.assertEqual(old["fields"]["parameters"], ["left", "right"])
+            self.assertEqual(scale["fields"]["parameters"][0], "x")
+            default = scale["fields"]["parameters"][1]
+            self.assertEqual(default["node"], "DefaultParam")
+            self.assertEqual(default["fields"]["name"], "factor")
+            self.assertEqual(default["fields"]["default"]["fields"],
+                             {"value": 2.0})
 
     def test_diagnostic_flags_are_mutually_exclusive(self):
         result, output, error = self.invoke(

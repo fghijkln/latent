@@ -35,7 +35,7 @@ class Checker:
             if isinstance(s, FnDef):
                 if s.name in self.functions or s.name in self.classes:
                     _err(s, f"duplicate definition {s.name!r}")
-                if len(set(s.params)) != len(s.params):
+                if len(set(parameter_names(s.params))) != len(s.params):
                     _err(s, f"duplicate parameter in {s.name!r}")
                 self.functions[s.name] = s
             if isinstance(s, ClassDef):
@@ -49,10 +49,12 @@ class Checker:
                     if m.name == "new":
                         _err(m, "'new' is reserved for construction "
                                 f"in class {s.name!r}")
-                    if len(set(m.params)) != len(m.params):
+                    if len(set(parameter_names(m.params))) != len(m.params):
                         _err(m, f"duplicate parameter in {s.name}.{m.name}")
                     if not m.params:
                         _err(m, f"method {s.name}.{m.name} must declare a receiver parameter")
+                    if isinstance(m.params[0], DefaultParam):
+                        _err(m.params[0], f"method {s.name}.{m.name} receiver parameter cannot have a default")
                 self.classes[s.name] = s
         self.module_bindings = self._top_bindings(prog.stmts)
         self._seed_top_class_types(prog.stmts)
@@ -83,7 +85,7 @@ class Checker:
             if isinstance(s, FnDef):
                 if s.name in self.functions or s.name in self.classes:
                     _err(s, f"duplicate definition {s.name!r}")
-                if len(set(s.params)) != len(s.params):
+                if len(set(parameter_names(s.params))) != len(s.params):
                     _err(s, f"duplicate parameter in {s.name!r}")
                 self.functions[s.name] = s
             else:
@@ -97,10 +99,12 @@ class Checker:
                     if method.name == "new":
                         _err(method, "'new' is reserved for construction "
                                     f"in class {s.name!r}")
-                    if len(set(method.params)) != len(method.params):
+                    if len(set(parameter_names(method.params))) != len(method.params):
                         _err(method, f"duplicate parameter in {s.name}.{method.name}")
                     if not method.params:
                         _err(method, f"method {s.name}.{method.name} must declare a receiver parameter")
+                    if isinstance(method.params[0], DefaultParam):
+                        _err(method.params[0], f"method {s.name}.{method.name} receiver parameter cannot have a default")
                 self.classes[s.name] = s
         self.module_bindings.update(self.functions)
         self.module_bindings.update(self.classes)
@@ -290,7 +294,7 @@ class Checker:
         if len(nonlocals) != sum(1 for s in self._nonlocal_nodes(fn.body)
                                 for _ in s.names):
             _err(fn, "duplicate name in nonlocal declaration")
-        params = set(fn.params)
+        params = set(parameter_names(fn.params))
         conflict = params & globals_
         if conflict:
             _err(fn, f"parameter {sorted(conflict)[0]!r} cannot be global")
@@ -321,8 +325,29 @@ class Checker:
                "class_types": {},
                "nested_functions": nested,
                "parent": parent_ctx, "fn": fn, "classdef": classdef}
+        names = parameter_names(fn.params)
+        for index, param in enumerate(fn.params):
+            if not isinstance(param, DefaultParam):
+                continue
+            not_yet_bound = set(names[index:])
+            for name_node in self._name_nodes(param.default):
+                if name_node.id in not_yet_bound:
+                    _err(name_node,
+                         f"default for parameter {param.name!r} cannot reference "
+                         f"parameter {name_node.id!r} before it is bound")
+            self._expr(param.default, ctx, in_loop=0)
         for s in fn.body:
             self.fn_stmt(s, ctx, in_loop=0)
+
+    def _name_nodes(self, value):
+        if isinstance(value, Name):
+            yield value
+        elif isinstance(value, Node):
+            for child in vars(value).values():
+                yield from self._name_nodes(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                yield from self._name_nodes(child)
 
     def _global_nodes(self, stmts):
         found = []
@@ -502,7 +527,7 @@ class Checker:
                 _err(e, f"class {owner.source_name!r} has no parent for super")
             if not e.args or not isinstance(e.args[0], Name) or \
                     not ctx["fn"].params or \
-                    e.args[0].id != ctx["fn"].params[0]:
+                    e.args[0].id != parameter_name(ctx["fn"].params[0]):
                 _err(e, "super.method() must pass the current receiver first")
             parent = self.classes[owner.parent.name]
             target = self._method_in_chain(parent, e.method)
@@ -707,14 +732,21 @@ class Checker:
             self._check_arguments(e, e.args, target.params, name)
 
     def _check_arguments(self, node, actuals, params, label):
+        names = parameter_names(params)
+        required = required_parameter_count(params)
         if not any(isinstance(arg, NamedArg) for arg in actuals):
-            if len(actuals) != len(params):
-                _err(node, f"{label}() takes {len(params)} args, got {len(actuals)}")
+            if len(actuals) > len(names):
+                _err(node, f"{label}() takes {len(names)} args, got {len(actuals)}")
+            if len(actuals) < required:
+                if required == len(names):
+                    _err(node, f"{label}() takes {len(names)} args, got {len(actuals)}")
+                _err(node,
+                     f"{label}() missing required argument {names[len(actuals)]!r}")
             return
         positional = sum(not isinstance(arg, NamedArg) for arg in actuals)
-        if positional > len(params):
-            _err(node, f"{label}() takes {len(params)} args, got {positional}")
-        supplied = set(params[:positional])
+        if positional > len(names):
+            _err(node, f"{label}() takes {len(names)} args, got {positional}")
+        supplied = set(names[:positional])
         seen_names = set()
         for arg in actuals:
             if not isinstance(arg, NamedArg):
@@ -723,12 +755,12 @@ class Checker:
             if name in seen_names:
                 _err(arg, f"{label}() got duplicate named argument {name!r}")
             seen_names.add(name)
-            if name not in params:
+            if name not in names:
                 _err(arg, f"{label}() got unexpected named argument {name!r}")
             if name in supplied:
                 _err(arg, f"{label}() got multiple values for argument {name!r}")
             supplied.add(name)
-        missing = [name for name in params if name not in supplied]
+        missing = [name for name in names[:required] if name not in supplied]
         if missing:
             _err(node, f"{label}() missing required argument {missing[0]!r}")
 
@@ -742,7 +774,7 @@ class Checker:
         while scope is not None:
             fn = scope["fn"]
             if scope["classdef"] is not None and fn.params and \
-                    name == fn.params[0]:
+                    name == parameter_name(fn.params[0]):
                 # self may be a subclass at runtime; overrides can use
                 # different parameter names, so defer its direct calls.
                 return None

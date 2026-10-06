@@ -1,4 +1,4 @@
-# Latent 语言规范 v0.11.0
+# Latent 语言规范 v0.12.0
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -11,8 +11,9 @@
 > v0.9.0 增加 `nonlocal` 词法绑定；`latent-ast` JSON schema 升级到版本 2。
 > v0.10.0（P7）允许 Latent 实例绑定方法作为函数值。
 > v0.11.0（P8）增加 Latent 调用的命名参数；`latent-ast` JSON schema 升级到版本 3。
+> v0.12.0（P9）增加 Latent 默认参数；`latent-ast` JSON schema 升级到版本 4。
 >
-> **发布状态：** 本规范描述 v0.11.0 已发布语义。
+> **发布状态：** 本规范描述 v0.12.0 已发布语义。
 
 ## 1. 设计目标
 
@@ -32,7 +33,7 @@
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
 
-## 3. 语法（v0.11.0）
+## 3. 语法（v0.12.0）
 
 ```
 program  := stmt*
@@ -43,6 +44,8 @@ importstmt := "import" STRING "as" NAME
 globalstmt := "global" NAME ("," NAME)*
 nonlocalstmt := "nonlocal" NAME ("," NAME)*
 fndef    := "fn" NAME "(" [params] ")" ( "=>" expr | ":" block )
+params   := param ("," param)*
+param    := NAME ["=" expr]                # 必需形参须在默认形参之前
 classdef := "class" NAME ["(" parentref ")"] ":" block
 parentref := NAME ["." NAME]              # 本地类，或 import 别名下的公开类
 supercall := "super" "." NAME "(" NAME ["," args] ")"
@@ -122,6 +125,14 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
 已知签名的直接函数、公开模块函数、可静态判定的 Latent 方法、`super` 与构造调用在编译期检查重复、未知、缺失和多余实参；函数值及无法静态判定接收者的调用在运行期用同一绑定规则检查。两后端对运行期参数绑定错误统一报告 `ArgumentError` 和相同文案。实参表达式依源代码从左到右求值，绑定不会重排或提前求值。
 
 内建函数以及 Python/Java 句柄方法和构造器仍是位置参数专用；对它们传入命名参数会明确拒绝，不会把名称转交到互操作目标。使用命名参数语法的源码需要 v0.11.0 或更新版本；v0.10.0 仍只支持位置参数。
+
+### P9/v0.12.0：默认参数
+
+函数参数可以用 `name=expression` 声明默认值；第一个方法接收者必须是必需形参，且所有必需形参都必须位于默认形参之前。默认值不在定义时求值，而是在每次调用进入函数时，仅为被省略的实参按形参顺序求值。显式传入 `nil` 是已提供的值，不会触发默认值。位置和命名实参遵循 P8 的绑定及从左到右求值规则；所有显式实参先完成求值，再绑定默认值。
+
+默认表达式可读取已提供或已求默认值的更早形参，以及调用时可见的词法/全局绑定；不能引用自身或后续形参，违反时为编译期错误。默认值适用于普通函数、函数值和闭包、公开模块函数、Latent 直接/绑定方法、继承/覆盖方法、`super` 调用、`init` 和构造调用。运行时选中的 `init`（包括继承的 `init`）决定构造器默认值。静态可知的必需实参缺失会在编译期报错，动态函数值或无法静态判定的方法则按相同签名元数据在运行期检查。
+
+内建函数及 Python/Java 互操作方法与构造器不受 Latent 默认值规则影响；可变参数和仅限关键字参数仍不支持。使用默认形参的源码需要 v0.12.0 或更新版本。AST schema v4 以 `DefaultParam(name, default)` 表示默认形参；既有必需形参仍以字符串表示，历史节点字段结构不变。
 
 ## 5. 类（v0.3 新增）
 
@@ -313,10 +324,11 @@ python3 latent.py prog.lt --show-ast       # --dump-ast 是同义别名
 python3 latent.py prog.lt --show-desugar
 ```
 
-两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 2`；
+两种模式向 stdout 输出 UTF-8 JSON，文档标识为 `format: "latent-ast"`、`version: 4`；
 包含阶段名、源文件路径，以及显式定义字段的节点树。每个源节点都记录 1 起算的行、列；
-没有语法位置的 `Program` 容器使用 null。版本 2 新增 `NonlocalStmt` 变体；已有节点的
-字段顺序、名称与 JSON 形状和格式版本 1 完全相同。未来变更不兼容结构时必须升级版本号。
+没有语法位置的 `Program` 容器使用 null。schema v2 增加 `NonlocalStmt`，v3 增加
+`NamedArg`，v4 增加 `DefaultParam(name, default)`。既有节点的字段顺序、名称与 JSON
+形状保持不变，必需形参仍为字符串。未来变更不兼容结构时必须升级版本号。
 非有限浮点字面值以 `"inf"`、`"-inf"` 或 `"nan"` 字符串表示，以保持合法 JSON。
 
 `--show-ast` 只词法分析并解析指定文件；`--show-desugar` 再运行脱糖变换。两者均不做语义

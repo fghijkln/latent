@@ -168,10 +168,21 @@ class Parser:
         name = self.expect("NAME")
         self.expect("(")
         params = []
+        saw_default = False
         if self.peek().kind != ")":
-            params.append(self.expect("NAME").value)
-            while self.match(","):
-                params.append(self.expect("NAME").value)
+            while True:
+                param = self.expect("NAME")
+                if self.match("="):
+                    saw_default = True
+                    params.append(DefaultParam(param.value, self.expr(),
+                                               line=param.line, col=param.col))
+                else:
+                    if saw_default:
+                        self.err("required parameter follows defaulted parameter",
+                                 param)
+                    params.append(param.value)
+                if not self.match(","):
+                    break
         self.expect(")")
         if self.match("=>"):
             e = self.expr()
