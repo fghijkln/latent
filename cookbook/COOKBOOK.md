@@ -53,7 +53,7 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 ## 互操作速查
 
 - `py "mod"` / `java "com.foo.Bar"` 拿到句柄；`C.new(a)` 构造、`M.f(a)` 静态、`o.f(a)` 实例、`M.PI` 字段。
-- 只有标量（数字/字符串/布尔/nil）和**精确类型**的 list/dict 直接过边界；其他一律不透明句柄（`Counter`、`datetime` 对象、`ArrayList` 等）。
+- Python 边界会按规则转换标量及**精确类型**的 list/dict；当前 Java 互操作可将 Latent 列表/映射传给兼容的 `List`/`Map` 形参，也可将 Latent 列表逐元素转换为 Java 数组。Java 返回的集合、数组和普通对象仍是不透明句柄（`ArrayList` 等）。
 - Python 的 tuple 过边界变成 Latent list（`say` 两边都打印成 `[...]`，索引通用）。
 - `==` 在句柄上是 identity 语义。
 - v0.11.0/P8 为 Latent 函数/方法提供命名参数；Python/Java 互操作调用与内建函数仍只支持位置参数。例如对句柄写 `timedelta(hours=36)` 会被拒绝。
@@ -64,6 +64,6 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 1. **Latent 字符串是原生值，不是 Java 对象**：`"hi".toUpperCase()` 调不动。用 `S.join` / `S.format` 这类静态方法，或 `StringBuilder` 做拼接。
 2. **只有用户定义函数是一等值**：普通函数和嵌套闭包可以赋值、传递、返回、间接调用；内建函数（如 `int`）、Latent 类方法和 Python/Java 句柄方法仍不可作为函数值。`collections.defaultdict(int)` 仍不能把内建 `int` 作为回调传入。
 3. **下标写支持范围**：Latent 列表/映射、py 句柄，以及 Java `List`/`Map` 句柄都支持 `xs[0] = v` / `m["k"] = v`；字符串仍不可写。负索引适用于序列。
-4. **Java 方法重载按“第一个能对上”的来**：`coerce` 会把 Latent 数字转成 `int/long/double` 等，歧义时别依赖重载解析。
+4. **当前 main 的 Java 方法和构造器重载**：运行时调用反射枚举到的第一个可转换候选；顺序不保证稳定，也没有歧义诊断。阶段 0 已定的转换等级、特异性及稳定歧义规则是阶段 1 待实现目标，见 [SPEC.md §8](../SPEC.md#8-按需加载-java-java)。
 5. **跨边界有 JSON 行协议开销**：循环里逐个调 Java/Python 方法优先保证正确，不保证性能。真要快，把循环写进对端的一次调用里。
 6. **`.lt` 模块是静态子集**：只支持本地显式别名导入；不支持循环、通配/动态导入、包管理或写入导入模块的成员。
