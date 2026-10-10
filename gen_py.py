@@ -285,12 +285,12 @@ def _wv_iter(x):
 
 
 def _wv_pyarg(v):
-    """Interop rule (mirrors ltpy daemon): integral floats enter
-    Python as int; everything else passes through."""
+    """Convert integral floats for Python APIs without erasing negative zero."""
     if isinstance(v, bool):
         return v
     if isinstance(v, float) and v.is_integer() and abs(v) < 1e18:
-        return int(v)
+        if v != 0.0 or _math.copysign(1.0, v) > 0:
+            return int(v)
     if isinstance(v, list):
         return [_wv_pyarg(x) for x in v]
     if isinstance(v, dict):

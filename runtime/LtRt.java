@@ -902,8 +902,11 @@ public class LtRt {
         if (k instanceof Boolean || !(k instanceof Number))
             throw new RuntimeException("index must be an integer");
         double d = ((Number) k).doubleValue();
-        if (d != Math.rint(d))
+        if (!Double.isFinite(d) || d != Math.rint(d))
             throw new RuntimeException("index must be an integer");
+        if (d < Integer.MIN_VALUE || d > Integer.MAX_VALUE)
+            throw new RuntimeException("index out of range: " +
+                new java.math.BigDecimal(d).toBigInteger().toString());
         int i = (int) d;
         if (i < 0) i += n;
         if (i < 0 || i >= n)
@@ -1160,6 +1163,8 @@ public class LtRt {
                 if (Double.isNaN(d)) return "{\"__num\":\"nan\"}";
                 if (Double.isInfinite(d))
                     return "{\"__num\":\"" + (d > 0 ? "inf" : "-inf") + "\"}";
+                if (d == 0.0 && Double.doubleToRawLongBits(d) < 0)
+                    return "-0.0";
                 return numStr(d);
             }
             if (v instanceof String) return str((String) v);

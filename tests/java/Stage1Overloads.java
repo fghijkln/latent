@@ -25,6 +25,15 @@ public class Stage1Overloads {
         return Collections.singletonList(value);
     }
 
+    public static String narrow(byte value) { return "byte"; }
+    public static String narrow(int value) { return "int"; }
+
+    public static String wide(int value) { return "int"; }
+    public static String wide(long value) { return "long"; }
+
+    public static String real(double value) { return "double"; }
+    public static String real(float value) { return "float"; }
+
     public static String sameGrade(int value) { return "int"; }
     public static String sameGrade(long value) { return "long"; }
 

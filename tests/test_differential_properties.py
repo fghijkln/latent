@@ -16,6 +16,7 @@ DEFAULT_SEED = 0x5EED2026
 NUMBER_PAIRS = 21  # includes five fixed edge pairs and sixteen seeded pairs
 RANDOM_STRINGS = 8
 RANDOM_LISTS = 8
+EXTREME_INDEX_VALUES = (-(1 << 40), 1 << 40)
 COMPILE_LOCALIZE_GROUP_SIZE = 32
 COMPILE_LOCALIZE_MAX_PROBES = 64
 
@@ -127,7 +128,9 @@ def boundary_indices(length, rng):
 
 def add_string_cases(cases, rng):
     edges = ["", "A", "😀", "e\u0301", "A😀B", "中𝄞🚀",
-             "👩\u200d🚀", "✈️"]
+             "👩\u200d🚀", "✈️", "e\u0301\u0327",
+             "👨\u200d👩\u200d👧\u200d👦",
+             "👩\u200d❤️\u200d💋\u200d👨"]
     alphabet = ["a", "Z", "é", "中", "😀", "🚀", "𝄞",
                 "\u0301", "\ufe0f", "\u200d"]
     samples = [(f"edge-{i}", value) for i, value in enumerate(edges)]
@@ -178,8 +181,10 @@ def generate_cases(seed):
     rng = random.Random(seed)
     cases = []
     add_numeric_cases(cases, rng)
+    add_numeric_boundary_cases(cases)
     add_string_cases(cases, rng)
     add_list_cases(cases, rng)
+    add_extreme_index_cases(cases)
     return cases
 
 
@@ -194,10 +199,16 @@ def compile_backend(source_path, outdir, backend):
                  "-o", outdir], ROOT)
 
 
-def run_backend(source_path, outdir, backend):
+def run_backend(source_path, outdir, backend, include_overload_fixture=False):
     compile_result = compile_backend(source_path, outdir, backend)
     if compile_result[0] != 0:
         return BackendResult("compile", *compile_result)
+    if include_overload_fixture:
+        fixture = os.path.join(ROOT, "tests", "java", "Stage1Overloads.java")
+        fixture_result = _run(["javac", "-cp", outdir, "-d", outdir, fixture],
+                              ROOT)
+        if fixture_result[0] != 0:
+            return BackendResult("compile", *fixture_result)
     stem = os.path.splitext(os.path.basename(source_path))[0]
     if backend == "py":
         command = [sys.executable, os.path.join(outdir, stem + ".py")]
@@ -251,14 +262,15 @@ def json_equivalent(actual, expected):
     return type(actual) is type(expected) and actual == expected
 
 
-def run_case(source, tempdir, tag):
+def run_case(source, tempdir, tag, include_overload_fixture=False):
     source_path = os.path.join(tempdir, tag + ".lt")
     with open(source_path, "w", encoding="utf-8", newline="\n") as stream:
         stream.write(source)
     results = {}
     for backend in ("py", "java"):
         outdir = os.path.join(tempdir, tag + "_" + backend)
-        results[backend] = run_backend(source_path, outdir, backend)
+        results[backend] = run_backend(source_path, outdir, backend,
+                                       include_overload_fixture)
     return results
 
 
@@ -569,6 +581,96 @@ def reduced_case_group_diagnostic_regression(seed, tempdir):
     return True, f"PASS reduced-case-group diagnostic regression (seed={seed}, cases=1,2)"
 
 
+def add_numeric_boundary_cases(cases):
+    setup = (
+        'P = py "math"\n'
+        'M = java "java.lang.Math"\n'
+        'O = java "Stage1Overloads"\n'
+        'nan = P.nan\n'
+        'java_nan = M.sqrt(-1.0)\n'
+        'pos_inf = P.inf\n'
+        'neg_inf = -pos_inf\n'
+        'negative_zero = -0.0\n'
+        'largest = P.ldexp(1.0, 1023)\n'
+        'overflow = largest * 2.0\n'
+        'nan_list = [nan]\n'
+        'nan_list_copy = [nan]\n'
+        'nested_nan_left = {"items": [{"value": nan}]}\n'
+        'nested_nan_right = {"items": [{"value": nan}]}\n'
+    )
+    checks = (
+        ("numeric.nan.truthy", "not not nan", True),
+        ("numeric.java_nan.truthy", "not not java_nan", True),
+        ("numeric.nan.string", "str(nan)", "nan"),
+        ("numeric.positive_infinity.string", "str(pos_inf)", "inf"),
+        ("numeric.negative_infinity.string", "str(neg_inf)", "-inf"),
+        ("numeric.positive_infinity.order", "pos_inf > 1.0", True),
+        ("numeric.negative_infinity.order", "neg_inf < -1.0", True),
+        ("numeric.overflow.to_infinity", "overflow == pos_inf", True),
+        ("numeric.overflow.string", "str(overflow)", "inf"),
+        ("numeric.negative_zero.equal", "negative_zero == 0.0", True),
+        ("numeric.negative_zero.less", "negative_zero < 0.0", False),
+        ("numeric.negative_zero.python_sign",
+         "P.copysign(1.0, negative_zero)", -1.0),
+        ("numeric.negative_zero.java_sign",
+         "M.copySign(1.0, negative_zero)", -1.0),
+        ("container.nan.self", "nan_list == nan_list", False),
+        ("container.nan.copy", "nan_list == nan_list_copy", False),
+        ("container.nan.nested", "nested_nan_left == nested_nan_right", False),
+        ("container.nan.nested_not_equal",
+         "nested_nan_left != nested_nan_right", True),
+        ("container.finite.nested",
+         '{"items": [{"value": 2}]} == {"items": [{"value": 2}]}', True),
+        ("java_overload.narrow_above_byte", "O.narrow(128)", "int"),
+        ("java_overload.narrow_below_byte", "O.narrow(-129)", "int"),
+        ("java_overload.wide_above_int", "O.wide(2147483648)", "long"),
+        ("java_overload.wide_below_int", "O.wide(-2147483649)", "long"),
+        ("java_overload.long_exact_edge", "O.wide(9223372036854774784)", "long"),
+        ("java_overload.double_over_float_exact", "O.real(1.5)", "double"),
+        ("java_overload.double_over_float_lossy", "O.real(1.1)", "double"),
+    )
+    for label, expression, expected in checks:
+        add_case(cases, "numeric-boundary", label, expression, expected,
+                 setup=setup)
+
+    ambiguous = (
+        ("java_overload.byte_exact_upper_ambiguous", "O.narrow(127)",
+         "java: ambiguous method Stage1Overloads.narrow(1 args): "
+         "[Stage1Overloads#narrow(byte), Stage1Overloads#narrow(int)]"),
+        ("java_overload.byte_exact_lower_ambiguous", "O.narrow(-128)",
+         "java: ambiguous method Stage1Overloads.narrow(1 args): "
+         "[Stage1Overloads#narrow(byte), Stage1Overloads#narrow(int)]"),
+        ("java_overload.int_exact_upper_ambiguous", "O.wide(2147483647)",
+         "java: ambiguous method Stage1Overloads.wide(1 args): "
+         "[Stage1Overloads#wide(int), Stage1Overloads#wide(long)]"),
+        ("java_overload.int_exact_lower_ambiguous", "O.wide(-2147483648)",
+         "java: ambiguous method Stage1Overloads.wide(1 args): "
+         "[Stage1Overloads#wide(int), Stage1Overloads#wide(long)]"),
+        ("java_overload.past_long_ambiguous", "O.wide(9223372036854775808)",
+         "java: ambiguous method Stage1Overloads.wide(1 args): "
+         "[Stage1Overloads#wide(int), Stage1Overloads#wide(long)]"),
+    )
+    for label, expression, error in ambiguous:
+        add_case(cases, "java-overload-boundary", label, expression, None,
+                 setup=setup, index_error=error)
+
+    bad_index_setup = setup + 'text = "A😀B"\n'
+    for label, expression in (("unicode.nan_index", "text[nan]"),
+                              ("unicode.positive_infinity_index", "text[pos_inf]"),
+                              ("unicode.negative_infinity_index", "text[neg_inf]")):
+        add_case(cases, "index-boundary", label, expression, None,
+                 setup=bad_index_setup, index_error="index must be an integer")
+
+
+def add_extreme_index_cases(cases):
+    for index in EXTREME_INDEX_VALUES:
+        add_index_case(cases, "unicode", f"unicode.extreme_index[{index}]",
+                       "text", '"A😀B"', index, None, should_error=True)
+        add_index_case(cases, "index", f"list.extreme_index[{index}]",
+                       "items", "[10.0, 20.0]", index, None,
+                       should_error=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=lambda value: int(value, 0),
@@ -592,7 +694,7 @@ def main():
                 return 1
 
         results = run_case(program_source(cases, args.seed), tempdir,
-                           "property_cases")
+                           "property_cases", include_overload_fixture=True)
         failure = find_failure(cases, results, args.seed, tempdir,
                                "property_failure")
         if failure is None:
@@ -600,7 +702,8 @@ def main():
                   f"(seed={args.seed} / 0x{args.seed:x}, cases={len(cases)})")
             return 0
 
-        repro_results = run_case(failure.source, tempdir, "failure_repro")
+        repro_results = run_case(failure.source, tempdir, "failure_repro",
+                                 include_overload_fixture=True)
         print(format_failure(args.seed, failure))
         for backend in ("py", "java"):
             result = repro_results[backend]

@@ -16,6 +16,7 @@ Values: JSON natives pass through; anything else becomes an opaque
 import sys
 import json
 import importlib
+import math
 import traceback
 
 _objs = {}
@@ -81,8 +82,8 @@ def getmod(name):
 
 
 def _pyarg(v):
-    """Interop rule: integral floats go into Python as int (e.g. numpy
-    needs real ints); everything else passes through. Exact-type checks
+    """Integral floats go into Python as int (e.g. numpy needs real ints),
+    except negative zero, whose sign must survive. Exact-type checks
     so subclass instances (e.g. a Counter fetched back by __ref) are not
     flattened into plain containers."""
     return _pyarg_decoded(decode(v))
@@ -92,7 +93,8 @@ def _pyarg_decoded(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, float) and v.is_integer() and abs(v) < 1e18:
-        return int(v)
+        if v != 0.0 or math.copysign(1.0, v) > 0:
+            return int(v)
     if type(v) is list or type(v) is tuple:
         return [_pyarg_decoded(x) for x in v]
     if type(v) is dict:
