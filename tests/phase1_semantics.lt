@@ -1,0 +1,99 @@
+# Stage 1: shared numeric, Unicode, and Java interop semantics.
+M = java "java.lang.Math"
+P = py "math"
+java_nan = M.sqrt(-1)
+python_nan = P.nan
+
+# NaN crosses both lazy-runtime boundaries as a number, not a map.
+say P.isnan(java_nan)
+say M.max(python_nan, 1.1)
+if java_nan:
+    say "nan is truthy"
+
+say java_nan == java_nan
+say java_nan != java_nan
+say java_nan == 1
+say java_nan != 1
+say 1 == java_nan
+say 1 != java_nan
+say java_nan < 1
+say java_nan <= 1
+say java_nan > 1
+say java_nan >= 1
+say 1 < java_nan
+say 1 <= java_nan
+say 1 > java_nan
+say 1 >= java_nan
+say [java_nan] == [java_nan]
+nan_list = [java_nan]
+say nan_list == nan_list
+say nan_list != nan_list
+say {"n": java_nan} == {"n": java_nan}
+nan_map = {"n": java_nan}
+say nan_map == nan_map
+say nan_map != nan_map
+say {"n": [java_nan]} == {"n": [java_nan]}
+say [1] == [1]
+say {"n": 1} == {"n": 1}
+
+negative = -2
+say negative ** 0.5
+negative_zero = -0.0
+say negative_zero == 0
+say negative_zero < 0
+say negative_zero <= 0
+say negative_zero > 0
+say negative_zero >= 0
+
+# Latent strings index and iterate Unicode code points, not UTF-16 units.
+s = "A😀B"
+say len(s)
+say s[1]
+say s[-2]
+for ch in s:
+    say ch
+
+# Exact double overload beats lossy numeric conversions.
+say M.max(1.9, 1.1)
+SB = java "java.lang.StringBuilder"
+b = SB.new()
+b.append(1.9)
+say b.toString()
+
+# Exercise the specified Java conversion and parameter partial order.
+O = java "Stage1Overloads"
+BI = java "java.math.BigInteger"
+big = BI.new("2")
+say O.reference(1)
+say O.reference(big)
+say O.collection([1, 2])
+say O.array([1, 2])
+say O.choose("one")
+say O.choose("one", "two")
+say O.nullable(nil)
+say O.floatValue(1.5)
+say O.floatValue(1.1)
+say O.intValue(1.9)
+
+# User maps that resemble transport tags must survive both interop paths.
+marker = {"__num": "nan"}
+near = {"__num": "nan", "keep": 1}
+wrapper_like = {"__map": [["__num", "nan"]]}
+nested = {"nested": {"__num": "nan"}}
+say O.mapString(marker)
+say O.mapString(near)
+say O.mapString(wrapper_like)
+say O.mapString(nested)
+for item in O.listOf(marker):
+    say item
+for item in O.listOf(near):
+    say item
+for item in O.listOf(wrapper_like):
+    say item
+for item in O.listOf(nested):
+    say item
+B = py "builtins"
+say B.dict(marker)
+say B.dict(near)
+say B.dict(wrapper_like)
+say B.dict(nested)

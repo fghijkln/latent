@@ -42,7 +42,7 @@ def encode(v):
     if type(v) is list or type(v) is tuple:
         return [encode(x) for x in v]
     if type(v) is dict:
-        return {str(k): encode(x) for k, x in v.items()}
+        return {"__map": [[str(k), encode(x)] for k, x in v.items()]}
     i = _next_id[0]
     _next_id[0] += 1
     _objs[i] = v
@@ -51,12 +51,22 @@ def encode(v):
 
 def decode(v):
     if isinstance(v, dict):
-        if "__ref" in v:
+        if len(v) == 1 and "__map" in v:
+            entries = v["__map"]
+            if not isinstance(entries, list):
+                raise ValueError("invalid Python map envelope")
+            result = {}
+            for pair in entries:
+                if not isinstance(pair, list) or len(pair) != 2:
+                    raise ValueError("invalid Python map entry")
+                result[str(pair[0])] = decode(pair[1])
+            return result
+        if len(v) == 1 and "__ref" in v:
             return _objs[v["__ref"]]
-        if "__num" in v:
+        if len(v) == 1 and "__num" in v:
             return {"nan": float("nan"), "inf": float("inf"),
                     "-inf": float("-inf")}[v["__num"]]
-        if "__mod" in v:
+        if len(v) == 1 and "__mod" in v:
             return getmod(v["__mod"])
         return {k: decode(x) for k, x in v.items()}
     if isinstance(v, list):
@@ -75,15 +85,18 @@ def _pyarg(v):
     needs real ints); everything else passes through. Exact-type checks
     so subclass instances (e.g. a Counter fetched back by __ref) are not
     flattened into plain containers."""
-    v = decode(v)
+    return _pyarg_decoded(decode(v))
+
+
+def _pyarg_decoded(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, float) and v.is_integer() and abs(v) < 1e18:
         return int(v)
     if type(v) is list or type(v) is tuple:
-        return [_pyarg(x) for x in v]
+        return [_pyarg_decoded(x) for x in v]
     if type(v) is dict:
-        return {k: _pyarg(x) for k, x in v.items()}
+        return {k: _pyarg_decoded(x) for k, x in v.items()}
     return v
 
 

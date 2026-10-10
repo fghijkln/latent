@@ -173,7 +173,26 @@ public class LtJavaDaemon {
     static Object decode(Object v) {
         if (v instanceof Map) {
             Map<?, ?> m = (Map<?, ?>) v;
-            if (m.containsKey("__jref")) {
+            if (m.size() == 1 && m.containsKey("__num")) {
+                String number = String.valueOf(m.get("__num"));
+                if (number.equals("nan")) return Double.NaN;
+                if (number.equals("inf")) return Double.POSITIVE_INFINITY;
+                if (number.equals("-inf")) return Double.NEGATIVE_INFINITY;
+            }
+            if (m.size() == 1 && m.containsKey("__map")) {
+                Object rawEntries = m.get("__map");
+                if (!(rawEntries instanceof List))
+                    throw new RuntimeException("invalid Java map envelope");
+                Map<String, Object> result = new LinkedHashMap<>();
+                for (Object rawPair : (List<?>) rawEntries) {
+                    if (!(rawPair instanceof List) || ((List<?>) rawPair).size() != 2)
+                        throw new RuntimeException("invalid Java map entry");
+                    List<?> pair = (List<?>) rawPair;
+                    result.put(String.valueOf(pair.get(0)), decode(pair.get(1)));
+                }
+                return result;
+            }
+            if (m.size() == 1 && m.containsKey("__jref")) {
                 // handle arriving as an argument (request envelopes use
                 // the "id" spelling via decodeTarget instead)
                 Number id = (Number) m.get("__jref");
@@ -182,7 +201,7 @@ public class LtJavaDaemon {
                     throw new RuntimeException("stale java ref: " + id);
                 return o;
             }
-            if (m.containsKey("__jclass"))
+            if (m.size() == 1 && m.containsKey("__jclass"))
                 return new JReflect.JClass((String) m.get("__jclass"));
             Map<String, Object> r = new LinkedHashMap<>();
             for (Map.Entry<?, ?> e : m.entrySet())
@@ -213,10 +232,14 @@ public class LtJavaDaemon {
             return r;
         }
         if (v instanceof Map) {
-            Map<String, Object> r = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet())
-                r.put(String.valueOf(e.getKey()), encode(e.getValue()));
-            return r;
+            List<Object> entries = new ArrayList<>();
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                List<Object> pair = new ArrayList<>(2);
+                pair.add(String.valueOf(e.getKey()));
+                pair.add(encode(e.getValue()));
+                entries.add(pair);
+            }
+            return Collections.singletonMap("__map", entries);
         }
         return v; // Double / String / Boolean / null
     }

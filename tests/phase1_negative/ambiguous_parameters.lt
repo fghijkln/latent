@@ -1,0 +1,2 @@
+O = java "Stage1Overloads"
+O.cross(1, 2)

@@ -42,11 +42,17 @@ public class JReflect {
     // ---------------- entry points ----------------
     public static Object construct(JClass jc, Object[] args) {
         Class<?> c = jc.resolve();
+        List<Candidate> candidates = new ArrayList<>();
         for (Constructor<?> k : c.getConstructors()) {
-            Object[] conv = coerce(args, k.getParameterTypes(), k.isVarArgs());
-            if (conv == null) continue;
+            Candidate candidate = candidate(k, args);
+            if (candidate != null) candidates.add(candidate);
+        }
+        if (!candidates.isEmpty()) {
+            Candidate selected = select(candidates, c.getName(), "<init>",
+                true, args.length);
             try {
-                return wrap(k.newInstance(conv));
+                return wrap(((Constructor<?>) selected.member).newInstance(
+                    selected.converted));
             } catch (Exception e) {
                 throw new RuntimeException("java: new " + jc.name +
                     " failed: " + rootCause(e));
@@ -66,13 +72,28 @@ public class JReflect {
 
     static Object callOn(Class<?> c, Object target, String method,
                          Object[] args, boolean wantStatic) {
+        Map<String, Method> unique = new LinkedHashMap<>();
         for (Method m : c.getMethods()) {
             if (!m.getName().equals(method)) continue;
-            if (wantStatic && !Modifier.isStatic(m.getModifiers())) continue;
-            Object[] conv = coerce(args, m.getParameterTypes(), m.isVarArgs());
-            if (conv == null) continue;
+            if (Modifier.isStatic(m.getModifiers()) != wantStatic || m.isBridge())
+                continue;
+            String key = methodKey(m);
+            Method previous = unique.get(key);
+            if (previous == null || moreSpecificDeclaration(
+                    c, m.getDeclaringClass(), previous.getDeclaringClass()))
+                unique.put(key, m);
+        }
+        List<Candidate> candidates = new ArrayList<>();
+        for (Method m : unique.values()) {
+            Candidate candidate = candidate(m, args);
+            if (candidate != null) candidates.add(candidate);
+        }
+        if (!candidates.isEmpty()) {
+            Candidate selected = select(candidates, c.getName(), method,
+                false, args.length);
             try {
-                return wrap(m.invoke(target, conv));
+                return wrap(((Method) selected.member).invoke(
+                    target, selected.converted));
             } catch (Exception e) {
                 throw new RuntimeException("java: " + c.getName() + "." +
                     method + " failed: " + rootCause(e));
@@ -103,7 +124,10 @@ public class JReflect {
     public static Object setField(JClass jc, String field, Object v) {
         try {
             Field f = jc.resolve().getField(field);
-            f.set(null, coerceOne(v, f.getType()));
+            Object converted = coerceOne(v, f.getType());
+            if (converted == CONV_FAIL)
+                throw new RuntimeException("bad type for field " + field);
+            f.set(null, converted);
             return null;
         } catch (RuntimeException e) {
             throw e;
@@ -129,75 +153,299 @@ public class JReflect {
         }
     }
 
-    // ---------------- overload coercion ----------------
+    // ---------------- overload selection and conversion ----------------
     static final Object CONV_FAIL = new Object();
 
-    static Object[] coerce(Object[] args, Class<?>[] params, boolean varArgs) {
-        int fixed = varArgs ? params.length - 1 : params.length;
-        if (!varArgs && args.length != params.length) return null;
-        if (varArgs && args.length < fixed) return null;
-        Object[] out = new Object[params.length];
-        for (int i = 0; i < fixed; i++) {
-            Object cv = coerceOne(args[i], params[i]);
-            if (cv == CONV_FAIL) return null;
-            out[i] = cv;
+    static final class Conversion {
+        final Object value;
+        final int level;
+        Conversion(Object value, int level) {
+            this.value = value;
+            this.level = level;
         }
-        if (varArgs) {
-            Class<?> comp = params[params.length - 1].getComponentType();
-            Object arr = Array.newInstance(comp, args.length - fixed);
-            for (int i = fixed; i < args.length; i++) {
-                Object cv = coerceOne(args[i], comp);
-                if (cv == CONV_FAIL) return null;
-                Array.set(arr, i - fixed, cv);
-            }
-            out[params.length - 1] = arr;
-        }
-        return out;
     }
 
-    static Object coerceOne(Object v, Class<?> t) {
-        // Unwrap java handles first: a bridge method like compareTo(Object)
-        // must receive the raw object, never the JObj wrapper.
-        if (v instanceof JObj) v = ((JObj) v).o;
-        if (v == null) return t.isPrimitive() ? CONV_FAIL : null;
-        if (t == Object.class) return v;
-        if (v instanceof JClass) return CONV_FAIL;
-        // already the right reference type (covers unwrapped java handles)
-        if (!t.isPrimitive() && t.isInstance(v)) return v;
-        if (t == String.class) return (v instanceof String) ? v : CONV_FAIL;
-        if (t.isAssignableFrom(String.class) && v instanceof String) return v;
-        if (t == boolean.class || t == Boolean.class)
-            return (v instanceof Boolean) ? v : CONV_FAIL;
-        if (t == char.class || t == Character.class) {
-            if (v instanceof String && ((String) v).length() == 1)
-                return ((String) v).charAt(0);
-            return CONV_FAIL;
+    static final class Candidate {
+        final Executable member;
+        final Object[] converted;
+        final int[] levels;
+        final Class<?>[] argumentTypes;
+        final boolean expanded;
+        Candidate(Executable member, Object[] converted, int[] levels,
+                  Class<?>[] argumentTypes, boolean expanded) {
+            this.member = member;
+            this.converted = converted;
+            this.levels = levels;
+            this.argumentTypes = argumentTypes;
+            this.expanded = expanded;
         }
-        if (t.isPrimitive() || Number.class.isAssignableFrom(t)) {
-            if (!(v instanceof Double)) return CONV_FAIL;
-            double d = (Double) v;
-            if (t == double.class || t == Double.class) return d;
-            if (t == float.class || t == Float.class) return (float) d;
-            long l = (long) d; // truncate, same as int()
-            if (t == long.class || t == Long.class) return l;
-            if (t == int.class || t == Integer.class) return (int) l;
-            if (t == short.class || t == Short.class) return (short) l;
-            if (t == byte.class || t == Byte.class) return (byte) l;
-            return CONV_FAIL;
+    }
+
+    static Candidate candidate(Executable member, Object[] args) {
+        Class<?>[] params = member.getParameterTypes();
+        boolean expanded = member.isVarArgs();
+        int fixed = expanded ? params.length - 1 : params.length;
+        if ((!expanded && args.length != params.length) ||
+                (expanded && args.length < fixed)) return null;
+        Object[] out = new Object[params.length];
+        int[] levels = new int[args.length];
+        Class<?>[] argTypes = new Class<?>[args.length];
+        for (int i = 0; i < fixed; i++) {
+            Conversion cv = convert(args[i], params[i]);
+            if (cv == null) return null;
+            out[i] = cv.value;
+            levels[i] = cv.level;
+            argTypes[i] = params[i];
         }
-        if (v instanceof List && t.isAssignableFrom(List.class)) return v;
-        if (v instanceof Map && t.isAssignableFrom(Map.class)) return v;
-        if (t.isArray() && v instanceof List) {
-            List<?> l = (List<?>) v;
-            Object arr = Array.newInstance(t.getComponentType(), l.size());
-            for (int i = 0; i < l.size(); i++) {
-                Object cv = coerceOne(l.get(i), t.getComponentType());
-                if (cv == CONV_FAIL) return CONV_FAIL;
-                Array.set(arr, i, cv);
+        if (expanded) {
+            Class<?> component = params[params.length - 1].getComponentType();
+            Object array = Array.newInstance(component, args.length - fixed);
+            for (int i = fixed; i < args.length; i++) {
+                Conversion cv = convert(args[i], component);
+                if (cv == null) return null;
+                Array.set(array, i - fixed, cv.value);
+                levels[i] = cv.level;
+                argTypes[i] = component;
             }
-            return arr;
+            out[params.length - 1] = array;
         }
-        return CONV_FAIL;
+        return new Candidate(member, out, levels, argTypes, expanded);
+    }
+
+    static Candidate select(List<Candidate> candidates, String targetClass,
+                            String method, boolean constructor, int argCount) {
+        List<Candidate> undominated = new ArrayList<>();
+        for (Candidate candidate : candidates) {
+            boolean dominated = false;
+            for (Candidate other : candidates) {
+                if (other != candidate && better(other, candidate)) {
+                    dominated = true;
+                    break;
+                }
+            }
+            if (!dominated) undominated.add(candidate);
+        }
+        if (undominated.size() == 1) return undominated.get(0);
+        throw new RuntimeException(ambiguityMessage(undominated, targetClass,
+            method, constructor, argCount));
+    }
+
+    /** True when a is strictly preferred to b under the SPEC partial order. */
+    static boolean better(Candidate a, Candidate b) {
+        boolean strict = false;
+        boolean identical = true;
+        for (int i = 0; i < a.levels.length; i++) {
+            if (a.levels[i] < b.levels[i]) {
+                strict = true;
+                identical = false;
+                continue;
+            }
+            if (a.levels[i] > b.levels[i]) return false;
+            Class<?> at = a.argumentTypes[i], bt = b.argumentTypes[i];
+            if (at == bt) continue;
+            identical = false;
+            if (at.isPrimitive() || bt.isPrimitive()) return false;
+            if (bt.isAssignableFrom(at)) {
+                strict = true;
+            } else {
+                // Equal-rank unrelated references are incomparable.
+                return false;
+            }
+        }
+        if (strict) return true;
+        return identical && !a.expanded && b.expanded;
+    }
+
+    static String ambiguityMessage(List<Candidate> candidates, String targetClass,
+                                   String method, boolean constructor,
+                                   int argCount) {
+        List<String> signatures = new ArrayList<>();
+        for (Candidate candidate : candidates)
+            signatures.add(signature(candidate.member));
+        signatures.sort(JReflect::compareCodePoints);
+        if (constructor) {
+            return "java: ambiguous constructor " + targetClass + "(" +
+                argCount + " args): [" +
+                String.join(", ", signatures) + "]";
+        }
+        return "java: ambiguous method " + targetClass + "." + method + "(" +
+            argCount + " args): [" + String.join(", ", signatures) + "]";
+    }
+
+    static String signature(Executable member) {
+        String owner = member.getDeclaringClass().getName();
+        String name = member instanceof Constructor<?> ? "<init>" :
+            ((Method) member).getName();
+        Class<?>[] params = member.getParameterTypes();
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < params.length; i++) {
+            Class<?> type = params[i];
+            if (member.isVarArgs() && i == params.length - 1)
+                names.add(typeName(type.getComponentType()) + "...");
+            else
+                names.add(typeName(type));
+        }
+        return owner + "#" + name + "(" + String.join(",", names) + ")";
+    }
+
+    static String typeName(Class<?> type) {
+        return type.isArray() ? typeName(type.getComponentType()) + "[]" :
+            type.getName();
+    }
+
+    static int compareCodePoints(String a, String b) {
+        int ai = 0, bi = 0;
+        while (ai < a.length() && bi < b.length()) {
+            int ac = a.codePointAt(ai), bc = b.codePointAt(bi);
+            if (ac != bc) return Integer.compare(ac, bc);
+            ai += Character.charCount(ac);
+            bi += Character.charCount(bc);
+        }
+        return Integer.compare(a.length() - ai, b.length() - bi);
+    }
+
+    static String methodKey(Method m) {
+        StringBuilder key = new StringBuilder(m.getName()).append('(');
+        for (Class<?> type : m.getParameterTypes())
+            key.append(type.getName()).append(';');
+        return key.append(')').toString();
+    }
+
+    static boolean moreSpecificDeclaration(Class<?> target, Class<?> a,
+                                           Class<?> b) {
+        if (b.isAssignableFrom(a) && a != b) return true;
+        if (a.isAssignableFrom(b) && a != b) return false;
+        int da = declarationDistance(target, a), db = declarationDistance(target, b);
+        if (da != db) return da < db;
+        return compareCodePoints(a.getName(), b.getName()) < 0;
+    }
+
+    static int declarationDistance(Class<?> target, Class<?> ancestor) {
+        if (target == ancestor) return 0;
+        Queue<Class<?>> queue = new ArrayDeque<>();
+        Map<Class<?>, Integer> distances = new HashMap<>();
+        queue.add(target);
+        distances.put(target, 0);
+        while (!queue.isEmpty()) {
+            Class<?> current = queue.remove();
+            int distance = distances.get(current);
+            Class<?> parent = current.getSuperclass();
+            if (parent != null && !distances.containsKey(parent)) {
+                if (parent == ancestor) return distance + 1;
+                distances.put(parent, distance + 1);
+                queue.add(parent);
+            }
+            for (Class<?> iface : current.getInterfaces()) {
+                if (distances.containsKey(iface)) continue;
+                if (iface == ancestor) return distance + 1;
+                distances.put(iface, distance + 1);
+                queue.add(iface);
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    static Object coerceOne(Object value, Class<?> target) {
+        Conversion cv = convert(value, target);
+        return cv == null ? CONV_FAIL : cv.value;
+    }
+
+    static Conversion convert(Object value, Class<?> target) {
+        if (value instanceof JClass) return null;
+        if (value instanceof JObj) value = ((JObj) value).o;
+        if (value == null)
+            return target.isPrimitive() ? null : new Conversion(null, 1);
+
+        if (value instanceof Double) {
+            double d = (Double) value;
+            if (target == double.class || target == Double.class)
+                return new Conversion(d, 0);
+            if (target == float.class || target == Float.class) {
+                float f = (float) d;
+                boolean same = Double.isNaN(d) ? Float.isNaN(f) :
+                    Double.doubleToRawLongBits((double) f) ==
+                    Double.doubleToRawLongBits(d);
+                return new Conversion(f, same ? 1 : 2);
+            }
+            if (target == long.class || target == Long.class) {
+                long n = (long) d;
+                return new Conversion(n, integralExact(d, -0x1.0p63,
+                    Math.nextDown(0x1.0p63), (double) n) ? 1 : 2);
+            }
+            if (target == int.class || target == Integer.class) {
+                int n = (int) d;
+                return new Conversion(n, integralExact(d, Integer.MIN_VALUE,
+                    Integer.MAX_VALUE, (double) n) ? 1 : 2);
+            }
+            if (target == short.class || target == Short.class) {
+                short n = (short) d;
+                return new Conversion(n, integralExact(d, Short.MIN_VALUE,
+                    Short.MAX_VALUE, (double) n) ? 1 : 2);
+            }
+            if (target == byte.class || target == Byte.class) {
+                byte n = (byte) d;
+                return new Conversion(n, integralExact(d, Byte.MIN_VALUE,
+                    Byte.MAX_VALUE, (double) n) ? 1 : 2);
+            }
+            if (!target.isPrimitive() && target.isInstance(value))
+                return new Conversion(value, target == Double.class ? 0 : 1);
+            return null;
+        }
+        if (value instanceof String) {
+            if (target == String.class) return new Conversion(value, 0);
+            if ((target == char.class || target == Character.class) &&
+                    ((String) value).length() == 1)
+                return new Conversion(((String) value).charAt(0), 1);
+            if (!target.isPrimitive() && target.isInstance(value))
+                return new Conversion(value, target == value.getClass() ? 0 : 1);
+            return null;
+        }
+        if (value instanceof Boolean) {
+            if (target == boolean.class || target == Boolean.class)
+                return new Conversion(value, 0);
+            if (!target.isPrimitive() && target.isInstance(value))
+                return new Conversion(value, target == Boolean.class ? 0 : 1);
+            return null;
+        }
+        if (value instanceof List) {
+            if (!target.isPrimitive() && target.isInstance(value)) {
+                int level = (target == List.class || target == value.getClass())
+                    ? 0 : 1;
+                return new Conversion(value, level);
+            }
+            if (target.isArray()) {
+                List<?> list = (List<?>) value;
+                Class<?> component = target.getComponentType();
+                Object array = Array.newInstance(component, list.size());
+                for (int i = 0; i < list.size(); i++) {
+                    Conversion cv = convert(list.get(i), component);
+                    if (cv == null) return null;
+                    Array.set(array, i, cv.value);
+                }
+                return new Conversion(array, 2);
+            }
+            return null;
+        }
+        if (value instanceof Map) {
+            if (!target.isPrimitive() && target.isInstance(value)) {
+                int level = (target == Map.class || target == value.getClass())
+                    ? 0 : 1;
+                return new Conversion(value, level);
+            }
+            return null;
+        }
+        if (!target.isPrimitive() && target.isInstance(value))
+            return new Conversion(value, target == value.getClass() ? 0 : 1);
+        return null;
+    }
+
+    static boolean integralExact(double original, double min, double max,
+                                 double converted) {
+        return Double.isFinite(original) && original == Math.rint(original) &&
+            original >= min && original <= max &&
+            !(original == 0.0 &&
+              Double.doubleToRawLongBits(original) < 0) &&
+            converted == original;
     }
 
     // ---------------- Java -> Latent ----------------

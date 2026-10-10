@@ -150,6 +150,8 @@ def _wv_mod(a, b):
 
 def _wv_pow(a, b):
     if isinstance(a, float) and isinstance(b, float):
+        if a < 0 and _math.isfinite(b) and not b.is_integer():
+            return _math.nan
         return a ** b
     try:
         return a ** b
@@ -177,11 +179,20 @@ def _wv_eq(a, b):
         return a is b
     if type(a) is not type(b):
         return False
+    if isinstance(a, list):
+        return len(a) == len(b) and all(
+            _wv_eq(a[i], b[i]) for i in range(len(a)))
+    if isinstance(a, dict):
+        if len(a) != len(b) or any(k not in b for k in a):
+            return False
+        return all(_wv_eq(a[k], b[k]) for k in a)
     return a == b
 
 
 def _wv_cmp(a, b):
     if isinstance(a, float) and isinstance(b, float):
+        if _math.isnan(a) or _math.isnan(b):
+            return _math.nan
         return (a > b) - (a < b)
     if isinstance(a, str) and isinstance(b, str):
         return (a > b) - (a < b)
@@ -350,6 +361,10 @@ class _LtClass:
 
 
 class _LtArgumentError(RuntimeError):
+    pass
+
+
+class _LtJavaInteropError(RuntimeError):
     pass
 
 
@@ -547,6 +562,10 @@ def _jvm_encode(v):
     if isinstance(v, bool):
         return v
     if isinstance(v, float):
+        if _math.isnan(v):
+            return {"__num": "nan"}
+        if _math.isinf(v):
+            return {"__num": "inf" if v > 0 else "-inf"}
         return v
     if isinstance(v, str):
         return v
@@ -555,16 +574,29 @@ def _jvm_encode(v):
     if isinstance(v, list):
         return [_jvm_encode(x) for x in v]
     if isinstance(v, dict):
-        return {k: _jvm_encode(x) for k, x in v.items()}
+        return {"__map": [[str(k), _jvm_encode(x)] for k, x in v.items()]}
     raise TypeError("cannot send to JVM: " + _wv_repr(v))
 
 
 def _jvm_decode(v):
     if isinstance(v, dict):
-        if "__jref" in v:
+        if len(v) == 1 and "__map" in v:
+            entries = v["__map"]
+            if not isinstance(entries, list):
+                raise ValueError("invalid JVM map envelope")
+            result = {}
+            for pair in entries:
+                if not isinstance(pair, list) or len(pair) != 2:
+                    raise ValueError("invalid JVM map entry")
+                result[str(pair[0])] = _jvm_decode(pair[1])
+            return result
+        if len(v) == 1 and "__jref" in v:
             return _JHandle(int(v["__jref"]))
-        if "__jclass" in v:
+        if len(v) == 1 and "__jclass" in v:
             return _JClass(v["__jclass"])
+        if len(v) == 1 and "__num" in v:
+            return {"nan": _math.nan, "inf": _math.inf,
+                    "-inf": -_math.inf}[v["__num"]]
         return {k: _jvm_decode(x) for k, x in v.items()}
     if isinstance(v, list):
         return [_jvm_decode(x) for x in v]
@@ -633,6 +665,12 @@ class _JVM:
             raise RuntimeError("JVM daemon died")
         resp = _json.loads(line)
         if "error" in resp:
+            error = resp["error"]
+            first_line = error.splitlines()[0]
+            if first_line.startswith(
+                    "java.lang.RuntimeException: java: ambiguous "):
+                message = first_line.partition(": ")[2]
+                raise _LtJavaInteropError(message)
             raise RuntimeError("java error: " + resp["error"])
         return _jvm_decode(resp["value"])
 
@@ -815,8 +853,12 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
             return
 
         message = str(exc)
-        error_type = ("ArgumentError" if isinstance(exc, _LtArgumentError)
-                      else type(exc).__name__)
+        if isinstance(exc, _LtArgumentError):
+            error_type = "ArgumentError"
+        elif isinstance(exc, _LtJavaInteropError):
+            error_type = "RuntimeException"
+        else:
+            error_type = type(exc).__name__
         detail = error_type + (": " + message if message else "")
         print("Latent runtime error: " + detail, file=_sys.stderr)
         print("Latent traceback (most recent call last):", file=_sys.stderr)

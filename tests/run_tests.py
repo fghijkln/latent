@@ -24,6 +24,7 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
 POSITIVE.append("p8_named_arguments")
 POSITIVE.append("p9_default_parameters")
 POSITIVE.append("p10_variadic_arguments")
+POSITIVE.append("phase1_semantics")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
                    "modules/function_values/main", "modules/nonlocal/main",
@@ -187,7 +188,11 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "p10_negative/python_interop_star",
                "p10_negative/python_interop_starstar",
                "p10_negative/java_interop_star",
-               "p10_negative/java_interop_starstar"]
+               "p10_negative/java_interop_starstar",
+               "phase1_negative/ambiguous_method",
+               "phase1_negative/ambiguous_constructor",
+               "phase1_negative/ambiguous_parameters",
+               "phase1_negative/ambiguous_numeric_types"]
 RUNTIME_SOURCE_LINES = {
     "py_lazy_use": [2], "java_lazy_use": [2],
     "err_index_range": [2], "err_index_key": [2],
@@ -223,6 +228,10 @@ RUNTIME_SOURCE_LINES = {
     "p10_negative/python_interop_starstar": [2],
     "p10_negative/java_interop_star": [3],
     "p10_negative/java_interop_starstar": [3],
+    "phase1_negative/ambiguous_method": [2],
+    "phase1_negative/ambiguous_constructor": [2],
+    "phase1_negative/ambiguous_parameters": [2],
+    "phase1_negative/ambiguous_numeric_types": [2],
 }
 RUNTIME_SOURCE_MARKERS = {
     "modules/runtime/main": ["main.lt:2", "lib.lt:3"],
@@ -261,6 +270,26 @@ P10_RUNTIME_ERROR_MARKERS = {
     "p10_negative/python_interop_starstar": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
     "p10_negative/java_interop_star": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
     "p10_negative/java_interop_starstar": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
+}
+PHASE1_RUNTIME_ERROR_MARKERS = {
+    "phase1_negative/ambiguous_method": (
+        "Latent runtime error: RuntimeException: java: ambiguous method "
+        "java.nio.file.Paths.get(1 args): [java.nio.file.Paths#get("
+        "java.lang.String,java.lang.String...), "
+        "java.nio.file.Paths#get(java.net.URI)]"),
+    "phase1_negative/ambiguous_constructor": (
+        "Latent runtime error: RuntimeException: java: ambiguous constructor "
+        "java.io.File(1 args): [java.io.File#<init>(java.lang.String), "
+        "java.io.File#<init>(java.net.URI)]"),
+    "phase1_negative/ambiguous_parameters": (
+        "Latent runtime error: RuntimeException: java: ambiguous method "
+        "Stage1Overloads.cross(2 args): [Stage1Overloads#cross("
+        "java.lang.Number,java.lang.Object), Stage1Overloads#cross("
+        "java.lang.Object,java.lang.Number)]"),
+    "phase1_negative/ambiguous_numeric_types": (
+        "Latent runtime error: RuntimeException: java: ambiguous method "
+        "Stage1Overloads.sameGrade(1 args): [Stage1Overloads#sameGrade(int), "
+        "Stage1Overloads#sameGrade(long)]"),
 }
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
@@ -347,6 +376,23 @@ P10_EXPECTED_STDOUT = {
         '["expanded", 3, [4], {"mode": "module"}]\n'
         '["value", 5, [], {"extra": "function-value"}]\n'),
 }
+PHASE1_EXPECTED_STDOUT = (
+    "true\nnan\nnan is truthy\n"
+    "false\ntrue\nfalse\ntrue\nfalse\ntrue\n"
+    "false\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse\nfalse\n"
+    "false\nfalse\ntrue\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\n"
+    "nan\ntrue\nfalse\ntrue\nfalse\ntrue\n"
+    "3\n😀\n😀\nA\n😀\nB\n1.9\n1.9\n"
+    "Number\nNumber\nList\nObject\nfixed\nvarargs\nString\n"
+    "1.5\n1.1\n1\n"
+    "{__num=nan}\n{__num=nan, keep=1.0}\n"
+    "{__map=[[__num, nan]]}\n{nested={__num=nan}}\n"
+    '{"__num": "nan"}\n{"__num": "nan", "keep": 1}\n'
+    '{"__map": [["__num", "nan"]]}\n'
+    '{"nested": {"__num": "nan"}}\n'
+    '{"__num": "nan"}\n{"__num": "nan", "keep": 1}\n'
+    '{"__map": [["__num", "nan"]]}\n'
+    '{"nested": {"__num": "nan"}}\n')
 COOKBOOK_VARIADIC_STDOUT = (
     '["default", 2, [], {}]\n'
     '["card", 3, ["extra"], {"color": "blue"}]\n'
@@ -381,6 +427,11 @@ def compile_and_run(name, target, srcdir=TESTS):
     rc, so, se = run([sys.executable, LATENTC, src, "-t", target, "-o", outdir])
     if rc != 0:
         return ("compile-fail", so, se)
+    if name == "phase1_semantics" or name.startswith("phase1_negative/"):
+        fixture = os.path.join(TESTS, "java", "Stage1Overloads.java")
+        rc, so, se = run(["javac", "-cp", outdir, "-d", outdir, fixture])
+        if rc != 0:
+            return ("compile-fail", so, se)
     if target == "py":
         cwd = tempfile.gettempdir() if is_module_case(name, srcdir) else None
         rc, so, se = run([sys.executable, os.path.join(outdir, os.path.basename(src)[:-3] + ".py")],
@@ -436,6 +487,8 @@ def main():
             ok = ok and py[1] == P9_EXPECTED_STDOUT[name]
         if name in P10_EXPECTED_STDOUT:
             ok = ok and py[1] == P10_EXPECTED_STDOUT[name]
+        if name == "phase1_semantics":
+            ok = ok and py[1] == PHASE1_EXPECTED_STDOUT
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -562,10 +615,12 @@ def main():
               has_source_locations(name, py) and has_source_locations(name, jv))
         if (name in P8_RUNTIME_ERROR_MARKERS or
                 name in P9_RUNTIME_ERROR_MARKERS or
-                name in P10_RUNTIME_ERROR_MARKERS):
+                name in P10_RUNTIME_ERROR_MARKERS or
+                name in PHASE1_RUNTIME_ERROR_MARKERS):
             expected = (P8_RUNTIME_ERROR_MARKERS.get(name) or
                         P9_RUNTIME_ERROR_MARKERS.get(name) or
-                        P10_RUNTIME_ERROR_MARKERS[name])
+                        P10_RUNTIME_ERROR_MARKERS.get(name) or
+                        PHASE1_RUNTIME_ERROR_MARKERS[name])
             py_error = next((line for line in py[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
             jv_error = next((line for line in jv[2].splitlines()

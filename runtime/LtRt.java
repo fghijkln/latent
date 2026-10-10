@@ -22,7 +22,7 @@ public class LtRt {
         if (v instanceof Boolean) return (Boolean) v;
         if (v instanceof Double) {
             double d = (Double) v;
-            return d != 0.0 && !Double.isNaN(d);
+            return d != 0.0;
         }
         if (v instanceof String) return !((String) v).isEmpty();
         if (v instanceof List) return !((List<?>) v).isEmpty();
@@ -95,7 +95,10 @@ public class LtRt {
     public static Object pow(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__pow__", a, b);
-        return Math.pow(num(a, "**"), num(b, "**"));
+        double x = num(a, "**"), y = num(b, "**");
+        if (x < 0 && Double.isFinite(y) && y != Math.rint(y))
+            return Double.NaN;
+        return Math.pow(x, y);
     }
 
     public static Object neg(Object a) {
@@ -129,7 +132,9 @@ public class LtRt {
         }
         if (a instanceof Map && b instanceof Map) {
             Map<?, ?> ma = (Map<?, ?>) a, mb = (Map<?, ?>) b;
-            if (!ma.keySet().equals(mb.keySet())) return false;
+            if (ma.size() != mb.size()) return false;
+            for (Object k : ma.keySet())
+                if (!mb.containsKey(k)) return false;
             for (Object k : ma.keySet())
                 if (!eq(ma.get(k), mb.get(k))) return false;
             return true;
@@ -138,17 +143,33 @@ public class LtRt {
     }
 
     static int cmp(Object a, Object b, String op) {
-        if (a instanceof Double && b instanceof Double)
-            return Double.compare((Double) a, (Double) b);
+        if (a instanceof Double && b instanceof Double) {
+            double x = (Double) a, y = (Double) b;
+            if (Double.isNaN(x) || Double.isNaN(y))
+                return 0;
+            return x > y ? 1 : (x < y ? -1 : 0);
+        }
         if (a instanceof String && b instanceof String)
             return ((String) a).compareTo((String) b);
         throw new RuntimeException("bad " + op + " operands: " + typeName(a) + ", " + typeName(b));
     }
 
-    public static boolean lt(Object a, Object b) { return cmp(a, b, "<") < 0; }
-    public static boolean lte(Object a, Object b) { return cmp(a, b, "<=") <= 0; }
-    public static boolean gt(Object a, Object b) { return cmp(a, b, ">") > 0; }
-    public static boolean gte(Object a, Object b) { return cmp(a, b, ">=") >= 0; }
+    static boolean unordered(Object a, Object b) {
+        return a instanceof Double && b instanceof Double &&
+            (Double.isNaN((Double) a) || Double.isNaN((Double) b));
+    }
+    public static boolean lt(Object a, Object b) {
+        return !unordered(a, b) && cmp(a, b, "<") < 0;
+    }
+    public static boolean lte(Object a, Object b) {
+        return !unordered(a, b) && cmp(a, b, "<=") <= 0;
+    }
+    public static boolean gt(Object a, Object b) {
+        return !unordered(a, b) && cmp(a, b, ">") > 0;
+    }
+    public static boolean gte(Object a, Object b) {
+        return !unordered(a, b) && cmp(a, b, ">=") >= 0;
+    }
 
     // ---------------- repr / say ----------------
     /** Shortest-roundtrip float formatting, Python-repr style. */
@@ -235,7 +256,10 @@ public class LtRt {
     public static Object len(Object x) {
         if (x instanceof List) return (double) ((List<?>) x).size();
         if (x instanceof Map) return (double) ((Map<?, ?>) x).size();
-        if (x instanceof String) return (double) ((String) x).length();
+        if (x instanceof String) {
+            String s = (String) x;
+            return (double) s.codePointCount(0, s.length());
+        }
         throw new RuntimeException("len() of " + typeName(x));
     }
 
@@ -293,7 +317,11 @@ public class LtRt {
         if (x instanceof String) {
             String s = (String) x;
             List<Object> r = new ArrayList<>();
-            for (int i = 0; i < s.length(); i++) r.add(String.valueOf(s.charAt(i)));
+            for (int i = 0; i < s.length();) {
+                int cp = s.codePointAt(i);
+                r.add(new String(Character.toChars(cp)));
+                i += Character.charCount(cp);
+            }
             return r;
         }
         if (x instanceof Map) return new ArrayList<>(((Map<?, ?>) x).keySet());
@@ -861,8 +889,11 @@ public class LtRt {
         }
         if (o instanceof String) {
             String s = (String) o;
-            int i = toIndex(k, s.length());
-            return s.substring(i, i + 1);
+            int count = s.codePointCount(0, s.length());
+            int index = toIndex(k, count);
+            int start = s.offsetByCodePoints(0, index);
+            int end = s.offsetByCodePoints(start, 1);
+            return s.substring(start, end);
         }
         throw new RuntimeException("cannot index " + typeName(o));
     }
@@ -1035,6 +1066,28 @@ public class LtRt {
                 return h.isModule() ? "{\"__mod\":" + Json.str(h.module) + "}"
                                     : "{\"__ref\":" + h.id + "}";
             }
+            if (v instanceof List) {
+                StringBuilder sb = new StringBuilder("[");
+                boolean first = true;
+                for (Object x : (List<?>) v) {
+                    if (!first) sb.append(",");
+                    sb.append(encodeArg(x));
+                    first = false;
+                }
+                return sb.append("]").toString();
+            }
+            if (v instanceof Map) {
+                StringBuilder sb = new StringBuilder("{\"__map\":[");
+                boolean first = true;
+                for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                    if (!first) sb.append(",");
+                    sb.append("[").append(Json.str(String.valueOf(e.getKey())))
+                      .append(",").append(encodeArg(e.getValue()))
+                      .append("]");
+                    first = false;
+                }
+                return sb.append("]}").toString();
+            }
             return Json.encode(v);
         }
 
@@ -1042,9 +1095,24 @@ public class LtRt {
         private static Object decodeValue(Object v) {
             if (v instanceof Map) {
                 Map<String, Object> m = (Map<String, Object>) v;
-                if (m.containsKey("__ref"))
+                if (m.size() == 1 && m.containsKey("__map")) {
+                    Object rawEntries = m.get("__map");
+                    if (!(rawEntries instanceof List))
+                        throw new RuntimeException("invalid Python map envelope");
+                    LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+                    for (Object rawPair : (List<?>) rawEntries) {
+                        if (!(rawPair instanceof List) ||
+                                ((List<?>) rawPair).size() != 2)
+                            throw new RuntimeException("invalid Python map entry");
+                        List<?> pair = (List<?>) rawPair;
+                        result.put(String.valueOf(pair.get(0)),
+                                   decodeValue(pair.get(1)));
+                    }
+                    return result;
+                }
+                if (m.size() == 1 && m.containsKey("__ref"))
                     return new PyHandle(((Double) m.get("__ref")).longValue());
-                if (m.containsKey("__num")) {
+                if (m.size() == 1 && m.containsKey("__num")) {
                     String k = (String) m.get("__num");
                     if (k.equals("nan")) return Double.NaN;
                     if (k.equals("inf")) return Double.POSITIVE_INFINITY;

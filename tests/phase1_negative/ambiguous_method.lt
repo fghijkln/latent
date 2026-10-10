@@ -1,0 +1,2 @@
+Paths = java "java.nio.file.Paths"
+Paths.get(nil)
