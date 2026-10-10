@@ -671,13 +671,26 @@ def main():
         fails += diagnostic_failures
         print(f"  {diagnostic_output[-1500:]}")
 
+    print("== seeded bounded cross-backend property tests ==")
+    rc, so, se = run([sys.executable, os.path.join(
+        TESTS, "test_differential_properties.py")], timeout=180)
+    property_output = so + se
+    if rc == 0 and property_output.strip():
+        print(property_output.strip())
+    else:
+        print(("PASS " if rc == 0 else "FAIL ") +
+              "seeded differential/property tests")
+    if rc != 0:
+        fails += 1
+        print(f"  {property_output[-3000:]}")
+
     total = (diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
              len(P8_NEG_COMPILE) +
              len(P9_NEG_COMPILE) +
              len(P10_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
-             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK))
+             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 1)
     print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 
