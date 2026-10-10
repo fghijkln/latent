@@ -32,6 +32,7 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 - P10 变参与调用展开：[P10_VARIADIC_ARGUMENTS_DESIGN.md](P10_VARIADIC_ARGUMENTS_DESIGN.md)
 - VS Code 插件使用指南：[VSCODE_EXTENSION_GUIDE.md](VSCODE_EXTENSION_GUIDE.md)
 - 发布记录：[CHANGELOG.md](CHANGELOG.md)
+- 贡献与测试指南：[CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 用法
 

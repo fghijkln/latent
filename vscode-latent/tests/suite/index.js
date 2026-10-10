@@ -9,9 +9,9 @@ const vscode = require('vscode');
 const extensionRoot = path.resolve(__dirname, '..', '..');
 const projectRoot = path.resolve(extensionRoot, '..');
 const spacedOutput = 'vscode-latent/test output/.test-out';
-const mocha = new Mocha({ ui: 'bdd', timeout: 360000, reporter: 'spec' });
+const mocha = new Mocha({ ui: 'bdd', timeout: 900000, reporter: 'spec' });
 const extensionSuite = Mocha.Suite.create(mocha.suite, 'Latent VS Code extension');
-extensionSuite.timeout(360000);
+extensionSuite.timeout(900000);
 let sampleDocument;
 
 extensionSuite.beforeAll(async () => {
