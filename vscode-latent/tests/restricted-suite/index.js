@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const Mocha = require('mocha');
 const vscode = require('vscode');
 
@@ -26,6 +28,38 @@ suite.addTest(new Mocha.Test('activates from a contributed command and refuses w
     assert.equal(extension.isActive, true, 'the contributed command should activate the extension');
     assert.equal(result?.code, null, `${id} must not start a process in Restricted Mode`);
     assert.equal(result?.reason, 'Workspace is not trusted');
+  }
+}));
+
+suite.addTest(new Mocha.Test('does not launch parser metadata in Restricted Mode', async () => {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  assert.ok(workspaceRoot, 'the Restricted Mode test must have an open workspace');
+  const compilerPath = path.join(workspaceRoot, 'latent.py');
+  const sourcePath = path.join(workspaceRoot, 'metadata-probe.lt');
+  const markerPath = path.join(workspaceRoot, 'metadata-process-started');
+  fs.writeFileSync(compilerPath,
+    `from pathlib import Path\nPath(${JSON.stringify(markerPath)}).write_text('started')\nprint('{}')\n`);
+  fs.writeFileSync(sourcePath, 'fn visible():\n    say 1\n');
+
+  try {
+    let document = await vscode.workspace.openTextDocument(vscode.Uri.file(sourcePath));
+    if (document.languageId !== 'latent') {
+      document = await vscode.languages.setTextDocumentLanguage(document, 'latent');
+    }
+    const symbols = await vscode.commands.executeCommand(
+      'vscode.executeDocumentSymbolProvider', document.uri
+    );
+    const folds = await vscode.commands.executeCommand(
+      'vscode.executeFoldingRangeProvider', document.uri
+    );
+    assert.deepEqual(symbols ?? [], []);
+    assert.deepEqual(folds ?? [], []);
+    assert.equal(fs.existsSync(markerPath), false,
+      'Restricted Mode must not start the workspace compiler for editor metadata');
+  } finally {
+    fs.rmSync(compilerPath, { force: true });
+    fs.rmSync(sourcePath, { force: true });
+    fs.rmSync(markerPath, { force: true });
   }
 }));
 

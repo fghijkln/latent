@@ -6,7 +6,7 @@
 
 万物皆潜在（latent），直到被触碰的那一刻。
 
-**当前发布：v0.13.0**（P10 变参形参与调用展开、`latent-ast` schema v5；并包含 P9 默认参数、P8 命名参数、v0.10.0 的 Latent 实例绑定方法值、v0.9.0 的 `nonlocal` 词法绑定与 v0.8.0 的函数值和闭包）。
+**当前发布：v0.13.2**（编辑器元数据 CLI 与 VS Code 0.6.3 大纲、折叠和关键字补全；并包含 P10 变参形参与调用展开、`latent-ast` schema v5，以及 P9 默认参数、P8 命名参数、v0.10.0 的 Latent 实例绑定方法值、v0.9.0 的 `nonlocal` 词法绑定与 v0.8.0 的函数值和闭包）。
 
 P8 设计与实现记录见 [P8 命名参数设计](P8_NAMED_ARGUMENTS_DESIGN.md)。
 P9 默认参数语义与 AST schema v4 见 [P9 默认参数设计](P9_DEFAULT_PARAMETERS_DESIGN.md)。

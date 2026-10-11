@@ -1,0 +1,13 @@
+# fn ignored():
+class Box:
+    # fn alsoIgnored():
+    fn init(self):
+        self.value = 1
+
+    fn add(self, amount=1):
+        return amount
+
+fn scale(value) => value * 2
+
+if true:
+    say "not a declaration: fn fake():"

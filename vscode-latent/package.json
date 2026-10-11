@@ -2,7 +2,7 @@
   "name": "latent-language-support",
   "displayName": "Latent Language Support",
   "description": "Latent language syntax, snippets, diagnostics, and compiler commands.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "publisher": "fghijkln",
   "license": "MIT",
   "repository": {
@@ -42,7 +42,8 @@
     "syntaxes/**",
     "snippets/**",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "keyword-completions.json"
   ],
   "contributes": {
     "languages": [
@@ -118,7 +119,7 @@
         "latent.outputDirectory": {
           "type": "string",
           "default": ".latent-vscode/out",
-          "description": "Compiler output directory relative to the Latent project root. Absolute paths and paths outside the workspace are rejected."
+          "description": "Compiler output directory relative to the Latent project root. Paths resolving outside the project, including through symlinks, are rejected."
         }
       }
     }

@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.13.2 — 2026-10-11
+
+### Added
+
+- `latent.py --editor-metadata` emits stable, versioned AST metadata from a file or stdin, enabling live-buffer symbols and folding in the VS Code extension.
+- VS Code extension 0.6.3 adds nested class/function outlines, code folding, and keyword completion generated from `lex.KEYWORDS`; CI checks generated keyword artifacts for drift.
+
+### Safety
+
+- Reject compiler output directories whose resolved paths, including symlink targets, escape the project.
+- Save every open dirty document in the project before running its test suite; cancel the test run if any save fails.
+- Restricted Mode never launches the workspace parser for editor metadata; outline and folding remain unavailable until the workspace is trusted.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 186 passed, 0 failed; editor metadata contract tests: 4 passed.
+- VS Code extension tests: 12 trusted-workspace and 2 Restricted Mode tests passed; keyword synchronization, syntax checks, Java compilation, VSIX packaging, and `git diff --check` passed.
+- VSIX asset: `latent-language-support-0.6.3.vsix` (SHA-256: `f8aa23e176f0be3682ce06d11a1911d104b311b26a3f9c293642c5be61efbbd2`).
+
+## v0.13.1 — 2026-10-11
+
+### Fixes
+
+- Preserve negative zero across the Python/Java interoperability boundary and prevent out-of-range Java sequence indexes from narrowing and producing diagnostics that differ from Python.
+
+### Verification
+
+- Core regression suite: 186 passed; fixed-seed differential/property suite (`0x5eed2026`): 505 cases passed.
+- Python 3.11 / JDK 17 and 21 GitHub Actions, DevSkim, CodeQL, extension integration tests, and VSIX packaging passed on the release commit.
+
 ## v0.13.0 — 2026-10-06
 
 ### Added

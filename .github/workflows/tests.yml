@@ -36,9 +36,13 @@ jobs:
 
       - name: Check Python syntax
         run: >-
-          python -m compileall -q ast_dump.py desugar.py gen_java.py gen_py.py
-          latent.py lex.py module_system.py nodes.py parse.py semant.py
+          python -m compileall -q ast_dump.py desugar.py editor_metadata.py
+          gen_java.py gen_py.py latent.py lex.py module_system.py nodes.py
+          parse.py semant.py
           runtime/ltpy.py tests
+
+      - name: Test editor metadata contract
+        run: python tests/test_editor_metadata.py
 
       - name: Compile shared Java runtime and interop fixture
         run: |
@@ -68,6 +72,9 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+
+      - name: Check VS Code keyword synchronization
+        run: python3 tools/sync_vscode_keywords.py --check
 
       - name: Set up JDK
         uses: actions/setup-java@v6

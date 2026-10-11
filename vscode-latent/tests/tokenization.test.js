@@ -50,6 +50,8 @@ async function main() {
   assertScope(grammar, signature, 'collect', 'entity.name.function.latent');
   assertScope(grammar, signature, 'head', 'variable.parameter.latent');
   assertScope(grammar, signature, 'scale', 'variable.parameter.latent');
+  assertScope(grammar, 'global value', 'global', 'keyword.other.latent');
+  assertScope(grammar, 'nonlocal value', 'nonlocal', 'keyword.other.latent');
   assertScope(grammar, signature, '*', 'keyword.operator.unpacking.positional.latent');
   assertScope(grammar, signature, 'rest', 'variable.parameter.variadic.positional.latent');
   assertScope(grammar, signature, '**', 'keyword.operator.unpacking.named.latent');

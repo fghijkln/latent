@@ -10,6 +10,14 @@
 python tests/run_tests.py
 ```
 
+解析器编辑器元数据接口使用独立契约测试：
+
+```sh
+python tests/test_editor_metadata.py
+```
+
+接口格式、版本、坐标约定和 Restricted Mode 边界见 [编辑器元数据接口](EDITOR_METADATA.md)。
+
 套件会在两个后端运行正例、错误用例和 cookbook，并比较约定输出与错误行为。需要 Python 3、JDK（含 `java` 和 `javac`）；若测试环境缺少项目使用的 Python 库，请按 CI 配置安装。
 
 边界性质测试使用固定种子，可重复检查数值、Unicode 字符串及列表索引等边界，并比较两个后端：

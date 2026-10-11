@@ -12,6 +12,7 @@
     { "include": "#constants" },
     { "include": "#wordOperators" },
     { "include": "#languageWords" },
+    { "include": "#otherKeywords" },
     { "include": "#numbers" },
     { "include": "#functionNames" },
     { "include": "#operators" }
@@ -217,19 +218,23 @@
     },
     "blockKeywords": {
       "name": "keyword.control.latent",
-      "match": "\\b(?:fn|class|if|elif|else|while|for|in|try|catch|return|break|continue|throw)\\b"
+      "match": "\\b(?:break|catch|class|continue|elif|else|fn|for|if|in|return|throw|try|while)\\b"
     },
     "constants": {
       "name": "constant.language.latent",
-      "match": "\\b(?:true|false|nil)\\b"
+      "match": "\\b(?:false|nil|true)\\b"
     },
     "wordOperators": {
       "name": "keyword.operator.word.latent",
-      "match": "\\b(?:and|or|not)\\b"
+      "match": "\\b(?:and|not|or)\\b"
     },
     "languageWords": {
       "name": "support.function.builtin.latent",
-      "match": "\\b(?:say|py|java|super|import|as)\\b"
+      "match": "\\b(?:as|import|java|py|say|super)\\b"
+    },
+    "otherKeywords": {
+      "name": "keyword.other.latent",
+      "match": "\\b(?:global|nonlocal)\\b"
     },
     "numbers": {
       "name": "constant.numeric.latent",
