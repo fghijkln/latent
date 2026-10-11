@@ -1,0 +1,43 @@
+class Base:
+    fn init(self, name):
+        self.name = name
+    fn invoke(self, value):
+        return self.process(value=value)
+    fn process(self, value):
+        return "base:" + value
+    fn choose(self, left, *, mode="base", required):
+        return [left, mode, required]
+    fn collect(self, value, *rest, **extra):
+        return [value, rest, extra]
+    fn option(self, *, mode="base"):
+        return mode
+
+class Child(Base):
+    fn process(self, value, *, suffix="child"):
+        return super.process(self, value=value) + ":" + suffix
+    fn choose(self, left, mode="child", *, required, trace=false):
+        return [left, mode, required, trace]
+    fn collect(self, value, *items, trace=false, **named):
+        return [value, items, named, trace]
+    fn option(self, mode="fast"):
+        return mode
+
+class Leaf(Child):
+    fn process(self, value="leaf", *, suffix="leaf"):
+        return super.process(self, value=value) + ":leaf"
+
+class DifferentInit(Base):
+    fn init(self, name, *, kind):
+        super.init(self, name)
+        self.kind = kind
+
+leaf = Leaf.new("tree")
+say leaf.invoke("dynamic")
+say leaf.choose("L", required="R")
+say leaf.choose(left="A", mode="M", required="R", trace=true)
+say leaf.option()
+say leaf.option(mode="explicit")
+say leaf.collect("x", 1, 2, trace=true, color="blue")
+say leaf.collect("x")
+custom = DifferentInit.new("N", kind="custom")
+say custom.name + ":" + custom.kind

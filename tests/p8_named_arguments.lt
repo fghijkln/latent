@@ -40,8 +40,8 @@ class Child(Base):
         self.left = left
         self.right = right
 
-    fn combine(self, alpha, beta):
-        return alpha * 10 + beta
+    fn combine(self, left, right):
+        return left * 10 + right
 
     fn through_super(self, x, y):
         return super.combine(self, right=y, left=x)
@@ -50,7 +50,7 @@ base = Base.new(right=2, left=1)
 child = Child.new(left=3, right=4, code=9)
 say base.inherited(second=2, first=1)
 say child.inherited(first=3, second=4)
-say child.combine(beta=8, alpha=7)
+say child.combine(right=8, left=7)
 say child.through_super(y=12, x=11)
 bound = child.inherited
 say bound(second=6, first=5)
@@ -82,8 +82,8 @@ class NamedBase:
     fn forward(self, value):
         return self.take(new=value)
 
-    fn take(self, old):
-        return old
+    fn take(self, new):
+        return new
 
 class NamedChild(NamedBase):
     fn take(self, new):

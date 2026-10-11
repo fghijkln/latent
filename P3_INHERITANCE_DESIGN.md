@@ -32,7 +32,7 @@ class Worker(models.Base):
 
 - **单继承**：父类必须在编译期解析为 Latent 类；未知/非类父类、私有模块类、自继承与传递环均带源位置报错。多继承、接口及 Java class inheritance 不支持。
 - **分派**：运行时按实例最具体类开始，沿显式父指针找第一个同名方法。Python 后端不借用 Python 原生 MRO，Java 后端也不使用 JVM 类继承。子类定义的方法覆盖父实现，未覆盖方法继承。
-- **覆盖 arity**：普通方法覆盖必须保留与最近父实现相同的参数数量（含显式接收者），不提供 `override` 标记。设计示例同时展示 `Animal.init(self, name)` 与 `Dog.init(self, name, breed)`，这与“一律要求覆盖 arity 相同”的建议相矛盾；为允许常见的扩展构造参数，最终决定 `init` 可以改变参数数量，调用时按实际选中的实现检查，而 `super.init(self, ...)` 单独按父实现检查。
+- **P3 初始覆盖检查（v0.6.0 历史规则）：**普通方法覆盖当时要求与最近父实现的形参数量（含显式接收者）相同，不提供 `override` 标记。设计示例同时展示 `Animal.init(self, name)` 与 `Dog.init(self, name, breed)`，因此 `init` 可改变参数数量；调用按实际选中的实现检查，而 `super.init(self, ...)` 单独按父实现检查。当前工作区的非 `init` 覆盖规则已由 P12 细化为完整签名绑定兼容性检查（[设计与实现记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)）。
 - **`super`**：仅可写作实例方法中的 `super.method(self, args...)`。第一个参数必须是当前方法显式声明的接收者。编译时绑定当前类，运行时从其**直接父类**开始找最近实现；`super` 不能作为值、不能访问字段，也不能在函数或顶层使用。
 - **构造**：`Child.new(args)` 创建一个 Child 实例。若 Child 自己定义 `init`，只运行 Child 的 `init`；父构造器仅在显式调用 `super.init(self, ...)` 时执行。若 Child 没有 `init`，沿父链继承最近构造器；父类 `init` 会在子类 `new` 时自然执行一次。继承链上没有任何 `init` 时保留原有无参构造行为。
 - **实例**：字段继续位于同一个动态实例存储中；真值、identity 比较与源类名打印规则不变。
@@ -40,6 +40,6 @@ class Worker(models.Base):
 
 ## 验收覆盖
 
-`python3 tests/run_tests.py` 在 Python 与 Java 上逐字节对拍继承正例，包括前向声明、直接与多层继承、覆盖优先、`super` 的直接父类分派、显式与继承构造器、动态字段、对象 identity、同名类隔离和 P2 跨模块继承。负例检查未知/非类父类、私有模块父类、自继承和循环、非法 `super`、缺少父方法、接收者错误、普通方法覆盖 arity，以及继承构造器参数错误的双后端源位置。
+`python3 tests/run_tests.py` 在 Python 与 Java 上逐字节对拍继承正例，包括前向声明、直接与多层继承、覆盖优先、`super` 的直接父类分派、显式与继承构造器、动态字段、对象 identity、同名类隔离和 P2 跨模块继承。负例检查未知/非类父类、私有模块父类、自继承和循环、非法 `super`、缺少父方法、接收者错误、方法覆盖签名兼容性，以及继承构造器参数错误的双后端源位置。
 
 本首版不支持类/静态方法、运算符重载或把 Java 句柄作为 Latent 父类。

@@ -594,6 +594,78 @@ class Checker:
         node = cd.parent if cd.parent is not None else cd
         raise SemantError(f"{node.line}:{node.col}: {message}", node=node)
 
+    def _override_signature_error(self, cd, method, inherited, inherited_owner):
+        """Return the first binding-compatibility problem, if any."""
+        base_name = inherited_owner.source_name
+        child_class_name = cd.source_name
+        base_params = inherited.params[1:]
+        child_params = method.params[1:]
+        collectors = (RestParam, ExtraParam)
+        fixed_base = [p for p in base_params
+                      if not isinstance(p, collectors)]
+        fixed_child = [p for p in child_params
+                       if not isinstance(p, collectors)]
+        base_by_name = {parameter_name(p): p for p in fixed_base}
+        child_by_name = {parameter_name(p): p for p in fixed_child}
+        child_positional = [p for p in fixed_child
+                            if not isinstance(p, KeywordOnlyParam)]
+        base_positional = [p for p in fixed_base
+                           if not isinstance(p, KeywordOnlyParam)]
+
+        for base_param in fixed_base:
+            name = parameter_name(base_param)
+            child_param = child_by_name.get(name)
+            if child_param is None:
+                if not isinstance(base_param, KeywordOnlyParam):
+                    slot = base_positional.index(base_param)
+                    if slot < len(child_positional):
+                        replacement = parameter_name(child_positional[slot])
+                        return (f"parameter {name!r} is renamed to "
+                                f"{replacement!r}; callers of {base_name}."
+                                f"{method.name} may pass "
+                                f"{name}=...")
+                if extra_parameter_name(child_params) is not None:
+                    return (f"fixed parameter {name!r} is missing; "
+                            "**extra cannot replace a base fixed parameter")
+                return f"fixed parameter {name!r} is missing"
+            if not isinstance(base_param, KeywordOnlyParam) and \
+                    isinstance(child_param, KeywordOnlyParam):
+                return (f"parameter {name!r} is keyword-only here, but "
+                        f"{base_name}.{method.name} accepts it positionally")
+
+        for index, base_param in enumerate(base_positional):
+            name = parameter_name(base_param)
+            actual_index = next(
+                i for i, p in enumerate(child_positional)
+                if parameter_name(p) == name)
+            if actual_index != index:
+                return (f"positional parameter {name!r} must remain in "
+                        f"slot {index + 1}; it is in slot {actual_index + 1} "
+                        f"in {child_class_name}.{method.name}")
+
+        for base_param in fixed_base:
+            name = parameter_name(base_param)
+            child_param = child_by_name[name]
+            if parameter_has_default(base_param) and \
+                    not parameter_has_default(child_param):
+                return f"optional parameter {name!r} became required"
+
+        for child_param in fixed_child:
+            name = parameter_name(child_param)
+            if name not in base_by_name and \
+                    not parameter_has_default(child_param):
+                if isinstance(child_param, KeywordOnlyParam):
+                    return f"required keyword-only parameter {name!r} is new"
+                return f"required positional parameter {name!r} is new"
+
+        if rest_parameter_name(base_params) is not None and \
+                rest_parameter_name(child_params) is None:
+            return f"*rest collector required by {base_name}.{method.name} is missing"
+        if extra_parameter_name(base_params) is not None and \
+                extra_parameter_name(child_params) is None:
+            return f"**extra collector required by {base_name}.{method.name} is missing"
+        return None
+
     def _validate_inheritance(self):
         for cd in self.classes.values():
             ref = cd.parent
@@ -638,16 +710,22 @@ class Checker:
             parent = self.classes.get(cd.parent.name) if cd.parent else None
             for method in cd.methods:
                 inherited = self._method_in_chain(parent, method.name)
-                # Constructors may add parameters (as in the documented
-                # Animal.init(name) -> Dog.init(name, breed) pattern); an
-                # explicit super.init call is checked against the actual
-                # parent implementation below. Other overrides preserve arity.
-                if method.name != "init" and inherited is not None and \
-                        len(method.params) != len(inherited.params):
-                    _err(method,
-                         f"override {cd.source_name}.{method.name} must take "
-                         f"{len(inherited.params) - 1} arguments, got "
-                         f"{len(method.params) - 1}")
+                # `init` describes the class's construction API rather than
+                # virtual dispatch. Other overrides must preserve every
+                # base-valid fixed binding slot and collector capability.
+                if method.name != "init" and inherited is not None:
+                    inherited_owner = parent
+                    while inherited_owner is not None and \
+                            inherited not in inherited_owner.methods:
+                        inherited_owner = (self.classes.get(
+                            inherited_owner.parent.name)
+                            if inherited_owner.parent else None)
+                    problem = self._override_signature_error(
+                        cd, method, inherited, inherited_owner)
+                    if problem is not None:
+                        _err(method, f"override {cd.source_name}.{method.name} "
+                             f"is incompatible with {inherited_owner.source_name}."
+                             f"{inherited.name}: {problem}")
 
     def _check_exprstmt(self, s):
         if not isinstance(s.expr, (Call, SuperCall)):

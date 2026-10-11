@@ -1,0 +1,7 @@
+class Base:
+    fn run(self, *, mode="safe", **extra):
+        return mode
+
+class Child(Base):
+    fn run(self, *, style="safe", **named):
+        return style

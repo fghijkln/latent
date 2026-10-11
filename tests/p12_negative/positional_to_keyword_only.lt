@@ -1,0 +1,7 @@
+class Base:
+    fn run(self, left, right):
+        return left
+
+class Child(Base):
+    fn run(self, left, *, right):
+        return left

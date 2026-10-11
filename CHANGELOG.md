@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.13.4 — 2026-10-11
+
+### Changed
+
+- Non-`init` method overrides now receive a compile-time binding-compatibility check on both backends: inherited fixed parameter names and positional slots must be preserved; optional parameters cannot become required; new fixed parameters must be optional; and inherited `*rest` / `**extra` collection capabilities must remain. `init` overrides remain exempt.
+- This intentionally tightens source compatibility: overrides that v0.13.3 accepted despite incompatible signatures now fail at compile time. P8/P11 examples were migrated. AST schema v6, method dispatch, and the Python/Java runtime argument binders are unchanged.
+
+### VS Code extension
+
+- VS Code extension 0.6.5 is paired with this release; the language/compiler compatibility change is implemented in Latent, while the extension retains its existing editor features.
+
+### Verification
+
+- `python3 tests/run_tests.py`: **221 passed, 0 failed**, including the P12 positive case and 10 override-signature compile negatives across Python and Java, 19 cookbook examples, 13 AST/CLI diagnostics, and 505 fixed-seed cross-backend property cases.
+- `python3 tests/test_editor_metadata.py`: **4 passed**; Python `compileall`, Java runtime/interop fixture compilation, VS Code keyword synchronization, and `git diff --check` passed.
+- VS Code extension tests: **12 trusted-workspace + 2 Restricted Mode passed**, including tokenization/snippet checks. VSIX packaging and ZIP integrity checks passed; the archive contains 11 files and its manifest reports version 0.6.5.
+- VSIX asset: `latent-language-support-0.6.5.vsix` (14,084 bytes; SHA-256: `03674ba5fcb7a93016b85acf557ff44b1b142210910596f7b3ba4f7f07cbe85f`).
+
 ## v0.13.3 — 2026-10-11
 
 ### Added

@@ -1,6 +1,6 @@
 # Latent Language Support for VS Code
 
-Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不会改写 Latent 编译器源码。插件 0.6.4 随 Latent v0.13.3 发布，除解析器驱动的大纲与代码折叠、关键字补全及路径/保存安全处理外，还高亮仅限关键字形参的裸 `*` 分隔符并提供 `fnkw` 片段。大纲/折叠需要 v0.13.2 或更新的编译器；P11 语法需要 v0.13.3 或更新版本。
+Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不会改写 Latent 编译器源码。插件 0.6.5 是 Latent v0.13.4 的配套发布候选（尚待审批）；保留解析器驱动的大纲与代码折叠、关键字补全、路径/保存安全处理，以及对裸 `*` 分隔符的高亮和 `fnkw` 片段。大纲/折叠需要 v0.13.2 或更新的编译器；P11 语法需要 v0.13.3 或更新版本。
 
 完整安装和使用说明见 [VS Code 插件使用指南](../VSCODE_EXTENSION_GUIDE.md)。
 
@@ -22,14 +22,14 @@ Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不�
 
 - 打开的工作区是 Latent 项目（项目根目录或其子目录中有 `latent.py`）。
 - Python 3（默认使用 `python3`）；大纲与折叠也通过项目的 `latent.py --editor-metadata` 解析当前缓冲区。Java 后端需要 JDK（包括 `javac` 和 `java`）。
-- 使用 P10 的源程序需要 v0.13.0 或更新的编译器；使用 P11 仅限关键字形参的程序需要 v0.13.3 或更新版本。扩展本身只提供编辑器支持和调用入口。
+- 使用 P10 的源程序需要 v0.13.0 或更新的编译器；使用 P11 仅限关键字形参的程序需要 v0.13.3 或更新版本；P12 覆盖兼容检查包含在 v0.13.4 候选编译器中。扩展本身只提供编辑器支持和调用入口。
 
 ## 安装
 
-在 VS Code 中执行 **Extensions: Install from VSIX...**，选择 `latent-language-support-0.6.4.vsix`；或在终端执行：
+在 VS Code 中执行 **Extensions: Install from VSIX...**，选择 `latent-language-support-0.6.5.vsix`；或在终端执行：
 
 ```sh
-code --install-extension /absolute/path/to/latent-language-support-0.6.4.vsix
+code --install-extension /absolute/path/to/latent-language-support-0.6.5.vsix
 ```
 
 安装后重新加载 VS Code 窗口，以载入新版本。然后打开 Latent 项目，编辑 `.lt` 文件，并从命令面板选择命令。

@@ -6,12 +6,12 @@
 
 万物皆潜在（latent），直到被触碰的那一刻。
 
-**当前发布：v0.13.3**（P11 仅限关键字形参与 `latent-ast` schema v6；VS Code 0.6.4 增加裸 `*` 分隔符高亮和 `fnkw` 片段；并包含 v0.13.2 的编辑器元数据、大纲、折叠、关键字补全，以及 P10 变参与调用展开）。
+**最近正式发布：v0.13.3**（P11 仅限关键字形参与 `latent-ast` schema v6；VS Code 0.6.4 增加裸 `*` 分隔符高亮和 `fnkw` 片段）。**待审批候选：v0.13.4 / VS Code 0.6.5**，包含 P12 方法覆盖签名兼容检查；该版本会有意拒绝一部分过去可编译但调用不兼容的普通方法覆盖。
 
 P8 设计与实现记录见 [P8 命名参数设计](P8_NAMED_ARGUMENTS_DESIGN.md)。
 P9 默认参数语义与 AST schema v4 见 [P9 默认参数设计](P9_DEFAULT_PARAMETERS_DESIGN.md)。
 P10 变参语义与 AST schema v5 见 [P10 变参形参与调用展开](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
-P11 仅限关键字形参与 AST schema v6 的设计与验收记录见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。v0.13.2 历史标签与既有资产保持不变。
+P11 仅限关键字形参与 AST schema v6 的设计与验收记录见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。v0.13.4 候选中的 P12 方法覆盖签名兼容检查见 [P12 设计与实现记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)；候选尚待发布审批，v0.13.3 历史标签与既有资产保持不变。
 
 Latent 不追求在简单脚本上赢过 Python——写纯 Python 逻辑，Python 的工具和
 生态成熟得多，无需争辩。它的赌注只有一个：**同一份源码，跑在 Python 和
@@ -20,7 +20,7 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 运行时，直到真正被用到的那一刻。
 
 代价是真实的：两套后端、跨语言对象让调试和错误处理更难。为此编译器用
-机制而不是运气来还债：`tests/run_tests.py` 当前有 211 个回归条目（包括 13 项只读 AST/CLI 诊断），其中包含阶段 1 的固定语义用例和 1 个有界、固定种子的性质测试入口；该入口运行时会报告实际案例数，但在套件总数中按 1 项计。双后端输出逐字节对拍，两端行为不一致即失败。P10 新增 25 项回归，P11 增加 24 项双后端回归与 1 项 AST 诊断。
+机制而不是运气来还债：`tests/run_tests.py` 当前有 221 个回归条目（包括 13 项只读 AST/CLI 诊断），其中包含阶段 1 的固定语义用例和 1 个有界、固定种子的性质测试入口；该入口运行时会报告实际案例数，但在套件总数中按 1 项计。双后端输出逐字节对拍，两端行为不一致即失败。P10 新增 25 项回归，P11 增加 24 项双后端回归与 1 项 AST 诊断；P12 工作区新增 1 个正例和 9 个独立签名负例，并将既有覆盖 arity 负例纳入双后端诊断矩阵。
 
 - 教程：[TUTORIAL.md](TUTORIAL.md)
 - 语言规范：[SPEC.md](SPEC.md)
@@ -31,7 +31,8 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 - P8 命名参数设计：[P8_NAMED_ARGUMENTS_DESIGN.md](P8_NAMED_ARGUMENTS_DESIGN.md)
 - P9 默认参数设计：[P9_DEFAULT_PARAMETERS_DESIGN.md](P9_DEFAULT_PARAMETERS_DESIGN.md)
 - P10 变参与调用展开：[P10_VARIADIC_ARGUMENTS_DESIGN.md](P10_VARIADIC_ARGUMENTS_DESIGN.md)
-- P11 仅限关键字形参（v0.13.3）：[P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
+- P11 仅限关键字形参（v0.13.3）：[P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
+- P12 方法覆盖签名兼容性（v0.13.4 候选，待审批）：[P12 设计与实现记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)
 - VS Code 插件使用指南：[VSCODE_EXTENSION_GUIDE.md](VSCODE_EXTENSION_GUIDE.md)
 - 发布记录：[CHANGELOG.md](CHANGELOG.md)
 - 贡献与测试指南：[CONTRIBUTING.md](CONTRIBUTING.md)
@@ -92,16 +93,18 @@ say java "java.lang.Math".sqrt(2)  # 静态方法直接调：1.4142135623730951
 ## 工程
 
 - 纯 Python 标准库实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 测试：`python3 tests/run_tests.py` —— 211 个回归条目，其中 13 项为只读 AST/CLI 诊断；包括阶段 1 固定语义用例和 1 个有界、固定种子的性质测试入口（实际生成案例数会在运行时打印，套件计数为 1 项）。
+- 测试：`python3 tests/run_tests.py` —— 221 个回归条目，其中 13 项为只读 AST/CLI 诊断；包括阶段 1 固定语义用例和 1 个有界、固定种子的性质测试入口（实际生成案例数会在运行时打印，套件计数为 1 项）。
   正例与 cookbook 双后端输出逐字节对拍，运行期负例验证两端失败状态与 `.lt` 源码位置。
 - 编译期错误显示 `文件:行:列`、源码行和 `^`；未捕获的运行期错误在
   Python/Java 后端显示 `.lt` 文件、行号和 Latent 调用栈。无法映射时回退到
   原生 traceback/Java 堆栈；运行期暂不显示列号。
 
-## 已知边界（v0.13.3）
+## 已知边界（最近正式发布 v0.13.3；另有 v0.13.4 候选）
 
 支持 Latent 单继承、`super`、`try`/`catch`/`throw`、属性与下标读写；未捕获的运行期错误
 已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承随 v0.6.0 发布；v0.7.0 增加只读 AST/脱糖诊断；v0.8.0 增加用户定义函数值、嵌套词法闭包和 `global`，详见 [P5 设计记录](P5_FUNCTION_VALUES_DESIGN.md)；v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)；v0.10.0 让 `obj.method` 在没有同名字段时返回捕获实例的绑定方法值，实例字段仍优先；v0.11.0/P8 增加 Latent 调用的命名参数；v0.12.0/P9 增加默认参数；v0.13.0/P10 增加变参形参与调用展开；v0.13.3/P11 增加仅限关键字形参，并将 `latent-ast` 升至 schema v6。模块导入仍只支持本地显式别名，不支持循环导入或包管理。仍无多继承；内建函数及互操作句柄方法不作为函数值；
+v0.13.4 候选的 P12 规则要求普通方法覆盖保留最近父类实现的固定参数名称和位置槽，不新增必需参数，并保留父类已有的 `*rest` / `**extra` 能力；`init` 仍豁免。它会收紧一部分旧源码的编译接受范围，但不改变 AST schema v6 或运行时 binder。
+
 `py` 只支持模块句柄，
 不支持内联 Python 代码块；`java` 不支持基本类型类名（`java "int"`）；数字只有 float64 一种类型。
 

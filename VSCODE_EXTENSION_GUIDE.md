@@ -1,13 +1,13 @@
 # Latent VS Code 插件使用指南
 
-Latent Language Support 为 `.lt` 文件提供语法高亮、代码片段、编译与运行入口。此指南对应随 Latent **v0.13.3** 发布的 VS Code 插件 **0.6.4**；大纲与代码折叠需要 v0.13.2 或更新的编译器，P10 变参与调用展开需要 v0.13.0 或更新版本，P11 仅限关键字形参需要 v0.13.3 或更新版本。
+Latent Language Support 为 `.lt` 文件提供语法高亮、代码片段、编译与运行入口。此指南对应拟随 Latent **v0.13.4** 发布的 VS Code 插件 **0.6.5**（候选尚待审批）；大纲与代码折叠需要 v0.13.2 或更新的编译器，P10 变参与调用展开需要 v0.13.0 或更新版本，P11 仅限关键字形参需要 v0.13.3 或更新版本。
 
 ## 安装
 
-从 [Latent v0.13.3 GitHub Release](https://github.com/fghijkln/latent/releases/tag/v0.13.3) 下载 `latent-language-support-0.6.4.vsix`。在 VS Code 中打开命令面板（Windows/Linux：`Ctrl+Shift+P`，macOS：`Cmd+Shift+P`），运行 **Extensions: Install from VSIX...** 并选择下载的文件；也可以在终端运行：
+从 [Latent v0.13.4 GitHub Release](https://github.com/fghijkln/latent/releases/tag/v0.13.4) 下载 `latent-language-support-0.6.5.vsix`。在 VS Code 中打开命令面板（Windows/Linux：`Ctrl+Shift+P`，macOS：`Cmd+Shift+P`），运行 **Extensions: Install from VSIX...** 并选择下载的文件；也可以在终端运行：
 
 ```sh
-code --install-extension /absolute/path/to/latent-language-support-0.6.4.vsix
+code --install-extension /absolute/path/to/latent-language-support-0.6.5.vsix
 ```
 
 安装或升级完成后，执行 **Developer: Reload Window**。插件要求 VS Code 1.85.0 或更新版本。

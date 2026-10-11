@@ -40,7 +40,7 @@ class Child(Base):
     fn init(self, name, *, breed, kind="dog"):
         super.init(self, name, kind=kind)
         self.breed = breed
-    fn describe(self, *, value, required, suffix="child"):
+    fn describe(self, value, *, required, suffix="child"):
         return [self.breed, super.describe(self, value=value, required=required, suffix=suffix)]
 
 class BaseChild(Base):

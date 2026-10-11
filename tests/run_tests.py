@@ -25,6 +25,7 @@ POSITIVE.append("p8_named_arguments")
 POSITIVE.append("p9_default_parameters")
 POSITIVE.append("p10_variadic_arguments")
 POSITIVE.append("p11_keyword_only_parameters")
+POSITIVE.append("p12_override_compatibility")
 POSITIVE.append("phase1_semantics")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
@@ -97,13 +98,24 @@ P11_NEG_COMPILE = {
     "p11_negative/duplicate_separator": "*rest must precede **extra and appear once",
     "p11_negative/after_extra": "positional parameter follows variadic parameter",
 }
+P12_NEG_COMPILE = {
+    "inheritance_negative/override_arity": "fixed parameter 'value' is missing",
+    "p12_negative/rename_extra": "is renamed to 'item'",
+    "p12_negative/positional_to_keyword_only": "is keyword-only here",
+    "p12_negative/positional_reorder": "must remain in slot 1",
+    "p12_negative/new_required_positional": "required positional parameter 'audit' is new",
+    "p12_negative/new_required_keyword_only": "required keyword-only parameter 'audit' is new",
+    "p12_negative/optional_to_required": "optional parameter 'mode' became required",
+    "p12_negative/missing_rest": "*rest collector required by Base.run is missing",
+    "p12_negative/missing_extra": "**extra collector required by Base.run is missing",
+    "p12_negative/missing_keyword_name_extra": "**extra cannot replace a base fixed parameter",
+}
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
     "inheritance_negative/self_cycle", "inheritance_negative/cycle",
     "inheritance_negative/super_top", "inheritance_negative/super_no_parent",
     "inheritance_negative/super_missing_method",
     "inheritance_negative/super_wrong_receiver",
-    "inheritance_negative/override_arity",
 ]
 INHERITANCE_COMPILE_MARKERS = {
     "inheritance_negative/unknown": "unknown parent class",
@@ -114,7 +126,6 @@ INHERITANCE_COMPILE_MARKERS = {
     "inheritance_negative/super_no_parent": "has no parent for super",
     "inheritance_negative/super_missing_method": "has no method 'missing'",
     "inheritance_negative/super_wrong_receiver": "pass the current receiver first",
-    "inheritance_negative/override_arity": "override Child.run must take",
 }
 INHERITANCE_ERROR_LOCATIONS = {
     "inheritance_negative/unknown": ["unknown.lt:1:"],
@@ -125,7 +136,6 @@ INHERITANCE_ERROR_LOCATIONS = {
     "inheritance_negative/super_no_parent": ["super_no_parent.lt:3:"],
     "inheritance_negative/super_missing_method": ["super_missing_method.lt:7:"],
     "inheritance_negative/super_wrong_receiver": ["super_wrong_receiver.lt:7:"],
-    "inheritance_negative/override_arity": ["override_arity.lt:6:"],
 }
 NEG_MODULE_COMPILE = [
     "modules/negative/missing/main",
@@ -434,6 +444,16 @@ P11_EXPECTED_STDOUT = {
         '["function-value", "slow", true]\n'
         '["worker", "Kira", "module-default", 9]\n'),
 }
+P12_EXPECTED_STDOUT = {
+    "p12_override_compatibility": (
+        "base:dynamic:child:leaf\n"
+        '["L", "child", "R", false]\n'
+        '["A", "M", "R", true]\n'
+        "fast\nexplicit\n"
+        '["x", [1, 2], {"color": "blue"}, true]\n'
+        '["x", [], {}, false]\n'
+        "N:custom\n"),
+}
 PHASE1_EXPECTED_STDOUT = (
     "true\nnan\nnan is truthy\n"
     "false\ntrue\nfalse\ntrue\nfalse\ntrue\n"
@@ -551,6 +571,8 @@ def main():
             ok = ok and py[1] == P10_EXPECTED_STDOUT[name]
         if name in P11_EXPECTED_STDOUT:
             ok = ok and py[1] == P11_EXPECTED_STDOUT[name]
+        if name in P12_EXPECTED_STDOUT:
+            ok = ok and py[1] == P12_EXPECTED_STDOUT[name]
         if name == "phase1_semantics":
             ok = ok and py[1] == PHASE1_EXPECTED_STDOUT
         print(("PASS " if ok else "FAIL ") + name)
@@ -677,6 +699,29 @@ def main():
             print(f"  expected={INHERITANCE_COMPILE_MARKERS[name]!r} "
                   f"out={so!r} err={se[-500:]}")
 
+    print("== P12 override signature compatibility: reject narrowing on py/java ==")
+    for name, marker in P12_NEG_COMPILE.items():
+        details = []
+        results = []
+        src = os.path.join(TESTS, name + ".lt")
+        location = f"{os.path.basename(name)}.lt:6:"
+        for target in ("py", "java"):
+            outdir = os.path.join(OUT, "t_" + name.replace("/", "_") + "_" + target)
+            rc, so, se = run([sys.executable, LATENTC, src, "-t", target,
+                              "-o", outdir])
+            details.append(so + se)
+            results.append(rc)
+        first_lines = [d.strip().splitlines()[0] if d.strip() else ""
+                       for d in details]
+        ok = (all(rc != 0 for rc in results) and
+              all(marker in detail and location in detail for detail in details) and
+              first_lines[0] == first_lines[1])
+        print(("PASS " if ok else "FAIL ") + name)
+        if not ok:
+            fails += 1
+            print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
+            print(f"  java: rc={results[1]} detail={details[1][-500:]}")
+
     print("== negative module compile: paths, visibility, graph, and namespace rules ==")
     for name in NEG_MODULE_COMPILE:
         src = os.path.join(TESTS, name + ".lt")
@@ -780,6 +825,7 @@ def main():
              len(P9_NEG_COMPILE) +
              len(P10_NEG_COMPILE) +
              len(P11_NEG_COMPILE) +
+             len(P12_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
              len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 1)
     print(f"\n{total - fails} passed, {fails} failed")

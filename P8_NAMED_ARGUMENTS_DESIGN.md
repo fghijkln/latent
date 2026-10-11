@@ -33,3 +33,8 @@ Python `_LtFunction` 与 Java `LtFunction` 在间接调用时使用同一组形�
 双后端测试覆盖直接/间接函数调用、嵌套闭包、模块公开函数、绑定与继承方法、构造器、左到右副作用、重复/未知/缺失/额外实参、命名后跟位置参数、内建与 Python/Java 互操作边界。正例比较 stdout；负例比较阶段、错误类别、文案和源码位置。另验证旧 AST 节点字段形状、P2–P7、懒互操作与 P4 只读诊断保证。
 
 使用 `callee(name=value)` 的源码需要 v0.11.0 或更新编译器，旧编译器无法解析该语法；位置参数调用及既有函数值/闭包/模块/方法语义保持不变，v0.10.0 发布产物和标签不变。`latent-ast` 从 schema v2 升为 v3；原有节点字段形状保持稳定，但只接受 v2 的外部消费者须先升级以读取 P8 AST。发布验证：`python3 tests/run_tests.py` 的 142 项全部通过；13 个跟踪 Python 文件的 `py_compile`、`javac runtime/*.java` 与 `git diff --check` 均通过。
+
+
+### P12 后续迁移（当前工作区，未发布）
+
+P12 对非 `init` 方法覆盖增加了固定参数名称和绑定槽兼容检查。P8 综合样例中的 `Child.combine` 因把 `Base.combine(left, right)` 改名为 `alpha/beta`，已迁移为保留 `left/right`；调用仍可逆序按名称传参。`NamedBase.take(old)` 与 `NamedChild.take(new)` 也统一为 `new`，保留继承 `forward` 到 `NamedChild.take` 的动态分派。示例数值输出不变。该变化不回写 P8/v0.11.0 历史标签或发布资产，详细规则见 [P12 方法覆盖签名兼容性记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。
