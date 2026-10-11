@@ -11,6 +11,12 @@
 - **Java-only exclusions:** The three `tests/java/*.java` host fixtures are compiled by `javac` for Java overload or host/static interop support; they are Java source dependencies, not Python-target source fixtures. Java interop **Latent** cases and cookbook examples remain included where the Python target leg is exercised.
 - **Bootstrap support:** `test_bootstrap_host.py` and its Python adapter, `test_bootstrap_smoke.py`, and the fixed-Stage0 Latent lexer/parser fixtures and orchestrators are included as bootstrap support coverage, even though the legacy differential runner does not invoke those standalone tests.
 
+## M3 lexer Unicode coverage
+
+`test_bootstrap_lexer.py` compiles the Latent lexer through the pinned Stage0 and compares generated token kind/value/line/column tuples and lexer error positions against Stage0. Its generated corpus covers non-ASCII and supplementary-plane identifiers, Unicode decimal and numeric-tail characters, every Python-recognized whitespace codepoint as a blank/comment prefix, and selected malformed inputs. A second generated Latent probe checks each transition boundary/interior of the Unicode property runs and every decimal digit value against Stage0.
+
+The checked-in data modules are pinned to Unicode 14.0.0 and 15.0.0. The Latent classifier selects the matching static table using only `unicodedata.unidata_version` metadata; range lookup and all character classification remain Latent code. The boundary suite runs against both planned Python 3.11/UCD 14 and local Python 3.12/UCD 15. Error text is compared exactly for numeric errors and mapped control/whitespace characters; other non-printable characters still require exact rejection and line/column checks, but their repr spelling is not treated as a category-classification result.
+
 ## Guard behavior
 
 The checker fails for an added or removed static runner case/category reference, an added fixture path or test module absent from the inventory, a missing disposition, or an unreasoned exclusion. It also compares runner-invoked auxiliary test paths and AST-extracted P14 wire operation names, so changes to those protocols need explicit ledger updates.

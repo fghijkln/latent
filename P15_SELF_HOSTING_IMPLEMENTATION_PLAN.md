@@ -106,7 +106,7 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - 已完成 M0 投影账本初版：243 个 runner case 全部有 Python-target disposition，0 个未分类；加入 bootstrap lexer/parser 覆盖后，291 个清单路径已归类。checker 与其 3 项测试通过。
 - 已完成 M1 宿主 API v1 初版：仅提供 argv、stdio、路径/UTF-8 文件操作、显式文件复制及 `--run` 所需生成程序执行；宿主契约 5 项测试通过。
 - 已完成 M2 微型切片初版：固定 Stage0→Stage1→Stage2→Stage3；两个绝对根内 Stage2/3 的声明产物逐字节一致，小型 fixture 与 Stage0 输出一致，缺失输入稳定失败。此门禁只覆盖微型子集。
-- M3 的 Latent ASCII 词法切片已实现，并以固定 Stage0 编译运行 fixture；词法边界/转义/运算符用例通过。已知差异：参考实现接受 Unicode 字母、数字及更多 Unicode 空白，而本切片目前仅实现 ASCII 字符分类，因此 M3 的完整 Unicode 对拍门尚未通过；没有把字符分类交给 Python 宿主。
+- M3 Unicode 词法差异已补齐：Latent lexer 现用 Latent 二分区间查找实现字母、`isalnum` 数字尾缀、`isdigit`、十进制数值与 `isspace`；静态表覆盖 Unicode 14.0/15.0，Latent 只读取 `unicodedata.unidata_version` 以选择表，宿主不做字符分类。固定 Stage0 token/error-position 差分与属性边界、所有十进制码位对拍，已分别在 Python 3.11/UCD 14 和 Python 3.12/UCD 15 通过。非打印、非空白字符的错误 repr 拼写仍只比较拒绝结果及行列位置；该诊断显示差异不改变字符分类。未知 UCD 版本目前回退到 Unicode 15 表。
 - M4 的 Latent 映射 AST/递归下降 parser 限定子集已通过固定 Stage0 fixture（结构块、常用表达式优先级、调用/属性/下标/列表/map 与解析位置诊断）。类/继承、导入、异常、global/nonlocal、完整形参与调用参数、py/java/super、插值等完整语法仍未实现，不构成完整 M4 验收。
-- 当前本地 Stage0 全量回归已通过：259 passed、0 failed；运行环境为 Python 3.12.3/JDK 25.0.4（并非 CI 目标版本）。M0/M1/M2/M3/M4 的聚焦测试在当前环境通过；新增 bootstrap CI 使用 Python 3.11/JDK 17，原有 Python 3.11/JDK 17、21 全量矩阵保留。
+- 本轮 Stage0 Python-target 完整回归已通过：259 passed、0 failed；运行环境为 Python 3.12.3/JDK 25.0.4。bootstrap lexer/parser/host/smoke 聚焦套件 10 项通过；M3 lexer 三项 Unicode 差分/属性边界测试亦在 Python 3.11/UCD 14 和 Python 3.12/UCD 15 分别通过。新增 bootstrap CI 使用 Python 3.11/JDK 17，原有 Python 3.11/JDK 17、21 全量矩阵保留。
 - 本次不创建 tag/Release，不修改 main 分支保护。

@@ -1,0 +1,67 @@
+# P15 M3 Unicode classification: version metadata only comes from the host;
+# property tables and all search/classification logic remain in Latent.
+import "unicode_data_14_0_0.lt" as unicode14
+import "unicode_data_15_0_0.lt" as unicode15
+unicode_metadata = py "unicodedata"
+UNICODE_VERSION = unicode_metadata.unidata_version
+
+fn contains_character(text, target):
+    for character in text:
+        if character == target:
+            return true
+    return false
+fn contains_range(character, ranges):
+    low = 0
+    high = len(ranges) - 1
+    while low <= high:
+        middle = int((low + high) / 2)
+        interval = ranges[middle]
+        if character < interval[0]:
+            high = middle - 1
+        elif character > interval[1]:
+            low = middle + 1
+        else:
+            return true
+    return false
+fn is_alpha(character):
+    if contains_character("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", character):
+        return true
+    if UNICODE_VERSION == "14.0.0":
+        return contains_range(character, unicode14.ALPHA_RANGES)
+    return contains_range(character, unicode15.ALPHA_RANGES)
+fn is_numeric_tail(character):
+    if UNICODE_VERSION == "14.0.0":
+        return contains_range(character, unicode14.NUMERIC_TAIL_RANGES)
+    return contains_range(character, unicode15.NUMERIC_TAIL_RANGES)
+fn is_digit(character):
+    if contains_character("0123456789", character):
+        return true
+    if UNICODE_VERSION == "14.0.0":
+        return contains_range(character, unicode14.DIGIT_RANGES)
+    return contains_range(character, unicode15.DIGIT_RANGES)
+fn decimal_digit_value(character):
+    if UNICODE_VERSION == "14.0.0":
+        blocks = unicode14.DECIMAL_DIGIT_BLOCKS
+    else:
+        blocks = unicode15.DECIMAL_DIGIT_BLOCKS
+    for digits in blocks:
+        if character >= digits[0] and character <= digits[9]:
+            index = 0
+            while index < 10:
+                if digits[index] == character:
+                    return index
+                index = index + 1
+    return -1
+fn is_space(character):
+    if UNICODE_VERSION == "14.0.0":
+        return contains_range(character, unicode14.WHITESPACE_RANGES)
+    return contains_range(character, unicode15.WHITESPACE_RANGES)
+fn character_error_repr(character):
+    if UNICODE_VERSION == "14.0.0":
+        representations = unicode14.ERROR_REPR_MAP
+    else:
+        representations = unicode15.ERROR_REPR_MAP
+    for entry in representations:
+        if entry[0] == character:
+            return entry[1]
+    return nil

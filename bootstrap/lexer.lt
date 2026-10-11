@@ -1,5 +1,6 @@
 # P15 M3 full-source lexical scan, written in Latent (no host tokenizer).
 import "model.lt" as model
+import "unicode_tables.lt" as unicode
 
 fn contains_character(text, target):
     for candidate in text:
@@ -7,31 +8,13 @@ fn contains_character(text, target):
             return true
     return false
 fn is_digit(ch):
-    return contains_character("0123456789", ch)
+    return unicode.is_digit(ch)
 fn is_letter(ch):
-    return contains_character("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", ch)
+    return ch == "_" or unicode.is_alpha(ch)
 fn is_word_tail(ch):
-    return is_letter(ch) or is_digit(ch)
+    return is_letter(ch) or is_digit(ch) or unicode.is_numeric_tail(ch)
 fn digit_value(ch):
-    if ch == "0":
-        return 0
-    if ch == "1":
-        return 1
-    if ch == "2":
-        return 2
-    if ch == "3":
-        return 3
-    if ch == "4":
-        return 4
-    if ch == "5":
-        return 5
-    if ch == "6":
-        return 6
-    if ch == "7":
-        return 7
-    if ch == "8":
-        return 8
-    return 9
+    return unicode.decimal_digit_value(ch)
 fn keyword_kind(word):
     if word == "fn":
         return "FN"
@@ -99,16 +82,13 @@ fn character_repr(ch):
         return "'\"'"
     if ch == "\\":
         return "'\\\\'"
-    if ch == "\t":
-        return "'\\t'"
-    if ch == "\n":
-        return "'\\n'"
-    if ch == "\r":
-        return "'\\r'"
+    representation = unicode.character_error_repr(ch)
+    if representation != nil:
+        return representation
     return "'" + ch + "'"
 fn is_blank_or_comment(line):
     i = 0
-    while i < len(line) and (line[i] == " " or line[i] == "\t"):
+    while i < len(line) and unicode.is_space(line[i]):
         i = i + 1
     return i == len(line) or line[i] == "#"
 fn source_lines(source):
@@ -135,18 +115,23 @@ fn scan_number(line, start, lineno):
     end = start
     dot_count = 0
     digit_count = 0
+    invalid_digit = false
     while end < len(line) and (is_digit(line[end]) or line[end] == "."):
         if line[end] == ".":
             dot_count = dot_count + 1
         else:
             digit_count = digit_count + 1
+            digit = digit_value(line[end])
+            if digit < 0:
+                invalid_digit = true
+                digit = 0
         end = end + 1
     raw = ""
     i = start
     while i < end:
         raw = raw + line[i]
         i = i + 1
-    if dot_count > 1 or digit_count == 0:
+    if dot_count > 1 or digit_count == 0 or invalid_digit:
         return {"ok": false, "end": end, "value": 0, "error": "bad number '" + raw + "'", "line": lineno, "col": start + 1}
     whole = 0
     fraction = 0

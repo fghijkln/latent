@@ -2932,7 +2932,7 @@
     },
     "test_module/test_bootstrap_lexer.py": {
       "disposition": "include",
-      "reason": "Python unittest orchestration archives fixed Stage0 and runs the Latent lexer fixture; no Python compiler lexing logic."
+      "reason": "Fixed-Stage0 orchestration runs the Latent lexer fixture plus generated Unicode token/error-position differentials and Unicode 14/15 property-boundary probes; classification and range lookup remain Latent."
     },
     "test_module/test_bootstrap_parser.py": {
       "disposition": "include",
@@ -2974,7 +2974,7 @@
     },
     "test_bootstrap_lexer.py": {
       "disposition": "include",
-      "reason": "Fixed-Stage0 test orchestration for the Latent lexer fixture; compiler lexical logic remains in Latent."
+      "reason": "Fixed-Stage0 orchestration for the Latent lexer fixture, generated Unicode token/error-position differentials, and Unicode 14/15 property-boundary probes; compiler lexical classification remains in Latent."
     },
     "test_bootstrap_parser.py": {
       "disposition": "include",
