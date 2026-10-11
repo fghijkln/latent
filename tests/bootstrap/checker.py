@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Validate the Python-target test projection ledger without importing tests."""
+from __future__ import annotations
+
+import ast
+import json
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+MANIFEST = Path(__file__).with_name("manifest.json")
+
+
+def _case_constant(name: str) -> bool:
+    return (name in {"POSITIVE", "MODULE_POSITIVE", "COOKBOOK"} or
+            name.startswith("NEG_") or name.endswith("_COMPILE") or
+            "_NEG_" in name or name.endswith("_MARKERS") or
+            name.endswith("_LINES") or name.endswith("_STDOUT"))
+
+
+def _literal_case_refs(tree: ast.Module) -> dict[str, list[str]]:
+    """Extract static case names from runner declarations; never import runner."""
+    refs: dict[str, set[str]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = [target.id for target in node.targets
+                       if isinstance(target, ast.Name)]
+            for name in targets:
+                if not _case_constant(name):
+                    continue
+                values: set[str] = set()
+                if isinstance(node.value, (ast.List, ast.Tuple)):
+                    values.update(item.value for item in node.value.elts
+                                  if isinstance(item, ast.Constant) and
+                                  isinstance(item.value, str))
+                elif isinstance(node.value, ast.Dict):
+                    values.update(key.value for key in node.value.keys
+                                  if isinstance(key, ast.Constant) and
+                                  isinstance(key.value, str))
+                if values:
+                    refs.setdefault(name, set()).update(values)
+        elif (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
+              isinstance(node.value.func, ast.Attribute) and
+              node.value.func.attr == "append" and
+              isinstance(node.value.func.value, ast.Name) and
+              _case_constant(node.value.func.value.id) and node.value.args and
+              isinstance(node.value.args[0], ast.Constant) and
+              isinstance(node.value.args[0].value, str)):
+            refs.setdefault(node.value.func.value.id, set()).add(
+                node.value.args[0].value)
+    return {name: sorted(values) for name, values in sorted(refs.items())}
+
+
+def _string_constants(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return set()
+    return {node.value for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+
+
+def _inventory(root: Path, directory: str, suffix: str) -> list[str]:
+    base = root / directory
+    return sorted(path.relative_to(base).as_posix()
+                  for path in base.rglob("*" + suffix) if path.is_file())
+
+
+def _test_modules(root: Path) -> list[str]:
+    base = root / "tests"
+    return sorted(path.relative_to(base).as_posix()
+                  for path in base.rglob("test_*.py") if path.is_file())
+
+
+def compare(manifest: dict, observed_refs: dict[str, list[str]],
+            inventories: dict[str, list[str]],
+            runner_auxiliary_paths: list[str] | None = None,
+            protocol_operations: list[str] | None = None,
+            root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    recorded_refs = manifest.get("runner_references", {})
+    for name in sorted(set(observed_refs) | set(recorded_refs)):
+        observed = set(observed_refs.get(name, []))
+        recorded = set(recorded_refs.get(name, []))
+        for item in sorted(observed - recorded):
+            errors.append(f"unclassified runner item {name}: {item}")
+        for item in sorted(recorded - observed):
+            errors.append(f"stale runner ledger item {name}: {item}")
+
+    cases = manifest.get("runner_cases", {})
+    all_cases = {item for values in observed_refs.values() for item in values}
+    for item in sorted(all_cases - set(cases)):
+        errors.append(f"runner case has no Python-target decision: {item}")
+    for item in sorted(set(cases) - all_cases):
+        errors.append(f"stale Python-target runner case: {item}")
+    for item in sorted(all_cases & set(cases)):
+        decision = cases[item]
+        disposition = decision.get("disposition")
+        reason = decision.get("reason", "").strip()
+        if disposition not in {"include", "exclude"} or not reason:
+            errors.append(f"invalid decision or missing reason for runner case: {item}")
+        if disposition == "exclude" and not re.search(
+                r"AST|editor|Java-only", reason, re.IGNORECASE):
+            errors.append(f"runner exclusion must state AST/editor or Java-only reason: {item}")
+
+    recorded_inventories = manifest.get("inventories", {})
+    decisions = manifest.get("fixture_decisions", {})
+    for label, observed in inventories.items():
+        expected = set(recorded_inventories.get(label, []))
+        actual = set(observed)
+        for item in sorted(actual - expected):
+            errors.append(f"unclassified {label} path: {item}")
+        for item in sorted(expected - actual):
+            errors.append(f"stale {label} path: {item}")
+        for item in sorted(actual & expected):
+            record = decisions.get(f"{label}/{item}", {})
+            if record.get("disposition") not in {"include", "exclude"}:
+                errors.append(f"{label} path has no include/exclude decision: {item}")
+            elif record["disposition"] == "exclude" and not record.get("reason", "").strip():
+                errors.append(f"excluded {label} path has no reason: {item}")
+            elif record["disposition"] == "exclude" and not re.search(
+                    r"AST|editor|Java-only", record.get("reason", ""), re.IGNORECASE):
+                errors.append(f"excluded {label} path must state AST/editor or Java-only reason: {item}")
+
+    expected_decision_paths = {
+        f"{label}/{item}" for label, items in recorded_inventories.items()
+        for item in items
+    }
+    for key in sorted(set(decisions) - expected_decision_paths):
+        errors.append(f"stale fixture decision: {key}")
+
+    for name, decision in manifest.get("auxiliary_tests", {}).items():
+        if decision.get("disposition") not in {"include", "exclude"}:
+            errors.append(f"auxiliary test has no include/exclude decision: {name}")
+        if not decision.get("reason", "").strip():
+            errors.append(f"auxiliary test decision has no reason: {name}")
+    for item in manifest.get("auxiliary_tests", {}):
+        if item.startswith("test_"):
+            path = root / "tests" / item
+        elif item.startswith("python/"):
+            path = root / "tests" / item
+        else:
+            path = root / item
+        if not path.is_file():
+            errors.append(f"auxiliary test/support path does not exist: {item}")
+    expected_aux = set(manifest.get("runner_auxiliary_paths", []))
+    actual_aux = set(runner_auxiliary_paths or [])
+    for item in sorted(actual_aux - expected_aux):
+        errors.append(f"unclassified runner auxiliary test path: {item}")
+    for item in sorted(expected_aux - actual_aux):
+        errors.append(f"stale runner auxiliary test path: {item}")
+    expected_protocol = set(manifest.get("p14_protocol_operations", {}))
+    actual_protocol = set(protocol_operations or [])
+    for item in sorted(actual_protocol - expected_protocol):
+        errors.append(f"unclassified P14 protocol operation: {item}")
+    for item in sorted(expected_protocol - actual_protocol):
+        errors.append(f"stale P14 protocol operation: {item}")
+    for operation, decision in manifest.get("p14_protocol_operations", {}).items():
+        if decision.get("disposition") not in {"include", "exclude"} or not decision.get("reason", "").strip():
+            errors.append(f"P14 protocol operation lacks a disposition/reason: {operation}")
+        elif decision["disposition"] == "exclude" and not re.search(
+                r"AST|editor|Java-only", decision["reason"], re.IGNORECASE):
+            errors.append(f"excluded P14 protocol operation must state AST/editor or Java-only reason: {operation}")
+    return errors
+
+
+def audit(root: Path = ROOT, manifest_path: Path = MANIFEST,
+          injected_refs: dict[str, list[str]] | None = None) -> list[str]:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        tree = ast.parse((root / "tests" / "run_tests.py").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, SyntaxError) as exc:
+        return [f"cannot read ledger inputs: {exc}"]
+    refs = _literal_case_refs(tree)
+    runner_aux = sorted({node.value for node in ast.walk(tree)
+                         if isinstance(node, ast.Constant) and
+                         isinstance(node.value, str) and
+                         re.fullmatch(r"test_[A-Za-z0-9_]+\.py", node.value)})
+    protocol_constants = _string_constants(root / "tests" / "test_p14_protocol.py")
+    operations = set()
+    for value in protocol_constants:
+        for line in value.splitlines():
+            if not line.startswith("{"):
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(request, dict) and isinstance(request.get("op"), str):
+                operations.add(request["op"])
+    operations = sorted(operations)
+    if injected_refs:
+        refs = {key: list(values) for key, values in refs.items()}
+        for name, values in injected_refs.items():
+            refs.setdefault(name, []).extend(values)
+    inventories = {
+        "tests_lt": _inventory(root, "tests", ".lt"),
+        "cookbook_lt": _inventory(root, "cookbook", ".lt"),
+        "java_fixture": _inventory(root, "tests/java", ".java"),
+        "python_fixture": _inventory(root, "tests/python", ".py"),
+        "test_module": _test_modules(root),
+    }
+    return compare(manifest, refs, inventories, runner_aux, operations, root)
+
+
+def main() -> int:
+    errors = audit()
+    if errors:
+        print("Python-target test projection ledger: FAIL")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    cases = manifest["runner_cases"]
+    included = sum(row["disposition"] == "include" for row in cases.values())
+    excluded = len(cases) - included
+    print(f"Python-target test projection ledger: PASS "
+          f"({included} included runner cases, {excluded} excluded runner cases; "
+          f"{sum(len(v) for v in manifest['inventories'].values())} inventoried paths)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

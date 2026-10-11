@@ -55,6 +55,43 @@ jobs:
       - name: Run complete regression suite
         run: python tests/run_tests.py
 
+  bootstrap-smoke:
+    name: P15 bootstrap smoke / Python 3.11 / JDK 17
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository and fixed Stage0 history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate Python-target projection ledger
+        run: |
+          python tests/bootstrap/checker.py
+          python tests/bootstrap/test_checker.py
+
+      - name: Test bootstrap host contract
+        run: python tests/test_bootstrap_host.py
+
+      - name: Test fixed Stage0 bootstrap smoke flow
+        run: python tests/test_bootstrap_smoke.py
+
+      - name: Test Latent lexer through fixed Stage0
+        run: python -m unittest tests.test_bootstrap_lexer -v
+
+      - name: Test Latent parser through fixed Stage0
+        run: python -m unittest tests.test_bootstrap_parser -v
+
   vscode-extension:
     name: VS Code extension
     runs-on: ubuntu-latest

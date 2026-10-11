@@ -1,0 +1,176 @@
+# P15 M2 vertical slice. This compiler is intentionally limited to:
+#   - top-level fn definitions using block bodies and explicit returns
+#   - assignments, if/else, while/for, calls, lists/maps and basic expressions
+#   - say statements and true/false/nil literals
+#   - one top-level py import of the form `host = py "latent_host"`
+# Full v0.13.5 compatibility is implemented by later P15 milestones.
+host = py "latent_host"
+
+fn is_word_char(ch):
+    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+    for candidate in alphabet:
+        if ch == candidate:
+            return true
+    return false
+
+fn mapped_word(word):
+    if word == "true":
+        return "True"
+    if word == "false":
+        return "False"
+    if word == "nil":
+        return "None"
+    return word
+
+fn rewrite_words(text):
+    out = ""
+    word = ""
+    quote = nil
+    escaped = false
+    comment = false
+    for ch in text:
+        if comment:
+            out = out + ch
+        elif quote != nil:
+            out = out + ch
+            if escaped:
+                escaped = false
+            elif ch == "\\":
+                escaped = true
+            elif ch == quote:
+                quote = nil
+        elif ch == "#":
+            if len(word) > 0:
+                out = out + mapped_word(word)
+                word = ""
+            out = out + ch
+            comment = true
+        elif ch == "\"" or ch == "'":
+            if len(word) > 0:
+                out = out + mapped_word(word)
+                word = ""
+            quote = ch
+            out = out + ch
+        elif is_word_char(ch):
+            word = word + ch
+        else:
+            if len(word) > 0:
+                out = out + mapped_word(word)
+                word = ""
+            out = out + ch
+    if len(word) > 0:
+        out = out + mapped_word(word)
+    return out
+
+fn split_indent(line):
+    indent = ""
+    content = ""
+    leading = true
+    for ch in line:
+        if leading and ch == " ":
+            indent = indent + ch
+        else:
+            leading = false
+            content = content + ch
+    return {"indent": indent, "content": content}
+
+fn first_word(text):
+    word = ""
+    rest = ""
+    in_word = true
+    for ch in text:
+        if in_word and ch != " " and ch != "\t":
+            word = word + ch
+        else:
+            in_word = false
+            rest = rest + ch
+    return {"word": word, "rest": rest}
+
+fn transform_line(line):
+    parts = split_indent(line)
+    indent = parts["indent"]
+    content = parts["content"]
+    if content == "host = py \"latent_host\"":
+        return indent + "import latent_host as host"
+    head = first_word(content)
+    if head["word"] == "fn":
+        return rewrite_words(indent + "def" + head["rest"])
+    if head["word"] == "say":
+        return rewrite_words(indent + "print(" + head["rest"] + ")")
+    return rewrite_words(line)
+
+fn split_source(source):
+    lines = []
+    current = ""
+    for ch in source:
+        if ch == "\n":
+            lines = lines + [current]
+            current = ""
+        elif ch != "\r":
+            current = current + ch
+    if len(current) > 0:
+        lines = lines + [current]
+    return lines
+
+fn translate(source):
+    output = ""
+    lines = split_source(source)
+    for line in lines:
+        output = output + transform_line(line) + "\n"
+    return output
+
+fn source_stem(path):
+    name = host.path_basename(path)
+    stem = ""
+    for ch in name:
+        if ch == ".":
+            break
+        stem = stem + ch
+    return stem
+
+fn compile_one(source_path, output_dir):
+    read_result = host.read_utf8(source_path)
+    if not read_result["ok"]:
+        host.stderr(source_path + ": input error: " + read_result["error"] + "\n")
+        return 1
+    code = translate(read_result["value"])
+    directory_result = host.make_dirs(output_dir)
+    if not directory_result["ok"]:
+        host.stderr(output_dir + ": output error: " + directory_result["error"] + "\n")
+        return 1
+    output_path = host.path_join(output_dir, source_stem(source_path) + ".py")
+    write_result = host.write_utf8(output_path, code)
+    if not write_result["ok"]:
+        host.stderr(output_path + ": output error: " + write_result["error"] + "\n")
+        return 1
+    host.stdout("wrote " + output_path + "\n")
+    return 0
+
+fn main():
+    args = host.argv()
+    if len(args) == 0:
+        host.stderr("usage: latent source.lt [-o OUTDIR]\n")
+        return 2
+    source_path = ""
+    output_dir = "out"
+    take_output = false
+    for arg in args:
+        if take_output:
+            output_dir = arg
+            take_output = false
+        elif arg == "-o":
+            take_output = true
+        elif source_path == "":
+            source_path = arg
+        else:
+            host.stderr("error: unexpected argument " + arg + "\n")
+            return 2
+    if take_output:
+        host.stderr("error: -o requires a directory\n")
+        return 2
+    if source_path == "":
+        host.stderr("error: source path is required\n")
+        return 2
+    return compile_one(source_path, output_dir)
+
+host.exit_process(main())

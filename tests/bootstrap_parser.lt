@@ -1,0 +1,66 @@
+import "../bootstrap/parser.lt" as parser
+
+fn assert_equal(actual, expected, message):
+    if actual != expected:
+        throw message + ": got " + str(actual)
+
+fn main():
+    result = parser.parse("say 10 - 3 - 2 * 4 + 1\n")
+    if not result["ok"]:
+        throw "precedence source did not parse: " + result["error"]
+    expression = result["tree"]["stmts"][0]["value"]
+    assert_equal(expression["type"], "BinOp", "root expression node")
+    assert_equal(expression["op"], "+", "addition binds last")
+    assert_equal(expression["left"]["op"], "-", "subtraction level")
+    assert_equal(expression["left"]["left"]["op"], "-", "subtraction is left associative")
+    assert_equal(expression["left"]["right"]["op"], "*", "multiplication precedence")
+
+    result = parser.parse("say -2 ** 2\nsay 2 ** 3 ** 2\n")
+    if not result["ok"]:
+        throw "unary/power source did not parse"
+    statements = result["tree"]["stmts"]
+    assert_equal(statements[0]["value"]["type"], "UnOp", "unary binds outside power")
+    assert_equal(statements[0]["value"]["operand"]["op"], "**", "power precedence")
+    assert_equal(statements[1]["value"]["right"]["op"], "**", "power is right associative")
+
+    source = "fn work(xs):\n  total = 0\n  for x in xs:\n    if x > 0:\n      total = total + x\n    elif x == 0:\n      continue\n    else:\n      break\n  while total < 9:\n    total = total + 1\n  return total\n"
+    result = parser.parse(source)
+    if not result["ok"]:
+        throw "function/control-flow source did not parse: " + result["error"]
+    function_node = result["tree"]["stmts"][0]
+    assert_equal(function_node["type"], "FnDef", "function node")
+    assert_equal(function_node["name"], "work", "function name")
+    assert_equal(function_node["params"][0], "xs", "function parameter")
+    assert_equal(function_node["body"][1]["type"], "For", "for body")
+    branch = function_node["body"][1]["body"][0]
+    assert_equal(branch["type"], "If", "if body")
+    assert_equal(branch["else_body"][0]["type"], "If", "elif is chained into else")
+    assert_equal(branch["else_body"][0]["else_body"][0]["type"], "Break", "else block")
+    assert_equal(function_node["body"][2]["type"], "While", "while statement")
+    assert_equal(function_node["body"][3]["type"], "Return", "return statement")
+
+    result = parser.parse("say make(items[0].name, {key: [true, nil]})\n")
+    if not result["ok"]:
+        throw "postfix/list/map expression did not parse"
+    call = result["tree"]["stmts"][0]["value"]
+    assert_equal(call["type"], "Call", "call node")
+    assert_equal(call["args"][0]["type"], "Dot", "dot/subscript chain")
+    assert_equal(call["args"][1]["type"], "Map", "map node")
+
+    result = parser.parse("say 1 +\n")
+    if result["ok"]:
+        throw "incomplete expression should fail"
+    assert_equal(result["line"], 1, "diagnostic line")
+    assert_equal(result["col"], 8, "diagnostic column")
+    assert_equal(result["error"], "unexpected NEWLINE in expression", "diagnostic message")
+
+    result = parser.parse("say [1, 2)\n")
+    if result["ok"]:
+        throw "mismatched close bracket should fail"
+    assert_equal(result["error"], "expected ], got )", "mismatched closer message")
+    assert_equal(result["line"], 1, "mismatched closer line")
+    assert_equal(result["col"], 10, "mismatched closer column")
+
+    say "bootstrap parser ok"
+
+main()

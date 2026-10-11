@@ -1,0 +1,112 @@
+import "../bootstrap/lexer.lt" as lexer
+
+fn assert_token(tokens, index, kind, value, line, col):
+    actual = tokens[index]
+    if actual["kind"] != kind:
+        throw "wrong token kind at index " + str(index) + ": " + str(actual["kind"])
+    if actual["value"] != value:
+        throw "wrong token value at index " + str(index)
+    if actual["line"] != line:
+        throw "wrong token line at index " + str(index)
+    if actual["col"] != col:
+        throw "wrong token column at index " + str(index)
+fn assert_error(source, message, line, col):
+    result = lexer.lex(source)
+    if result["ok"]:
+        throw "expected lexical error: " + message
+    if result["error"] != message:
+        throw "wrong lexical error: " + str(result["error"])
+    if result["line"] != line:
+        throw "wrong lexical error line"
+    if result["col"] != col:
+        throw "wrong lexical error column"
+
+fn main():
+    result = lexer.lex("fn f:\n  say 1.25 # comment\n")
+    if not result["ok"]:
+        throw "ordinary source should lex"
+    tokens = result["tokens"]
+    if len(tokens) != 10:
+        throw "wrong ordinary token count"
+    assert_token(tokens, 0, "FN", "fn", 1, 1)
+    assert_token(tokens, 1, "NAME", "f", 1, 4)
+    assert_token(tokens, 2, ":", ":", 1, 5)
+    assert_token(tokens, 3, "NEWLINE", nil, 1, 6)
+    assert_token(tokens, 4, "INDENT", nil, 2, 1)
+    assert_token(tokens, 5, "SAY", "say", 2, 3)
+    assert_token(tokens, 6, "NUM", 1.25, 2, 7)
+    assert_token(tokens, 7, "NEWLINE", nil, 2, 21)
+    assert_token(tokens, 8, "DEDENT", nil, 3, 1)
+    assert_token(tokens, 9, "EOF", nil, 3, 1)
+
+    result = lexer.lex("# ignored\n\nifx if true false nil and or not\n")
+    if not result["ok"]:
+        throw "keyword source should lex"
+    tokens = result["tokens"]
+    assert_token(tokens, 0, "NAME", "ifx", 3, 1)
+    assert_token(tokens, 1, "IF", "if", 3, 5)
+    assert_token(tokens, 2, "TRUE", "true", 3, 8)
+    assert_token(tokens, 3, "FALSE", "false", 3, 13)
+    assert_token(tokens, 4, "NIL", "nil", 3, 19)
+    assert_token(tokens, 5, "AND", "and", 3, 23)
+    assert_token(tokens, 6, "OR", "or", 3, 27)
+    assert_token(tokens, 7, "NOT", "not", 3, 30)
+    assert_token(tokens, 8, "NEWLINE", nil, 3, 33)
+    assert_token(tokens, 9, "EOF", nil, 4, 1)
+
+    result = lexer.lex("fn elif else while for in and or not py java say return break continue class try catch throw import as super global nonlocal")
+    if not result["ok"]:
+        throw "reserved-word source should lex"
+    expected_kinds = ["FN", "ELIF", "ELSE", "WHILE", "FOR", "IN", "AND", "OR", "NOT", "PY", "JAVA", "SAY", "RETURN", "BREAK", "CONTINUE", "CLASS", "TRY", "CATCH", "THROW", "IMPORT", "AS", "SUPER", "GLOBAL", "NONLOCAL"]
+    index = 0
+    for expected_kind in expected_kinds:
+        if result["tokens"][index]["kind"] != expected_kind:
+            throw "reserved-word kind mismatch at index " + str(index)
+        index = index + 1
+    if result["tokens"][index]["kind"] != "NEWLINE":
+        throw "reserved-word newline missing"
+
+    result = lexer.lex("say .5 + 5.\nsay \"a\\nb\"\n")
+    if not result["ok"]:
+        throw "number/string source should lex"
+    tokens = result["tokens"]
+    assert_token(tokens, 1, "NUM", 0.5, 1, 5)
+    assert_token(tokens, 3, "NUM", 5, 1, 10)
+    assert_token(tokens, 6, "STR", "a\nb", 2, 5)
+
+    result = lexer.lex("say 'a\\t\\r\\0\\\"\\'\\\\q'\n")
+    if not result["ok"]:
+        throw "escaped-string source should lex"
+    assert_token(result["tokens"], 1, "STR", "a\t\r\0\"'\\q", 1, 5)
+
+    result = lexer.lex("== != <= >= ** => + - * / % < > = ( ) : , [ ] . { }\n")
+    if not result["ok"]:
+        throw "operator source should lex"
+    tokens = result["tokens"]
+    assert_token(tokens, 0, "==", "==", 1, 1)
+    assert_token(tokens, 1, "!=", "!=", 1, 4)
+    assert_token(tokens, 5, "=>", "=>", 1, 16)
+    assert_token(tokens, 6, "+", "+", 1, 19)
+    assert_token(tokens, 22, "}", "}", 1, 51)
+    operator_kinds = ["==", "!=", "<=", ">=", "**", "=>", "+", "-", "*", "/", "%", "<", ">", "=", "(", ")", ":", ",", "[", "]", ".", "{", "}"]
+    index = 0
+    for expected_kind in operator_kinds:
+        if tokens[index]["kind"] != expected_kind:
+            throw "operator kind mismatch at index " + str(index)
+        index = index + 1
+
+    result = lexer.lex("say 1\n  # comment\n\n  say 2\nsay 3")
+    if not result["ok"]:
+        throw "blank/comment lines should not alter indentation"
+    assert_token(result["tokens"], 3, "INDENT", nil, 4, 1)
+    assert_token(result["tokens"], 7, "DEDENT", nil, 5, 1)
+
+    assert_error("\tname", "tab indentation is not allowed, use spaces", 1, 1)
+    assert_error("if true:\n    say 1\n  say 2\n", "inconsistent indentation", 3, 1)
+    assert_error("say 1.2.3", "bad number '1.2.3'", 1, 5)
+    assert_error("say \"open", "unterminated string", 1, 5)
+    assert_error("say $", "unexpected character '$'", 1, 5)
+    assert_error("say \tname", "unexpected character '\\t'", 1, 5)
+    say "bootstrap lexer ok"
+
+main()

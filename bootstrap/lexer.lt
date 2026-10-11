@@ -1,0 +1,283 @@
+# P15 M3 full-source lexical scan, written in Latent (no host tokenizer).
+import "model.lt" as model
+
+fn contains_character(text, target):
+    for candidate in text:
+        if candidate == target:
+            return true
+    return false
+fn is_digit(ch):
+    return contains_character("0123456789", ch)
+fn is_letter(ch):
+    return contains_character("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", ch)
+fn is_word_tail(ch):
+    return is_letter(ch) or is_digit(ch)
+fn digit_value(ch):
+    if ch == "0":
+        return 0
+    if ch == "1":
+        return 1
+    if ch == "2":
+        return 2
+    if ch == "3":
+        return 3
+    if ch == "4":
+        return 4
+    if ch == "5":
+        return 5
+    if ch == "6":
+        return 6
+    if ch == "7":
+        return 7
+    if ch == "8":
+        return 8
+    return 9
+fn keyword_kind(word):
+    if word == "fn":
+        return "FN"
+    if word == "if":
+        return "IF"
+    if word == "elif":
+        return "ELIF"
+    if word == "else":
+        return "ELSE"
+    if word == "while":
+        return "WHILE"
+    if word == "for":
+        return "FOR"
+    if word == "in":
+        return "IN"
+    if word == "and":
+        return "AND"
+    if word == "or":
+        return "OR"
+    if word == "not":
+        return "NOT"
+    if word == "true":
+        return "TRUE"
+    if word == "false":
+        return "FALSE"
+    if word == "nil":
+        return "NIL"
+    if word == "py":
+        return "PY"
+    if word == "java":
+        return "JAVA"
+    if word == "say":
+        return "SAY"
+    if word == "return":
+        return "RETURN"
+    if word == "break":
+        return "BREAK"
+    if word == "continue":
+        return "CONTINUE"
+    if word == "class":
+        return "CLASS"
+    if word == "try":
+        return "TRY"
+    if word == "catch":
+        return "CATCH"
+    if word == "throw":
+        return "THROW"
+    if word == "import":
+        return "IMPORT"
+    if word == "as":
+        return "AS"
+    if word == "super":
+        return "SUPER"
+    if word == "global":
+        return "GLOBAL"
+    if word == "nonlocal":
+        return "NONLOCAL"
+    return "NAME"
+fn token_at(kind, value, line, col):
+    return model.token(kind, value, line, col)
+fn character_repr(ch):
+    if ch == "'":
+        return "\"'\""
+    if ch == "\"":
+        return "'\"'"
+    if ch == "\\":
+        return "'\\\\'"
+    if ch == "\t":
+        return "'\\t'"
+    if ch == "\n":
+        return "'\\n'"
+    if ch == "\r":
+        return "'\\r'"
+    return "'" + ch + "'"
+fn is_blank_or_comment(line):
+    i = 0
+    while i < len(line) and (line[i] == " " or line[i] == "\t"):
+        i = i + 1
+    return i == len(line) or line[i] == "#"
+fn source_lines(source):
+    lines = []
+    current = ""
+    for ch in source:
+        if ch == "\n":
+            lines = lines + [current]
+            current = ""
+        else:
+            current = current + ch
+    return lines + [current]
+fn trim_trailing_cr(line):
+    end = len(line)
+    while end > 0 and line[end - 1] == "\r":
+        end = end - 1
+    out = ""
+    i = 0
+    while i < end:
+        out = out + line[i]
+        i = i + 1
+    return out
+fn scan_number(line, start, lineno):
+    end = start
+    dot_count = 0
+    digit_count = 0
+    while end < len(line) and (is_digit(line[end]) or line[end] == "."):
+        if line[end] == ".":
+            dot_count = dot_count + 1
+        else:
+            digit_count = digit_count + 1
+        end = end + 1
+    raw = ""
+    i = start
+    while i < end:
+        raw = raw + line[i]
+        i = i + 1
+    if dot_count > 1 or digit_count == 0:
+        return {"ok": false, "end": end, "value": 0, "error": "bad number '" + raw + "'", "line": lineno, "col": start + 1}
+    whole = 0
+    fraction = 0
+    scale = 1
+    after_dot = false
+    i = start
+    while i < end:
+        ch = line[i]
+        if ch == ".":
+            after_dot = true
+        elif after_dot:
+            fraction = fraction * 10 + digit_value(ch)
+            scale = scale * 10
+        else:
+            whole = whole * 10 + digit_value(ch)
+        i = i + 1
+    return {"ok": true, "end": end, "value": whole + fraction / scale, "error": nil, "line": lineno, "col": start + 1}
+fn scan_string(line, start, lineno):
+    quote = line[start]
+    i = start + 1
+    value = ""
+    while i < len(line):
+        ch = line[i]
+        if ch == quote:
+            return {"ok": true, "end": i + 1, "value": value, "error": nil, "line": lineno, "col": start + 1}
+        if ch == "\\":
+            if i + 1 >= len(line):
+                return {"ok": false, "end": i, "value": value, "error": "unterminated string", "line": lineno, "col": start + 1}
+            escaped = line[i + 1]
+            if escaped == "n":
+                value = value + "\n"
+            elif escaped == "t":
+                value = value + "\t"
+            elif escaped == "r":
+                value = value + "\r"
+            elif escaped == "0":
+                value = value + "\0"
+            else:
+                value = value + escaped
+            i = i + 2
+        else:
+            value = value + ch
+            i = i + 1
+    return {"ok": false, "end": i, "value": value, "error": "unterminated string", "line": lineno, "col": start + 1}
+fn scan_line(line, lineno, base):
+    tokens = []
+    i = base
+    while i < len(line):
+        ch = line[i]
+        col = i + 1
+        if ch == " ":
+            i = i + 1
+        elif ch == "#":
+            i = len(line)
+        elif is_letter(ch):
+            end = i + 1
+            while end < len(line) and is_word_tail(line[end]):
+                end = end + 1
+            word = ""
+            j = i
+            while j < end:
+                word = word + line[j]
+                j = j + 1
+            tokens = tokens + [token_at(keyword_kind(word), word, lineno, col)]
+            i = end
+        elif is_digit(ch) or (ch == "." and i + 1 < len(line) and is_digit(line[i + 1])):
+            number = scan_number(line, i, lineno)
+            if not number["ok"]:
+                return model.failure(tokens, number["error"], number["line"], number["col"])
+            tokens = tokens + [token_at("NUM", number["value"], lineno, col)]
+            i = number["end"]
+        elif ch == "\"" or ch == "'":
+            string = scan_string(line, i, lineno)
+            if not string["ok"]:
+                return model.failure(tokens, string["error"], string["line"], string["col"])
+            tokens = tokens + [token_at("STR", string["value"], lineno, col)]
+            i = string["end"]
+        else:
+            two = ""
+            if i + 1 < len(line):
+                two = ch + line[i + 1]
+            if two == "==" or two == "!=" or two == "<=" or two == ">=" or two == "**" or two == "=>":
+                tokens = tokens + [token_at(two, two, lineno, col)]
+                i = i + 2
+            elif contains_character("+-*/%<>=():,[].{}", ch):
+                tokens = tokens + [token_at(ch, ch, lineno, col)]
+                i = i + 1
+            else:
+                return model.failure(tokens, "unexpected character " + character_repr(ch), lineno, col)
+    return model.success(tokens)
+fn lex(source):
+    tokens = []
+    indents = [0]
+    depth = 0
+    lines = source_lines(source)
+    lineno = 1
+    for raw in lines:
+        line = trim_trailing_cr(raw)
+        if not is_blank_or_comment(line):
+            # Match the reference's prefix rule: tabs are forbidden only in
+            # leading indentation, before the first non-space character.
+            prefix = 0
+            checking_prefix = true
+            while prefix < len(line) and checking_prefix:
+                if line[prefix] == "\t":
+                    return model.failure(tokens, "tab indentation is not allowed, use spaces", lineno, prefix + 1)
+                if line[prefix] != " ":
+                    checking_prefix = false
+                else:
+                    prefix = prefix + 1
+            indent = 0
+            while indent < len(line) and line[indent] == " ":
+                indent = indent + 1
+            if indent > indents[depth]:
+                indents = indents + [indent]
+                depth = depth + 1
+                tokens = tokens + [token_at("INDENT", nil, lineno, 1)]
+            else:
+                while indent < indents[depth]:
+                    depth = depth - 1
+                    tokens = tokens + [token_at("DEDENT", nil, lineno, 1)]
+                if indent != indents[depth]:
+                    return model.failure(tokens, "inconsistent indentation", lineno, 1)
+            scanned = scan_line(line, lineno, indent)
+            tokens = tokens + scanned["tokens"]
+            if not scanned["ok"]:
+                return model.failure(tokens, scanned["error"], scanned["line"], scanned["col"])
+            tokens = tokens + [token_at("NEWLINE", nil, lineno, len(line) + 1)]
+        lineno = lineno + 1
+    while depth > 0:
+        depth = depth - 1
+        tokens = tokens + [token_at("DEDENT", nil, len(lines), 1)]
+    tokens = tokens + [token_at("EOF", nil, len(lines), 1)]
+    return model.success(tokens)

@@ -1,0 +1,3020 @@
+{
+  "format": "latent-python-target-test-projection-v1",
+  "runner_references": {
+    "COOKBOOK": [
+      "classes",
+      "functions",
+      "inheritance",
+      "interop_bound_methods",
+      "interop_function_values",
+      "java_bigdecimal",
+      "java_collections",
+      "java_nio",
+      "java_strings",
+      "java_time",
+      "keyword_only_arguments",
+      "mixed_io",
+      "modules",
+      "named_arguments",
+      "pipeline",
+      "py_datetime",
+      "py_json",
+      "py_math",
+      "py_os",
+      "py_re",
+      "variadic_arguments"
+    ],
+    "INHERITANCE_COMPILE_MARKERS": [
+      "inheritance_negative/cycle",
+      "inheritance_negative/not_class",
+      "inheritance_negative/self_cycle",
+      "inheritance_negative/super_missing_method",
+      "inheritance_negative/super_no_parent",
+      "inheritance_negative/super_top",
+      "inheritance_negative/super_wrong_receiver",
+      "inheritance_negative/unknown"
+    ],
+    "MODULE_COMPILE_MARKERS": [
+      "modules/negative/bad_extension/main",
+      "modules/negative/collision/main",
+      "modules/negative/cycle/main",
+      "modules/negative/function_value/main",
+      "modules/negative/inherit_not_class/main",
+      "modules/negative/inherit_private/main",
+      "modules/negative/late/main",
+      "modules/negative/leak/main",
+      "modules/negative/missing/main",
+      "modules/negative/missing_export/main",
+      "modules/negative/namespace_value/main",
+      "modules/negative/nested/main",
+      "modules/negative/private/main",
+      "modules/negative/readonly/main"
+    ],
+    "MODULE_POSITIVE": [
+      "modules/app/main",
+      "modules/bound_methods/main",
+      "modules/default_arguments/main",
+      "modules/function_values/main",
+      "modules/inheritance/main",
+      "modules/keyword_only/main",
+      "modules/named_arguments/main",
+      "modules/nonlocal/main",
+      "modules/same/main",
+      "modules/variadic/main"
+    ],
+    "NEG_COMPILE": [
+      "err_arity",
+      "err_assign_target",
+      "err_break",
+      "err_dupmethod",
+      "err_exprstmt",
+      "err_nested_readbefore",
+      "err_p6_nonlocal_class",
+      "err_p6_nonlocal_duplicate",
+      "err_p6_nonlocal_global",
+      "err_p6_nonlocal_missing",
+      "err_p6_nonlocal_parameter",
+      "err_p6_nonlocal_top",
+      "err_readbefore",
+      "err_undef"
+    ],
+    "NEG_INHERITANCE_COMPILE": [
+      "inheritance_negative/cycle",
+      "inheritance_negative/not_class",
+      "inheritance_negative/self_cycle",
+      "inheritance_negative/super_missing_method",
+      "inheritance_negative/super_no_parent",
+      "inheritance_negative/super_top",
+      "inheritance_negative/super_wrong_receiver",
+      "inheritance_negative/unknown"
+    ],
+    "NEG_MODULE_COMPILE": [
+      "modules/negative/bad_extension/main",
+      "modules/negative/collision/main",
+      "modules/negative/cycle/main",
+      "modules/negative/function_value/main",
+      "modules/negative/inherit_not_class/main",
+      "modules/negative/inherit_private/main",
+      "modules/negative/late/main",
+      "modules/negative/leak/main",
+      "modules/negative/missing/main",
+      "modules/negative/missing_export/main",
+      "modules/negative/namespace_value/main",
+      "modules/negative/nested/main",
+      "modules/negative/private/main",
+      "modules/negative/readonly/main"
+    ],
+    "NEG_RUNTIME": [
+      "err_index_key",
+      "err_index_range",
+      "err_location_java_handle",
+      "err_location_loop",
+      "err_location_method",
+      "err_location_nested",
+      "err_location_py_handle",
+      "err_location_throw",
+      "err_location_top",
+      "err_location_try",
+      "err_nofield",
+      "err_nomethod",
+      "java_lazy_use",
+      "modules/runtime/main",
+      "p10_negative/duplicate_mappings",
+      "p10_negative/duplicate_named_mapping",
+      "p10_negative/duplicate_star_named",
+      "p10_negative/java_interop_star",
+      "p10_negative/java_interop_starstar",
+      "p10_negative/missing_expanded",
+      "p10_negative/nonlist_star",
+      "p10_negative/nonmap_starstar",
+      "p10_negative/nonstring_key",
+      "p10_negative/python_interop_star",
+      "p10_negative/python_interop_starstar",
+      "p10_negative/too_many_expanded",
+      "p10_negative/unknown_expanded",
+      "p11_runtime_negative/bound_missing",
+      "p11_runtime_negative/constructor_missing",
+      "p11_runtime_negative/duplicate_mapping",
+      "p11_runtime_negative/indirect_missing",
+      "p11_runtime_negative/position_does_not_bind",
+      "p11_runtime_negative/starstar_missing",
+      "p11_runtime_negative/unknown_mapping",
+      "p13_negative/callback",
+      "p13_negative/java_callback",
+      "p13_negative/java_constructor",
+      "p13_negative/java_named",
+      "p13_negative/java_star",
+      "p13_negative/java_starstar",
+      "p13_negative/python_builtin",
+      "p13_negative/python_named",
+      "p13_negative/python_star",
+      "p13_negative/python_starstar",
+      "p14_negative/java_opaque_callable",
+      "p14_negative/module_bad_arity",
+      "p14_negative/module_builtin_len",
+      "p14_negative/module_callable_object",
+      "p14_negative/module_callback",
+      "p14_negative/module_dynamic_callable",
+      "p14_negative/module_list_callback",
+      "p14_negative/module_named",
+      "p14_negative/module_nested_callback",
+      "p14_negative/module_star",
+      "p14_negative/module_starstar",
+      "p14_negative/module_wrapper_callback",
+      "p14_negative/static_callback",
+      "p14_negative/static_collision_value",
+      "p14_negative/static_constructor_value",
+      "p14_negative/static_list_callback",
+      "p14_negative/static_named",
+      "p14_negative/static_nested_callback",
+      "p14_negative/static_no_match",
+      "p14_negative/static_star",
+      "p14_negative/static_starstar",
+      "p14_negative/static_wrapper_callback",
+      "p7_bound_method_error",
+      "p8_negative/bound_unknown",
+      "p8_negative/indirect_duplicate",
+      "p8_negative/indirect_duplicate_position",
+      "p8_negative/indirect_extra",
+      "p8_negative/indirect_missing",
+      "p8_negative/indirect_unknown",
+      "p8_negative/java_interop_constructor",
+      "p8_negative/java_interop_method",
+      "p8_negative/python_interop",
+      "p9_negative/bound_missing",
+      "p9_negative/indirect_duplicate",
+      "p9_negative/indirect_missing",
+      "p9_negative/indirect_unknown",
+      "phase1_negative/ambiguous_constructor",
+      "phase1_negative/ambiguous_method",
+      "phase1_negative/ambiguous_numeric_types",
+      "phase1_negative/ambiguous_parameters",
+      "py_lazy_use"
+    ],
+    "NONLOCAL_COMPILE_MARKERS": [
+      "err_p6_nonlocal_class",
+      "err_p6_nonlocal_duplicate",
+      "err_p6_nonlocal_global",
+      "err_p6_nonlocal_missing",
+      "err_p6_nonlocal_parameter",
+      "err_p6_nonlocal_top"
+    ],
+    "P10_EXPECTED_STDOUT": [
+      "modules/variadic/main",
+      "p10_variadic_arguments"
+    ],
+    "P10_NEG_COMPILE": [
+      "p10_negative/builtin_star",
+      "p10_negative/builtin_starstar",
+      "p10_negative/duplicate_extra",
+      "p10_negative/duplicate_rest",
+      "p10_negative/keyword_only",
+      "p10_negative/positional_after_variadic",
+      "p10_negative/rest_after_extra",
+      "p10_negative/unpack_after_named"
+    ],
+    "P10_RUNTIME_ERROR_MARKERS": [
+      "p10_negative/duplicate_mappings",
+      "p10_negative/duplicate_named_mapping",
+      "p10_negative/duplicate_star_named",
+      "p10_negative/java_interop_star",
+      "p10_negative/java_interop_starstar",
+      "p10_negative/missing_expanded",
+      "p10_negative/nonlist_star",
+      "p10_negative/nonmap_starstar",
+      "p10_negative/nonstring_key",
+      "p10_negative/python_interop_star",
+      "p10_negative/python_interop_starstar",
+      "p10_negative/too_many_expanded",
+      "p10_negative/unknown_expanded"
+    ],
+    "P11_EXPECTED_STDOUT": [
+      "modules/keyword_only/main",
+      "p11_keyword_only_parameters"
+    ],
+    "P11_NEG_COMPILE": [
+      "p11_negative/after_extra",
+      "p11_negative/bare_star_empty",
+      "p11_negative/collector_capacity",
+      "p11_negative/constructor_missing",
+      "p11_negative/default_future",
+      "p11_negative/duplicate_name",
+      "p11_negative/duplicate_separator",
+      "p11_negative/keyword_only_receiver",
+      "p11_negative/method_missing",
+      "p11_negative/position_does_not_bind",
+      "p11_negative/positional_capacity",
+      "p11_negative/required_missing",
+      "p11_negative/super_missing",
+      "p11_negative/unknown_name"
+    ],
+    "P11_RUNTIME_ERROR_MARKERS": [
+      "p11_runtime_negative/bound_missing",
+      "p11_runtime_negative/constructor_missing",
+      "p11_runtime_negative/duplicate_mapping",
+      "p11_runtime_negative/indirect_missing",
+      "p11_runtime_negative/position_does_not_bind",
+      "p11_runtime_negative/starstar_missing",
+      "p11_runtime_negative/unknown_mapping"
+    ],
+    "P12_EXPECTED_STDOUT": [
+      "p12_override_compatibility"
+    ],
+    "P12_NEG_COMPILE": [
+      "inheritance_negative/override_arity",
+      "p12_negative/missing_extra",
+      "p12_negative/missing_keyword_name_extra",
+      "p12_negative/missing_rest",
+      "p12_negative/new_required_keyword_only",
+      "p12_negative/new_required_positional",
+      "p12_negative/optional_to_required",
+      "p12_negative/positional_reorder",
+      "p12_negative/positional_to_keyword_only",
+      "p12_negative/rename_extra"
+    ],
+    "P14_RUNTIME_ERROR_MARKERS": [
+      "p14_negative/java_opaque_callable",
+      "p14_negative/module_builtin_len",
+      "p14_negative/module_callable_object",
+      "p14_negative/module_callback",
+      "p14_negative/module_dynamic_callable",
+      "p14_negative/module_list_callback",
+      "p14_negative/module_named",
+      "p14_negative/module_nested_callback",
+      "p14_negative/module_star",
+      "p14_negative/module_starstar",
+      "p14_negative/module_wrapper_callback",
+      "p14_negative/static_callback",
+      "p14_negative/static_collision_value",
+      "p14_negative/static_list_callback",
+      "p14_negative/static_named",
+      "p14_negative/static_nested_callback",
+      "p14_negative/static_star",
+      "p14_negative/static_starstar",
+      "p14_negative/static_wrapper_callback"
+    ],
+    "P5_EXPECTED_STDOUT": [
+      "modules/function_values/main",
+      "p5_closure_capture",
+      "p5_global",
+      "p5_invalid_calls",
+      "p5_recursion",
+      "p5_shadowing",
+      "p5_shared_capture",
+      "p5_values"
+    ],
+    "P6_EXPECTED_STDOUT": [
+      "modules/nonlocal/main",
+      "p6_nonlocal_nearest",
+      "p6_nonlocal_nested_scope",
+      "p6_nonlocal_returned",
+      "p6_nonlocal_shared",
+      "p6_nonlocal_skip"
+    ],
+    "P7_EXPECTED_STDOUT": [
+      "modules/bound_methods/main",
+      "p7_bound_methods"
+    ],
+    "P8_EXPECTED_STDOUT": [
+      "modules/named_arguments/main",
+      "p8_named_arguments"
+    ],
+    "P8_NEG_COMPILE": [
+      "inheritance_bad_init_arity",
+      "modules/named_negative/main",
+      "p8_negative/bad_order",
+      "p8_negative/builtin",
+      "p8_negative/constructor_missing",
+      "p8_negative/constructor_unknown",
+      "p8_negative/duplicate",
+      "p8_negative/duplicate_position",
+      "p8_negative/extra",
+      "p8_negative/method_missing",
+      "p8_negative/method_unknown",
+      "p8_negative/missing",
+      "p8_negative/super_unknown",
+      "p8_negative/unknown"
+    ],
+    "P8_RUNTIME_ERROR_MARKERS": [
+      "p8_negative/bound_unknown",
+      "p8_negative/indirect_duplicate",
+      "p8_negative/indirect_duplicate_position",
+      "p8_negative/indirect_extra",
+      "p8_negative/indirect_missing",
+      "p8_negative/indirect_unknown",
+      "p8_negative/java_interop_constructor",
+      "p8_negative/java_interop_method",
+      "p8_negative/python_interop"
+    ],
+    "P9_EXPECTED_STDOUT": [
+      "modules/default_arguments/main",
+      "p9_default_parameters"
+    ],
+    "P9_NEG_COMPILE": [
+      "p9_negative/default_future_parameter",
+      "p9_negative/default_receiver",
+      "p9_negative/required_after_default",
+      "p9_negative/static_duplicate",
+      "p9_negative/static_missing",
+      "p9_negative/static_unknown"
+    ],
+    "P9_RUNTIME_ERROR_MARKERS": [
+      "p9_negative/bound_missing",
+      "p9_negative/indirect_duplicate",
+      "p9_negative/indirect_missing",
+      "p9_negative/indirect_unknown"
+    ],
+    "PHASE1_RUNTIME_ERROR_MARKERS": [
+      "phase1_negative/ambiguous_constructor",
+      "phase1_negative/ambiguous_method",
+      "phase1_negative/ambiguous_numeric_types",
+      "phase1_negative/ambiguous_parameters"
+    ],
+    "POSITIVE": [
+      "class_basic",
+      "data",
+      "fib",
+      "hello",
+      "indexing",
+      "inheritance",
+      "java_basic",
+      "java_lazy",
+      "loop",
+      "mixed",
+      "p10_variadic_arguments",
+      "p11_keyword_only_parameters",
+      "p12_override_compatibility",
+      "p13_interop_bound_methods",
+      "p14_module_and_static_values",
+      "p14_static_method_extraction",
+      "p5_closure_capture",
+      "p5_global",
+      "p5_invalid_calls",
+      "p5_recursion",
+      "p5_shadowing",
+      "p5_shared_capture",
+      "p5_values",
+      "p6_nonlocal_nearest",
+      "p6_nonlocal_nested_scope",
+      "p6_nonlocal_returned",
+      "p6_nonlocal_shared",
+      "p6_nonlocal_skip",
+      "p7_bound_methods",
+      "p8_named_arguments",
+      "p9_default_parameters",
+      "phase1_semantics",
+      "py_basic",
+      "py_lazy",
+      "py_numpy",
+      "scope",
+      "setassign",
+      "str_interp",
+      "truthy",
+      "try_basic"
+    ],
+    "RUNTIME_ERROR_MARKERS": [
+      "p7_bound_method_error"
+    ],
+    "RUNTIME_SOURCE_LINES": [
+      "err_index_key",
+      "err_index_range",
+      "err_location_java_handle",
+      "err_location_loop",
+      "err_location_method",
+      "err_location_nested",
+      "err_location_py_handle",
+      "err_location_throw",
+      "err_location_top",
+      "err_location_try",
+      "err_nofield",
+      "err_nomethod",
+      "java_lazy_use",
+      "p10_negative/duplicate_mappings",
+      "p10_negative/duplicate_named_mapping",
+      "p10_negative/duplicate_star_named",
+      "p10_negative/java_interop_star",
+      "p10_negative/java_interop_starstar",
+      "p10_negative/missing_expanded",
+      "p10_negative/nonlist_star",
+      "p10_negative/nonmap_starstar",
+      "p10_negative/nonstring_key",
+      "p10_negative/python_interop_star",
+      "p10_negative/python_interop_starstar",
+      "p10_negative/too_many_expanded",
+      "p10_negative/unknown_expanded",
+      "p11_runtime_negative/bound_missing",
+      "p11_runtime_negative/constructor_missing",
+      "p11_runtime_negative/duplicate_mapping",
+      "p11_runtime_negative/indirect_missing",
+      "p11_runtime_negative/position_does_not_bind",
+      "p11_runtime_negative/starstar_missing",
+      "p11_runtime_negative/unknown_mapping",
+      "p13_negative/callback",
+      "p13_negative/java_callback",
+      "p13_negative/java_constructor",
+      "p13_negative/java_named",
+      "p13_negative/java_star",
+      "p13_negative/java_starstar",
+      "p13_negative/python_builtin",
+      "p13_negative/python_named",
+      "p13_negative/python_star",
+      "p13_negative/python_starstar",
+      "p14_negative/java_opaque_callable",
+      "p14_negative/module_bad_arity",
+      "p14_negative/module_builtin_len",
+      "p14_negative/module_callable_object",
+      "p14_negative/module_callback",
+      "p14_negative/module_dynamic_callable",
+      "p14_negative/module_list_callback",
+      "p14_negative/module_named",
+      "p14_negative/module_nested_callback",
+      "p14_negative/module_star",
+      "p14_negative/module_starstar",
+      "p14_negative/module_wrapper_callback",
+      "p14_negative/static_callback",
+      "p14_negative/static_collision_value",
+      "p14_negative/static_constructor_value",
+      "p14_negative/static_list_callback",
+      "p14_negative/static_named",
+      "p14_negative/static_nested_callback",
+      "p14_negative/static_no_match",
+      "p14_negative/static_star",
+      "p14_negative/static_starstar",
+      "p14_negative/static_wrapper_callback",
+      "p7_bound_method_error",
+      "p8_negative/bound_unknown",
+      "p8_negative/indirect_duplicate",
+      "p8_negative/indirect_duplicate_position",
+      "p8_negative/indirect_extra",
+      "p8_negative/indirect_missing",
+      "p8_negative/indirect_unknown",
+      "p8_negative/java_interop_constructor",
+      "p8_negative/java_interop_method",
+      "p8_negative/python_interop",
+      "p9_negative/bound_missing",
+      "p9_negative/indirect_duplicate",
+      "p9_negative/indirect_missing",
+      "p9_negative/indirect_unknown",
+      "phase1_negative/ambiguous_constructor",
+      "phase1_negative/ambiguous_method",
+      "phase1_negative/ambiguous_numeric_types",
+      "phase1_negative/ambiguous_parameters",
+      "py_lazy_use"
+    ],
+    "RUNTIME_SOURCE_MARKERS": [
+      "modules/runtime/main"
+    ]
+  },
+  "runner_cases": {
+    "class_basic": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "classes": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "data": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_arity": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_assign_target": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_break": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_dupmethod": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_exprstmt": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_index_key": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_index_range": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_java_handle": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_loop": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_method": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_nested": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_py_handle": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_throw": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_top": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_location_try": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_nested_readbefore": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_nofield": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_nomethod": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_p6_nonlocal_class": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_p6_nonlocal_duplicate": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_p6_nonlocal_global": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_p6_nonlocal_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_p6_nonlocal_parameter": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_p6_nonlocal_top": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_readbefore": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "err_undef": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "fib": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "functions": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "hello": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "indexing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_bad_init_arity": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/cycle": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/not_class": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/override_arity": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/self_cycle": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/super_missing_method": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/super_no_parent": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/super_top": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/super_wrong_receiver": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "inheritance_negative/unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "interop_bound_methods": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "interop_function_values": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_basic": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_bigdecimal": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_collections": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_lazy": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_lazy_use": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_nio": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_strings": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "java_time": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "keyword_only_arguments": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "loop": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "mixed": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "mixed_io": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/app/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/bound_methods/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/default_arguments/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/function_values/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/inheritance/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/keyword_only/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/named_arguments/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/named_negative/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/bad_extension/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/collision/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/cycle/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/function_value/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/inherit_not_class/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/inherit_private/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/late/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/leak/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/missing/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/missing_export/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/namespace_value/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/nested/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/private/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/negative/readonly/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/nonlocal/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/runtime/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/same/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "modules/variadic/main": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "named_arguments": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/builtin_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/builtin_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/duplicate_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/duplicate_mappings": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/duplicate_named_mapping": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/duplicate_rest": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/duplicate_star_named": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/java_interop_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/java_interop_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/keyword_only": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/missing_expanded": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/nonlist_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/nonmap_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/nonstring_key": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/positional_after_variadic": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/python_interop_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/python_interop_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/rest_after_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/too_many_expanded": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/unknown_expanded": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_negative/unpack_after_named": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p10_variadic_arguments": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_keyword_only_parameters": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/after_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/bare_star_empty": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/collector_capacity": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/constructor_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/default_future": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/duplicate_name": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/duplicate_separator": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/keyword_only_receiver": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/method_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/position_does_not_bind": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/positional_capacity": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/required_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/super_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_negative/unknown_name": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/bound_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/constructor_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/duplicate_mapping": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/indirect_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/position_does_not_bind": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/starstar_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p11_runtime_negative/unknown_mapping": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/missing_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/missing_keyword_name_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/missing_rest": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/new_required_keyword_only": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/new_required_positional": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/optional_to_required": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/positional_reorder": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/positional_to_keyword_only": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_negative/rename_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p12_override_compatibility": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_interop_bound_methods": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/java_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/java_constructor": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/java_named": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/java_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/java_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/python_builtin": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/python_named": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/python_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p13_negative/python_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_module_and_static_values": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/java_opaque_callable": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_bad_arity": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_builtin_len": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_callable_object": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_dynamic_callable": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_list_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_named": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_nested_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/module_wrapper_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_collision_value": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_constructor_value": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_list_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_named": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_nested_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_no_match": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_star": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_starstar": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_negative/static_wrapper_callback": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p14_static_method_extraction": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_closure_capture": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_global": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_invalid_calls": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_recursion": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_shadowing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_shared_capture": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p5_values": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p6_nonlocal_nearest": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p6_nonlocal_nested_scope": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p6_nonlocal_returned": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p6_nonlocal_shared": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p6_nonlocal_skip": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p7_bound_method_error": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p7_bound_methods": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_named_arguments": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/bad_order": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/bound_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/builtin": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/constructor_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/constructor_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/duplicate": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/duplicate_position": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/indirect_duplicate": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/indirect_duplicate_position": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/indirect_extra": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/indirect_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/indirect_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/java_interop_constructor": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/java_interop_method": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/method_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/method_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/python_interop": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/super_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p8_negative/unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_default_parameters": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/bound_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/default_future_parameter": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/default_receiver": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/indirect_duplicate": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/indirect_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/indirect_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/required_after_default": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/static_duplicate": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/static_missing": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "p9_negative/static_unknown": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "phase1_negative/ambiguous_constructor": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "phase1_negative/ambiguous_method": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "phase1_negative/ambiguous_numeric_types": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "phase1_negative/ambiguous_parameters": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "phase1_semantics": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "pipeline": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_basic": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_datetime": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_json": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_lazy": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_lazy_use": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_math": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_numpy": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_os": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "py_re": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "scope": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "setassign": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "str_interp": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "truthy": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "try_basic": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    },
+    "variadic_arguments": {
+      "disposition": "include",
+      "reason": "Explicit run_tests.py case has a Python-target compile/run or compile-rejection leg, including each listed negative and cookbook case."
+    }
+  },
+  "runner_auxiliary_paths": [
+    "test_diagnostics.py",
+    "test_differential_properties.py",
+    "test_p14_protocol.py"
+  ],
+  "p14_protocol_operations": {
+    "call_module_function": {
+      "disposition": "include",
+      "reason": "Python daemon operation checks a stale Python module-function ref; Python protocol entry."
+    },
+    "call_static_method": {
+      "disposition": "exclude",
+      "reason": "Java daemon operation checks a stale Java static-method ref; explicitly Java-only protocol entry."
+    },
+    "quit": {
+      "disposition": "include",
+      "reason": "Shared daemon shutdown protocol operation appears after both Python and Java checks; Python daemon portion is in scope."
+    }
+  },
+  "inventories": {
+    "tests_lt": [
+      "bootstrap_lexer.lt",
+      "bootstrap_parser.lt",
+      "class_basic.lt",
+      "data.lt",
+      "diagnostics_sample.lt",
+      "err_arity.lt",
+      "err_assign_target.lt",
+      "err_break.lt",
+      "err_dupmethod.lt",
+      "err_exprstmt.lt",
+      "err_index_key.lt",
+      "err_index_range.lt",
+      "err_location_java_handle.lt",
+      "err_location_loop.lt",
+      "err_location_method.lt",
+      "err_location_nested.lt",
+      "err_location_py_handle.lt",
+      "err_location_throw.lt",
+      "err_location_top.lt",
+      "err_location_try.lt",
+      "err_nested_readbefore.lt",
+      "err_nofield.lt",
+      "err_nomethod.lt",
+      "err_p6_nonlocal_class.lt",
+      "err_p6_nonlocal_duplicate.lt",
+      "err_p6_nonlocal_global.lt",
+      "err_p6_nonlocal_missing.lt",
+      "err_p6_nonlocal_parameter.lt",
+      "err_p6_nonlocal_top.lt",
+      "err_readbefore.lt",
+      "err_undef.lt",
+      "fib.lt",
+      "hello.lt",
+      "indexing.lt",
+      "inheritance.lt",
+      "inheritance_bad_init_arity.lt",
+      "inheritance_negative/cycle.lt",
+      "inheritance_negative/not_class.lt",
+      "inheritance_negative/override_arity.lt",
+      "inheritance_negative/self_cycle.lt",
+      "inheritance_negative/super_missing_method.lt",
+      "inheritance_negative/super_no_parent.lt",
+      "inheritance_negative/super_top.lt",
+      "inheritance_negative/super_wrong_receiver.lt",
+      "inheritance_negative/unknown.lt",
+      "java_basic.lt",
+      "java_lazy.lt",
+      "java_lazy_use.lt",
+      "loop.lt",
+      "mixed.lt",
+      "modules/app/main.lt",
+      "modules/bound_methods/lib.lt",
+      "modules/bound_methods/main.lt",
+      "modules/default_arguments/lib.lt",
+      "modules/default_arguments/main.lt",
+      "modules/function_values/lib.lt",
+      "modules/function_values/main.lt",
+      "modules/inheritance/main.lt",
+      "modules/inheritance_parts/base.lt",
+      "modules/inheritance_parts/child.lt",
+      "modules/inheritance_parts/right.lt",
+      "modules/keyword_only/lib.lt",
+      "modules/keyword_only/main.lt",
+      "modules/lib/nested/factor.lt",
+      "modules/lib/shared.lt",
+      "modules/named_arguments/lib.lt",
+      "modules/named_arguments/main.lt",
+      "modules/named_negative/lib.lt",
+      "modules/named_negative/main.lt",
+      "modules/negative/bad_extension/main.lt",
+      "modules/negative/collision/lib.lt",
+      "modules/negative/collision/main.lt",
+      "modules/negative/cycle/a.lt",
+      "modules/negative/cycle/b.lt",
+      "modules/negative/cycle/main.lt",
+      "modules/negative/function_value/lib.lt",
+      "modules/negative/function_value/main.lt",
+      "modules/negative/inherit_not_class/lib.lt",
+      "modules/negative/inherit_not_class/main.lt",
+      "modules/negative/inherit_private/lib.lt",
+      "modules/negative/inherit_private/main.lt",
+      "modules/negative/late/lib.lt",
+      "modules/negative/late/main.lt",
+      "modules/negative/leak/lib.lt",
+      "modules/negative/leak/main.lt",
+      "modules/negative/missing/main.lt",
+      "modules/negative/missing_export/lib.lt",
+      "modules/negative/missing_export/main.lt",
+      "modules/negative/namespace_value/lib.lt",
+      "modules/negative/namespace_value/main.lt",
+      "modules/negative/nested/lib.lt",
+      "modules/negative/nested/main.lt",
+      "modules/negative/private/lib.lt",
+      "modules/negative/private/main.lt",
+      "modules/negative/readonly/lib.lt",
+      "modules/negative/readonly/main.lt",
+      "modules/nonlocal/lib.lt",
+      "modules/nonlocal/main.lt",
+      "modules/runtime/lib.lt",
+      "modules/runtime/main.lt",
+      "modules/same/left.lt",
+      "modules/same/main.lt",
+      "modules/same/right.lt",
+      "modules/variadic/lib.lt",
+      "modules/variadic/main.lt",
+      "p10_negative/builtin_star.lt",
+      "p10_negative/builtin_starstar.lt",
+      "p10_negative/duplicate_extra.lt",
+      "p10_negative/duplicate_mappings.lt",
+      "p10_negative/duplicate_named_mapping.lt",
+      "p10_negative/duplicate_rest.lt",
+      "p10_negative/duplicate_star_named.lt",
+      "p10_negative/java_interop_star.lt",
+      "p10_negative/java_interop_starstar.lt",
+      "p10_negative/keyword_only.lt",
+      "p10_negative/missing_expanded.lt",
+      "p10_negative/nonlist_star.lt",
+      "p10_negative/nonmap_starstar.lt",
+      "p10_negative/nonstring_key.lt",
+      "p10_negative/positional_after_variadic.lt",
+      "p10_negative/python_interop_star.lt",
+      "p10_negative/python_interop_starstar.lt",
+      "p10_negative/rest_after_extra.lt",
+      "p10_negative/too_many_expanded.lt",
+      "p10_negative/unknown_expanded.lt",
+      "p10_negative/unpack_after_named.lt",
+      "p10_variadic_arguments.lt",
+      "p11_keyword_only_parameters.lt",
+      "p11_negative/after_extra.lt",
+      "p11_negative/bare_star_empty.lt",
+      "p11_negative/collector_capacity.lt",
+      "p11_negative/constructor_missing.lt",
+      "p11_negative/default_future.lt",
+      "p11_negative/duplicate_name.lt",
+      "p11_negative/duplicate_separator.lt",
+      "p11_negative/keyword_only_receiver.lt",
+      "p11_negative/method_missing.lt",
+      "p11_negative/position_does_not_bind.lt",
+      "p11_negative/positional_capacity.lt",
+      "p11_negative/required_missing.lt",
+      "p11_negative/super_missing.lt",
+      "p11_negative/unknown_name.lt",
+      "p11_runtime_negative/bound_missing.lt",
+      "p11_runtime_negative/constructor_missing.lt",
+      "p11_runtime_negative/duplicate_mapping.lt",
+      "p11_runtime_negative/indirect_missing.lt",
+      "p11_runtime_negative/position_does_not_bind.lt",
+      "p11_runtime_negative/starstar_missing.lt",
+      "p11_runtime_negative/unknown_mapping.lt",
+      "p12_negative/missing_extra.lt",
+      "p12_negative/missing_keyword_name_extra.lt",
+      "p12_negative/missing_rest.lt",
+      "p12_negative/new_required_keyword_only.lt",
+      "p12_negative/new_required_positional.lt",
+      "p12_negative/optional_to_required.lt",
+      "p12_negative/positional_reorder.lt",
+      "p12_negative/positional_to_keyword_only.lt",
+      "p12_negative/rename_extra.lt",
+      "p12_override_compatibility.lt",
+      "p13_interop_bound_methods.lt",
+      "p13_negative/callback.lt",
+      "p13_negative/java_callback.lt",
+      "p13_negative/java_constructor.lt",
+      "p13_negative/java_named.lt",
+      "p13_negative/java_star.lt",
+      "p13_negative/java_starstar.lt",
+      "p13_negative/python_builtin.lt",
+      "p13_negative/python_named.lt",
+      "p13_negative/python_star.lt",
+      "p13_negative/python_starstar.lt",
+      "p14_module_and_static_values.lt",
+      "p14_negative/java_opaque_callable.lt",
+      "p14_negative/module_bad_arity.lt",
+      "p14_negative/module_builtin_len.lt",
+      "p14_negative/module_callable_object.lt",
+      "p14_negative/module_callback.lt",
+      "p14_negative/module_dynamic_callable.lt",
+      "p14_negative/module_list_callback.lt",
+      "p14_negative/module_named.lt",
+      "p14_negative/module_nested_callback.lt",
+      "p14_negative/module_star.lt",
+      "p14_negative/module_starstar.lt",
+      "p14_negative/module_wrapper_callback.lt",
+      "p14_negative/static_callback.lt",
+      "p14_negative/static_collision_value.lt",
+      "p14_negative/static_constructor_value.lt",
+      "p14_negative/static_list_callback.lt",
+      "p14_negative/static_named.lt",
+      "p14_negative/static_nested_callback.lt",
+      "p14_negative/static_no_match.lt",
+      "p14_negative/static_star.lt",
+      "p14_negative/static_starstar.lt",
+      "p14_negative/static_wrapper_callback.lt",
+      "p14_static_method_extraction.lt",
+      "p5_closure_capture.lt",
+      "p5_global.lt",
+      "p5_invalid_calls.lt",
+      "p5_recursion.lt",
+      "p5_shadowing.lt",
+      "p5_shared_capture.lt",
+      "p5_values.lt",
+      "p6_nonlocal_nearest.lt",
+      "p6_nonlocal_nested_scope.lt",
+      "p6_nonlocal_returned.lt",
+      "p6_nonlocal_shared.lt",
+      "p6_nonlocal_skip.lt",
+      "p7_bound_method_error.lt",
+      "p7_bound_methods.lt",
+      "p8_named_arguments.lt",
+      "p8_negative/bad_order.lt",
+      "p8_negative/bound_unknown.lt",
+      "p8_negative/builtin.lt",
+      "p8_negative/constructor_missing.lt",
+      "p8_negative/constructor_unknown.lt",
+      "p8_negative/duplicate.lt",
+      "p8_negative/duplicate_position.lt",
+      "p8_negative/extra.lt",
+      "p8_negative/indirect_duplicate.lt",
+      "p8_negative/indirect_duplicate_position.lt",
+      "p8_negative/indirect_extra.lt",
+      "p8_negative/indirect_missing.lt",
+      "p8_negative/indirect_unknown.lt",
+      "p8_negative/java_interop_constructor.lt",
+      "p8_negative/java_interop_method.lt",
+      "p8_negative/method_missing.lt",
+      "p8_negative/method_unknown.lt",
+      "p8_negative/missing.lt",
+      "p8_negative/python_interop.lt",
+      "p8_negative/super_unknown.lt",
+      "p8_negative/unknown.lt",
+      "p9_default_parameters.lt",
+      "p9_negative/bound_missing.lt",
+      "p9_negative/default_future_parameter.lt",
+      "p9_negative/default_receiver.lt",
+      "p9_negative/indirect_duplicate.lt",
+      "p9_negative/indirect_missing.lt",
+      "p9_negative/indirect_unknown.lt",
+      "p9_negative/required_after_default.lt",
+      "p9_negative/static_duplicate.lt",
+      "p9_negative/static_missing.lt",
+      "p9_negative/static_unknown.lt",
+      "phase1_negative/ambiguous_constructor.lt",
+      "phase1_negative/ambiguous_method.lt",
+      "phase1_negative/ambiguous_numeric_types.lt",
+      "phase1_negative/ambiguous_parameters.lt",
+      "phase1_semantics.lt",
+      "py_basic.lt",
+      "py_lazy.lt",
+      "py_lazy_use.lt",
+      "py_numpy.lt",
+      "scope.lt",
+      "setassign.lt",
+      "str_interp.lt",
+      "truthy.lt",
+      "try_basic.lt"
+    ],
+    "cookbook_lt": [
+      "classes.lt",
+      "functions.lt",
+      "inheritance.lt",
+      "interop_bound_methods.lt",
+      "interop_function_values.lt",
+      "java_bigdecimal.lt",
+      "java_collections.lt",
+      "java_nio.lt",
+      "java_strings.lt",
+      "java_time.lt",
+      "keyword_only_arguments.lt",
+      "mixed_io.lt",
+      "module_parts/greeting.lt",
+      "modules.lt",
+      "named_arguments.lt",
+      "pipeline.lt",
+      "py_datetime.lt",
+      "py_json.lt",
+      "py_math.lt",
+      "py_os.lt",
+      "py_re.lt",
+      "variadic_arguments.lt"
+    ],
+    "java_fixture": [
+      "P13InteropFixture.java",
+      "P14InteropFixture.java",
+      "Stage1Overloads.java"
+    ],
+    "test_module": [
+      "bootstrap/test_checker.py",
+      "test_bootstrap_host.py",
+      "test_bootstrap_lexer.py",
+      "test_bootstrap_parser.py",
+      "test_bootstrap_smoke.py",
+      "test_diagnostics.py",
+      "test_differential_properties.py",
+      "test_editor_metadata.py",
+      "test_p14_protocol.py"
+    ],
+    "python_fixture": [
+      "p13_host.py",
+      "p14_host.py"
+    ]
+  },
+  "fixture_decisions": {
+    "tests_lt/bootstrap_lexer.lt": {
+      "disposition": "include",
+      "reason": "Latent lexer fixture compiled and run through the fixed v0.13.5 Stage0 compiler; bootstrap support test, not a legacy runner case."
+    },
+    "tests_lt/bootstrap_parser.lt": {
+      "disposition": "include",
+      "reason": "Latent parser fixture compiled and run through the fixed v0.13.5 Stage0 compiler; bootstrap support test, not a legacy runner case."
+    },
+    "tests_lt/class_basic.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/data.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/diagnostics_sample.lt": {
+      "disposition": "exclude",
+      "reason": "AST/desugar CLI diagnostic sample only; excluded from Python-target generated-code execution."
+    },
+    "tests_lt/err_arity.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_assign_target.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_break.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_dupmethod.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_exprstmt.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_index_key.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_index_range.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_java_handle.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_loop.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_method.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_nested.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_py_handle.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_throw.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_top.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_location_try.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_nested_readbefore.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_nofield.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_nomethod.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_p6_nonlocal_class.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_p6_nonlocal_duplicate.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_p6_nonlocal_global.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_p6_nonlocal_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_p6_nonlocal_parameter.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_p6_nonlocal_top.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_readbefore.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/err_undef.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/fib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/hello.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/indexing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_bad_init_arity.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/cycle.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/not_class.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/override_arity.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/self_cycle.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/super_missing_method.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/super_no_parent.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/super_top.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/super_wrong_receiver.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/inheritance_negative/unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/java_basic.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/java_lazy.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/java_lazy_use.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/loop.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/mixed.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/app/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/bound_methods/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/bound_methods/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/default_arguments/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/default_arguments/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/function_values/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/function_values/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/inheritance/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/inheritance_parts/base.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/inheritance_parts/child.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/inheritance_parts/right.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/keyword_only/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/keyword_only/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/lib/nested/factor.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/lib/shared.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/named_arguments/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/named_arguments/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/named_negative/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/named_negative/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/bad_extension/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/collision/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/collision/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/cycle/a.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/cycle/b.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/cycle/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/function_value/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/function_value/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/inherit_not_class/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/inherit_not_class/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/inherit_private/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/inherit_private/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/late/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/late/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/leak/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/leak/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/missing/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/missing_export/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/missing_export/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/namespace_value/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/namespace_value/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/nested/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/nested/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/private/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/private/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/readonly/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/negative/readonly/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/nonlocal/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/nonlocal/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/runtime/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/runtime/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/same/left.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/same/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/same/right.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/variadic/lib.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/modules/variadic/main.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/builtin_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/builtin_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/duplicate_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/duplicate_mappings.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/duplicate_named_mapping.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/duplicate_rest.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/duplicate_star_named.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/java_interop_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/java_interop_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/keyword_only.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/missing_expanded.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/nonlist_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/nonmap_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/nonstring_key.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/positional_after_variadic.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/python_interop_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/python_interop_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/rest_after_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/too_many_expanded.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/unknown_expanded.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_negative/unpack_after_named.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p10_variadic_arguments.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_keyword_only_parameters.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/after_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/bare_star_empty.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/collector_capacity.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/constructor_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/default_future.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/duplicate_name.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/duplicate_separator.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/keyword_only_receiver.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/method_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/position_does_not_bind.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/positional_capacity.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/required_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/super_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_negative/unknown_name.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/bound_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/constructor_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/duplicate_mapping.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/indirect_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/position_does_not_bind.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/starstar_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p11_runtime_negative/unknown_mapping.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/missing_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/missing_keyword_name_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/missing_rest.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/new_required_keyword_only.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/new_required_positional.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/optional_to_required.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/positional_reorder.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/positional_to_keyword_only.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_negative/rename_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p12_override_compatibility.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_interop_bound_methods.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/java_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/java_constructor.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/java_named.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/java_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/java_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/python_builtin.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/python_named.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/python_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p13_negative/python_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_module_and_static_values.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/java_opaque_callable.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_bad_arity.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_builtin_len.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_callable_object.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_dynamic_callable.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_list_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_named.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_nested_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/module_wrapper_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_collision_value.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_constructor_value.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_list_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_named.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_nested_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_no_match.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_star.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_starstar.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_negative/static_wrapper_callback.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p14_static_method_extraction.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_closure_capture.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_global.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_invalid_calls.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_recursion.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_shadowing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_shared_capture.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p5_values.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p6_nonlocal_nearest.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p6_nonlocal_nested_scope.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p6_nonlocal_returned.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p6_nonlocal_shared.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p6_nonlocal_skip.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p7_bound_method_error.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p7_bound_methods.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_named_arguments.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/bad_order.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/bound_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/builtin.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/constructor_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/constructor_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/duplicate.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/duplicate_position.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/indirect_duplicate.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/indirect_duplicate_position.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/indirect_extra.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/indirect_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/indirect_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/java_interop_constructor.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/java_interop_method.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/method_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/method_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/python_interop.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/super_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p8_negative/unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_default_parameters.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/bound_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/default_future_parameter.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/default_receiver.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/indirect_duplicate.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/indirect_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/indirect_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/required_after_default.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/static_duplicate.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/static_missing.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/p9_negative/static_unknown.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/phase1_negative/ambiguous_constructor.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/phase1_negative/ambiguous_method.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/phase1_negative/ambiguous_numeric_types.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/phase1_negative/ambiguous_parameters.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/phase1_semantics.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/py_basic.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/py_lazy.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/py_lazy_use.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/py_numpy.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/scope.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/setassign.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/str_interp.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/truthy.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "tests_lt/try_basic.lt": {
+      "disposition": "include",
+      "reason": "Python target compiles/runs this fixture directly or consumes it as a module/support fixture for a runner case."
+    },
+    "cookbook_lt/classes.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/functions.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/inheritance.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/interop_bound_methods.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/interop_function_values.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/java_bigdecimal.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/java_collections.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/java_nio.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/java_strings.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/java_time.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/keyword_only_arguments.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/mixed_io.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/module_parts/greeting.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/modules.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/named_arguments.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/pipeline.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/py_datetime.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/py_json.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/py_math.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/py_os.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/py_re.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "cookbook_lt/variadic_arguments.lt": {
+      "disposition": "include",
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "java_fixture/P13InteropFixture.java": {
+      "disposition": "exclude",
+      "reason": "javac-only host fixture for P13 Java host-method behavior; Java-only source artifact."
+    },
+    "java_fixture/P14InteropFixture.java": {
+      "disposition": "exclude",
+      "reason": "javac-only host fixture for P14 Java static-method behavior; Java-only source artifact."
+    },
+    "java_fixture/Stage1Overloads.java": {
+      "disposition": "exclude",
+      "reason": "javac-only host fixture for Java overload dispatch tests; Java-only source artifact."
+    },
+    "test_module/bootstrap/test_checker.py": {
+      "disposition": "include",
+      "reason": "Focused Python unit tests for ledger baseline acceptance and synthetic unclassified-case rejection."
+    },
+    "test_module/test_bootstrap_host.py": {
+      "disposition": "include",
+      "reason": "Python tests for the bootstrap host adapter used by the Python-target bootstrapping path; retain as in-scope support coverage."
+    },
+    "test_module/test_bootstrap_lexer.py": {
+      "disposition": "include",
+      "reason": "Python unittest orchestration archives fixed Stage0 and runs the Latent lexer fixture; no Python compiler lexing logic."
+    },
+    "test_module/test_bootstrap_parser.py": {
+      "disposition": "include",
+      "reason": "Python unittest orchestration archives fixed Stage0 and runs the Latent parser fixture; no Python compiler parsing logic."
+    },
+    "test_module/test_bootstrap_smoke.py": {
+      "disposition": "include",
+      "reason": "M2 end-to-end test compiles and runs the fixed-seed self-hosting slice with target=py; classify as limited bootstrap smoke coverage, not full v0.13.5 projection."
+    },
+    "test_module/test_diagnostics.py": {
+      "disposition": "exclude",
+      "reason": "Read-only AST/desugar CLI and diagnostic regressions; AST/editor diagnostics, not generated Python-target execution."
+    },
+    "test_module/test_differential_properties.py": {
+      "disposition": "include",
+      "reason": "Generates Latent property cases and executes generated Python and Java outputs; Python execution leg is in scope."
+    },
+    "test_module/test_editor_metadata.py": {
+      "disposition": "exclude",
+      "reason": "Parser-derived editor symbols/folding metadata and CLI contracts; editor metadata, not generated Python-target execution."
+    },
+    "test_module/test_p14_protocol.py": {
+      "disposition": "include",
+      "reason": "P14 daemon protocol file includes an in-scope Python stale module-function ref check; Java static-method operation is separately excluded."
+    },
+    "python_fixture/p13_host.py": {
+      "disposition": "include",
+      "reason": "Python host fixture consumed by target=py P13 host bound-method interoperability cases."
+    },
+    "python_fixture/p14_host.py": {
+      "disposition": "include",
+      "reason": "Python host fixture consumed by target=py P14 module-function interoperability cases."
+    }
+  },
+  "auxiliary_tests": {
+    "test_bootstrap_host.py": {
+      "disposition": "include",
+      "reason": "Python tests for the bootstrap host adapter used by the Python-target bootstrapping path; retain as in-scope Python-target support coverage."
+    },
+    "test_bootstrap_lexer.py": {
+      "disposition": "include",
+      "reason": "Fixed-Stage0 test orchestration for the Latent lexer fixture; compiler lexical logic remains in Latent."
+    },
+    "test_bootstrap_parser.py": {
+      "disposition": "include",
+      "reason": "Fixed-Stage0 test orchestration for the Latent parser fixture; compiler parsing logic remains in Latent."
+    },
+    "test_differential_properties.py": {
+      "disposition": "include",
+      "reason": "Generates Latent property cases and executes generated Python and Java outputs; Python execution leg is in scope."
+    },
+    "test_p14_protocol.py": {
+      "disposition": "include",
+      "reason": "P14 daemon protocol file includes an in-scope Python stale module-function ref check; Java static-method operation is separately excluded."
+    },
+    "test_diagnostics.py": {
+      "disposition": "exclude",
+      "reason": "Read-only AST/desugar CLI and diagnostic regressions; AST/editor diagnostics, not generated Python-target execution."
+    },
+    "test_editor_metadata.py": {
+      "disposition": "exclude",
+      "reason": "Parser-derived editor symbols/folding metadata and CLI contracts; editor metadata, not generated Python-target execution."
+    },
+    "python/p13_host.py": {
+      "disposition": "include",
+      "reason": "Python host fixture used by Python-target P13 interoperability cases."
+    },
+    "python/p14_host.py": {
+      "disposition": "include",
+      "reason": "Python host fixture used by Python-target P14 interoperability cases."
+    },
+    "bootstrap/latent_host.py": {
+      "disposition": "include",
+      "reason": "Python-target bootstrap host adapter under contract tests in tests/test_bootstrap_host.py."
+    },
+    "tests/bootstrap/test_checker.py": {
+      "disposition": "include",
+      "reason": "Standalone regression tests for baseline ledger acceptance and rejection of synthetic unclassified runner cases."
+    },
+    "test_bootstrap_smoke.py": {
+      "disposition": "include",
+      "reason": "M2 end-to-end test compiles and runs the fixed-seed self-hosting slice with target=py; classify as limited bootstrap smoke coverage, not full v0.13.5 projection."
+    }
+  }
+}

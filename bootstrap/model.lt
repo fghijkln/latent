@@ -1,0 +1,7 @@
+# P15 M3 lexer data model: tokens and the stable public result envelope.
+fn token(kind, value, line, col):
+    return {"kind": kind, "value": value, "line": line, "col": col}
+fn success(tokens):
+    return {"ok": true, "tokens": tokens, "error": nil, "line": 0, "col": 0}
+fn failure(tokens, message, line, col):
+    return {"ok": false, "tokens": tokens, "error": message, "line": line, "col": col}

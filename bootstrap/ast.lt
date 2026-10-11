@@ -1,0 +1,8 @@
+# P15 M4 mapping-form AST. Nodes are plain Latent maps with stable type/line/col keys.
+fn make(kind, line, col):
+    return {"type": kind, "line": line, "col": col}
+
+fn program(statements):
+    root = make("Program", 1, 1)
+    root["stmts"] = statements
+    return root
