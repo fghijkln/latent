@@ -1,0 +1,7 @@
+fn callback(value):
+    return value
+
+host_module = py "p13_host"
+python_host = host_module.Sample()
+python_method = python_host.push
+python_host.accept([callback, python_method])

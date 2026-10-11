@@ -1,0 +1,4 @@
+Fixture = java "P14InteropFixture"
+fn local(value):
+    return value
+Fixture.accept(local)

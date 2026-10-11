@@ -27,6 +27,9 @@ POSITIVE.append("p10_variadic_arguments")
 POSITIVE.append("p11_keyword_only_parameters")
 POSITIVE.append("p12_override_compatibility")
 POSITIVE.append("phase1_semantics")
+POSITIVE.append("p13_interop_bound_methods")
+POSITIVE.append("p14_module_and_static_values")
+POSITIVE.append("p14_static_method_extraction")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
                    "modules/function_values/main", "modules/nonlocal/main",
@@ -226,7 +229,33 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "phase1_negative/ambiguous_method",
                "phase1_negative/ambiguous_constructor",
                "phase1_negative/ambiguous_parameters",
-               "phase1_negative/ambiguous_numeric_types"]
+               "phase1_negative/ambiguous_numeric_types",
+               "p13_negative/python_named", "p13_negative/python_star",
+               "p13_negative/python_starstar", "p13_negative/java_named",
+               "p13_negative/java_star", "p13_negative/java_starstar",
+               "p13_negative/callback", "p13_negative/java_callback",
+               "p13_negative/python_builtin",
+               "p13_negative/java_constructor",
+               "p14_negative/module_named", "p14_negative/module_star",
+               "p14_negative/module_starstar",
+               "p14_negative/module_builtin_len",
+               "p14_negative/static_named", "p14_negative/static_star",
+               "p14_negative/static_starstar",
+               "p14_negative/module_callback",
+               "p14_negative/module_wrapper_callback",
+               "p14_negative/module_list_callback",
+               "p14_negative/module_nested_callback",
+               "p14_negative/static_callback",
+               "p14_negative/static_wrapper_callback",
+               "p14_negative/static_list_callback",
+               "p14_negative/static_nested_callback",
+               "p14_negative/module_bad_arity",
+               "p14_negative/static_no_match",
+               "p14_negative/module_callable_object",
+               "p14_negative/module_dynamic_callable",
+               "p14_negative/java_opaque_callable",
+               "p14_negative/static_constructor_value",
+               "p14_negative/static_collision_value"]
 RUNTIME_SOURCE_LINES = {
     "py_lazy_use": [2], "java_lazy_use": [2],
     "err_index_range": [2], "err_index_key": [2],
@@ -273,6 +302,38 @@ RUNTIME_SOURCE_LINES = {
     "phase1_negative/ambiguous_constructor": [2],
     "phase1_negative/ambiguous_parameters": [2],
     "phase1_negative/ambiguous_numeric_types": [2],
+    "p13_negative/python_named": [4],
+    "p13_negative/python_star": [5],
+    "p13_negative/python_starstar": [5],
+    "p13_negative/java_named": [4],
+    "p13_negative/java_star": [5],
+    "p13_negative/java_starstar": [5],
+    "p13_negative/callback": [7],
+    "p13_negative/java_callback": [7],
+    "p13_negative/python_builtin": [3],
+    "p13_negative/java_constructor": [2],
+    "p14_negative/module_named": [3],
+    "p14_negative/module_star": [4],
+    "p14_negative/module_starstar": [4],
+    "p14_negative/module_builtin_len": [3],
+    "p14_negative/static_named": [3],
+    "p14_negative/static_star": [4],
+    "p14_negative/static_starstar": [4],
+    "p14_negative/module_callback": [4],
+    "p14_negative/module_wrapper_callback": [3],
+    "p14_negative/module_list_callback": [3],
+    "p14_negative/module_nested_callback": [3],
+    "p14_negative/static_callback": [4],
+    "p14_negative/static_wrapper_callback": [3],
+    "p14_negative/static_list_callback": [3],
+    "p14_negative/static_nested_callback": [3],
+    "p14_negative/module_bad_arity": [3],
+    "p14_negative/static_no_match": [3],
+    "p14_negative/module_callable_object": [3],
+    "p14_negative/module_dynamic_callable": [3],
+    "p14_negative/java_opaque_callable": [3],
+    "p14_negative/static_constructor_value": [2],
+    "p14_negative/static_collision_value": [3],
 }
 RUNTIME_SOURCE_MARKERS = {
     "modules/runtime/main": ["main.lt:2", "lib.lt:3"],
@@ -341,6 +402,27 @@ PHASE1_RUNTIME_ERROR_MARKERS = {
         "Stage1Overloads.sameGrade(1 args): [Stage1Overloads#sameGrade(int), "
         "Stage1Overloads#sameGrade(long)]"),
 }
+P14_RUNTIME_ERROR_MARKERS = {
+    "p14_negative/module_named": "named arguments are not supported for Python/Java interop calls",
+    "p14_negative/module_star": "argument unpacking is not supported for Python/Java interop calls",
+    "p14_negative/module_starstar": "argument unpacking is not supported for Python/Java interop calls",
+    "p14_negative/module_builtin_len": "call on non-function value",
+    "p14_negative/static_named": "named arguments are not supported for Python/Java interop calls",
+    "p14_negative/static_star": "argument unpacking is not supported for Python/Java interop calls",
+    "p14_negative/static_starstar": "argument unpacking is not supported for Python/Java interop calls",
+    "p14_negative/module_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/module_wrapper_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/module_list_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/module_nested_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/static_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/static_wrapper_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/static_list_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/static_nested_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/module_callable_object": "call on non-function value",
+    "p14_negative/module_dynamic_callable": "call on non-function value",
+    "p14_negative/java_opaque_callable": "call on non-function value",
+    "p14_negative/static_collision_value": "call on non-function value",
+}
 
 COOKBOOK_DIR = os.path.join(ROOT, "cookbook")
 COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
@@ -349,6 +431,8 @@ COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "pipeline", "modules", "functions", "named_arguments"]
 COOKBOOK.append("variadic_arguments")
 COOKBOOK.append("keyword_only_arguments")
+COOKBOOK.append("interop_bound_methods")
+COOKBOOK.append("interop_function_values")
 
 TRY_BASIC_STDOUT = ("caught: index out of range: 5\n"
                     "k=key not found: zz\n"
@@ -454,6 +538,21 @@ P12_EXPECTED_STDOUT = {
         '["x", [], {}, false]\n'
         "N:custom\n"),
 }
+P13_EXPECTED_STDOUT = (
+    "<bound method p13_host.Sample.push>\n1\n2\n3\n"
+    "<bound method collections.deque.append>\nnil\n"
+    "<bound method P13InteropFixture.append>\n"
+    "one:direct:1\none:java-1:2\ntwo:0:java-2:3\none:java-3:4\n"
+    "field\nmethod\nfield\n" + "call on non-function value\n" * 5)
+P14_EXPECTED_STDOUT = (
+    "<module function p14_host.scale>\n8\n10\n12\n"
+    "<module function p14_host.scale>\n18\n"
+    "<module function math.sqrt>\n5\n"
+    "<static method P14InteropFixture.classify>\n"
+    "text:hello\nnumber:7.0\ntext:escaped\ntext:direct\n"
+    "<static method P14InteropChild.inherited>\n"
+    "inherited:parent\nfield\ncollision:direct\n" +
+    "call on non-function value\n" * 4)
 PHASE1_EXPECTED_STDOUT = (
     "true\nnan\nnan is truthy\n"
     "false\ntrue\nfalse\ntrue\nfalse\ntrue\n"
@@ -479,12 +578,18 @@ COOKBOOK_KEYWORD_ONLY_STDOUT = (
     '["api.example", 80, true, 5]\n'
     '["edge.example", 80, false, nil]\n'
     '["build", ["clean", "test"], "safe", 2, {"verbose": true}]\n')
+COOKBOOK_INTEROP_BOUND_METHODS_STDOUT = (
+    "<bound method collections.deque.append>\nnil\nnil\n"
+    "<bound method java.util.ArrayList.add>\ntrue\nnil\ntrue\n")
+COOKBOOK_INTEROP_FUNCTION_VALUES_STDOUT = (
+    "<module function math.sqrt>\n5\n6\n"
+    "<static method java.lang.Math.pow>\n8\n8\n")
 
 
-def run(cmd, cwd=None, timeout=60):
+def run(cmd, cwd=None, timeout=60, env=None):
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                           timeout=timeout)
+                           timeout=timeout, env=env)
         return r.returncode, r.stdout, r.stderr
     except subprocess.TimeoutExpired:
         return "timeout", "", ""
@@ -514,13 +619,33 @@ def compile_and_run(name, target, srcdir=TESTS):
         rc, so, se = run(["javac", "-cp", outdir, "-d", outdir, fixture])
         if rc != 0:
             return ("compile-fail", so, se)
+    p13_case = name == "p13_interop_bound_methods" or name.startswith("p13_negative/")
+    p14_case = (name in ("p14_module_and_static_values",
+                         "p14_static_method_extraction") or
+                name.startswith("p14_negative/"))
+    run_env = None
+    if p13_case:
+        fixture = os.path.join(TESTS, "java", "P13InteropFixture.java")
+        rc, so, se = run(["javac", "-cp", outdir, "-d", outdir, fixture])
+        if rc != 0:
+            return ("compile-fail", so, se)
+    if p14_case:
+        fixture = os.path.join(TESTS, "java", "P14InteropFixture.java")
+        rc, so, se = run(["javac", "-cp", outdir, "-d", outdir, fixture])
+        if rc != 0:
+            return ("compile-fail", so, se)
+    if p13_case or p14_case:
+        run_env = os.environ.copy()
+        run_env["PYTHONPATH"] = os.path.join(TESTS, "python") + os.pathsep + \
+            run_env.get("PYTHONPATH", "")
     if target == "py":
         cwd = tempfile.gettempdir() if is_module_case(name, srcdir) else None
         rc, so, se = run([sys.executable, os.path.join(outdir, os.path.basename(src)[:-3] + ".py")],
-                         cwd=cwd)
+                         cwd=cwd, env=run_env)
     else:
         cwd = tempfile.gettempdir() if is_module_case(name, srcdir) else outdir
-        rc, so, se = run(["java", "-cp", outdir, cap(name)], cwd=cwd)
+        rc, so, se = run(["java", "-cp", outdir, cap(name)], cwd=cwd,
+                         env=run_env)
     return (rc, so, se)
 
 
@@ -575,6 +700,10 @@ def main():
             ok = ok and py[1] == P12_EXPECTED_STDOUT[name]
         if name == "phase1_semantics":
             ok = ok and py[1] == PHASE1_EXPECTED_STDOUT
+        if name == "p13_interop_bound_methods":
+            ok = ok and py[1] == P13_EXPECTED_STDOUT
+        if name == "p14_module_and_static_values":
+            ok = ok and py[1] == P14_EXPECTED_STDOUT
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -759,6 +888,9 @@ def main():
             jv_error = next((line for line in jv[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
             ok = ok and py_error == expected and jv_error == expected
+        if name in P14_RUNTIME_ERROR_MARKERS:
+            marker = P14_RUNTIME_ERROR_MARKERS[name]
+            ok = ok and marker in py[2] and marker in jv[2]
         print(("PASS " if ok else "FAIL ") + name)
         if not ok:
             fails += 1
@@ -766,6 +898,14 @@ def main():
                   f"err={py[2][-500:]}")
             print(f"  java: rc={jv[0]} mapped={has_source_locations(name, jv)} "
                   f"err={jv[2][-500:]}")
+
+    print("== P14 typed daemon refs: stale ids must be rejected ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS,
+                                                   "test_p14_protocol.py")])
+    print(("PASS " if rc == 0 else "FAIL ") + "P14 daemon typed refs")
+    if rc != 0:
+        fails += 1
+        print(f"  {(so + se)[-1500:]}")
 
     print("== cookbook: py vs java must produce identical stdout, exit 0 ==")
     for name in COOKBOOK:
@@ -783,6 +923,10 @@ def main():
             ok = ok and py[1] == COOKBOOK_VARIADIC_STDOUT
         elif name == "keyword_only_arguments":
             ok = ok and py[1] == COOKBOOK_KEYWORD_ONLY_STDOUT
+        elif name == "interop_bound_methods":
+            ok = ok and py[1] == COOKBOOK_INTEROP_BOUND_METHODS_STDOUT
+        elif name == "interop_function_values":
+            ok = ok and py[1] == COOKBOOK_INTEROP_FUNCTION_VALUES_STDOUT
         print(("PASS " if ok else "FAIL ") + "cookbook/" + name)
         if not ok:
             fails += 1
@@ -827,7 +971,7 @@ def main():
              len(P11_NEG_COMPILE) +
              len(P12_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
-             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 1)
+             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 2)
     print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 

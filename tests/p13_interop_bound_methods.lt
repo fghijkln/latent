@@ -1,0 +1,63 @@
+# P13: Python/Java host instance methods become first-class Latent values.
+fn apply(action, value):
+    return action(value)
+
+fn return_method(action):
+    return action
+
+fn capture(action):
+    fn saved(value):
+        return action(value)
+    return saved
+
+# Python target object: native Python method and C builtin bound method.
+python_host = py "p13_host"
+p = python_host.Sample()
+python_push = return_method(p.push)
+say python_push
+say p.push("direct")
+say apply(python_push, "python-1")
+saved_push = capture(python_push)
+p = nil
+say saved_push("python-2")
+
+collections = py "collections"
+d = collections.deque()
+append = return_method(d.append)
+say append
+say apply(append, "deque")
+
+# Java target object: one method value retains its overload family.
+J = java "P13InteropFixture"
+j = J.new()
+add = return_method(j.append)
+say add
+say j.append("direct")
+say apply(add, "java-1")
+say add(0, "java-2")
+saved_add = capture(add)
+j = nil
+say saved_add("java-3")
+
+# Data wins for attribute reads; direct method-call syntax remains unchanged.
+J2 = java "P13InteropFixture"
+j2 = J2.new()
+say j2.collision
+say j2.collision()
+p2 = python_host.Sample()
+say p2.shadow
+
+# Unsupported callable fields, properties, descriptors, Python class
+# static/class methods remain ordinary values and cannot be called indirectly.
+fn check_nonfunction(value):
+    try:
+        value()
+    catch e:
+        say e
+
+p3 = python_host.Sample()
+check_nonfunction(p3.callback_field)
+check_nonfunction(p3.callback)
+check_nonfunction(p3.custom)
+check_nonfunction(p3.static_method)
+check_nonfunction(p3.class_method)

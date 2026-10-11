@@ -15,7 +15,33 @@ import java.util.*;
 public class LtJavaDaemon {
 
     static Map<Long, JReflect.JObj> objs = new HashMap<>();
+    static Map<Long, StaticMethodInfo> staticMethods = new HashMap<>();
     static long nextId = 1;
+
+    static class BoundMethodInfo {
+        final long id;
+        final String method;
+        final String type;
+        BoundMethodInfo(long id, String method, String type) {
+            this.id = id;
+            this.method = method;
+            this.type = type;
+        }
+    }
+
+    static class StaticMethodInfo {
+        final long id;
+        final JReflect.JClass owner;
+        final String method;
+        final String type;
+        StaticMethodInfo(long id, JReflect.JClass owner, String method,
+                         String type) {
+            this.id = id;
+            this.owner = owner;
+            this.method = method;
+            this.type = type;
+        }
+    }
 
     public static void main(String[] args) {
         Scanner sc = new Scanner(System.in, "UTF-8");
@@ -49,13 +75,47 @@ public class LtJavaDaemon {
                             result = JReflect.call((JReflect.JObj) target, method, a);
                         break;
                     }
+                    case "call_static_method": {
+                        Number rawId = (Number) m.get("id");
+                        long id = rawId.longValue();
+                        StaticMethodInfo method = staticMethods.get(id);
+                        if (method == null)
+                            throw new RuntimeException(
+                                "stale Java static-method ref: " + id);
+                        Object[] a = decodeArgs((List<?>) m.get("args"));
+                        result = JReflect.callStatic(method.owner,
+                            method.method, a);
+                        break;
+                    }
                     case "get": {
                         Object target = decodeTarget(m.get("target"));
                         String field = (String) m.get("field");
-                        if (target instanceof JReflect.JClass)
-                            result = JReflect.getField((JReflect.JClass) target, field);
-                        else
-                            result = JReflect.getField((JReflect.JObj) target, field);
+                        if (target instanceof JReflect.JClass) {
+                            JReflect.JClass owner = (JReflect.JClass) target;
+                            if (JReflect.hasPublicStaticField(owner, field)) {
+                                result = JReflect.getField(owner, field);
+                            } else if (JReflect.hasPublicStaticMethod(owner, field)) {
+                                long id = nextId++;
+                                StaticMethodInfo method = new StaticMethodInfo(
+                                    id, owner, field, owner.resolve().getName());
+                                staticMethods.put(id, method);
+                                result = method;
+                            } else {
+                                result = JReflect.getField(owner, field);
+                            }
+                        } else {
+                            JReflect.JObj object = (JReflect.JObj) target;
+                            try {
+                                result = JReflect.getField(object, field);
+                            } catch (RuntimeException e) {
+                                if (JReflect.hasPublicField(object, field) ||
+                                        !JReflect.hasPublicInstanceMethod(object, field))
+                                    throw e;
+                                Number id = (Number) ((Map<?, ?>) m.get("target")).get("id");
+                                result = new BoundMethodInfo(id.longValue(), field,
+                                    object.o.getClass().getName());
+                            }
+                        }
                         break;
                     }
                     case "set": {
@@ -128,8 +188,26 @@ public class LtJavaDaemon {
                     default:
                         throw new RuntimeException("unknown op: " + op);
                 }
-                System.out.println(LtRt.Json.encode(
-                    Collections.singletonMap("value", encode(result))));
+                if (result instanceof BoundMethodInfo) {
+                    BoundMethodInfo method = (BoundMethodInfo) result;
+                    Map<String, Object> info = new LinkedHashMap<>();
+                    info.put("id", (double) method.id);
+                    info.put("method", method.method);
+                    info.put("type", method.type);
+                    System.out.println(LtRt.Json.encode(
+                        Collections.singletonMap("bound_method", info)));
+                } else if (result instanceof StaticMethodInfo) {
+                    StaticMethodInfo method = (StaticMethodInfo) result;
+                    Map<String, Object> info = new LinkedHashMap<>();
+                    info.put("id", (double) method.id);
+                    info.put("method", method.method);
+                    info.put("type", method.type);
+                    System.out.println(LtRt.Json.encode(
+                        Collections.singletonMap("static_method", info)));
+                } else {
+                    System.out.println(LtRt.Json.encode(
+                        Collections.singletonMap("value", encode(result))));
+                }
             } catch (Exception e) {
                 System.out.println("{\"error\": " +
                     LtRt.Json.encode(JReflect.rootCause(e)) + "}");

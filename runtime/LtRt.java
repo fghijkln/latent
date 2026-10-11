@@ -43,7 +43,9 @@ public class LtRt {
         if (v instanceof Boolean) return "bool";
         if (v instanceof List) return "list";
         if (v instanceof Map) return "map";
-        if (v instanceof LtFunction) return "function";
+        if (v instanceof LtFunction || v instanceof InteropBoundMethod ||
+                v instanceof InteropModuleFunction ||
+                v instanceof InteropStaticMethod) return "function";
         if (v instanceof PyHandle) return "py";
         if (v instanceof JReflect.JClass) return "java class";
         if (v instanceof JReflect.JObj) return "java obj";
@@ -216,6 +218,12 @@ public class LtRt {
         if (v instanceof LtClass) return "<class " + ((LtClass) v).name + ">";
         if (v instanceof LtFunction)
             return ((LtFunction) v).display;
+        if (v instanceof InteropBoundMethod)
+            return ((InteropBoundMethod) v).display;
+        if (v instanceof InteropModuleFunction)
+            return ((InteropModuleFunction) v).ref.display;
+        if (v instanceof InteropStaticMethod)
+            return ((InteropStaticMethod) v).display;
         if (v instanceof LtObj) return "<" + ((LtObj) v).cls.name + " object>";
         if (v instanceof JReflect.JClass || v instanceof JReflect.JObj)
             return JReflect.repr(v);
@@ -346,6 +354,71 @@ public class LtRt {
         boolean isModule() { return module != null; }
     }
 
+    static final class PyBoundMethodRef {
+        final long id;
+        final String display;
+        PyBoundMethodRef(long id, String display) {
+            this.id = id;
+            this.display = display;
+        }
+    }
+
+    static final class PyModuleFunctionRef {
+        final long id;
+        final String display;
+        PyModuleFunctionRef(long id, String display) {
+            this.id = id;
+            this.display = display;
+        }
+    }
+
+    static final class InteropBoundMethod {
+        final String display;
+        final JReflect.JObj javaReceiver;
+        final String javaMethod;
+        final PyBoundMethodRef pythonMethod;
+        InteropBoundMethod(JReflect.JObj receiver, String method, String type) {
+            this.display = "<bound method " + type + "." + method + ">";
+            this.javaReceiver = receiver;
+            this.javaMethod = method;
+            this.pythonMethod = null;
+        }
+        InteropBoundMethod(PyBoundMethodRef method) {
+            this.display = method.display;
+            this.javaReceiver = null;
+            this.javaMethod = null;
+            this.pythonMethod = method;
+        }
+        Object invoke(Object[] args) {
+            if (pythonMethod != null)
+                return Daemon.inst().callBoundMethod(pythonMethod, args);
+            return JReflect.call(javaReceiver, javaMethod, args);
+        }
+    }
+
+    static final class InteropModuleFunction {
+        final PyModuleFunctionRef ref;
+        InteropModuleFunction(PyModuleFunctionRef ref) { this.ref = ref; }
+        Object invoke(Object[] args) {
+            return Daemon.inst().callModuleFunction(ref, args);
+        }
+    }
+
+    static final class InteropStaticMethod {
+        final JReflect.JClass owner;
+        final String method;
+        final String display;
+        InteropStaticMethod(JReflect.JClass owner, String method) {
+            this.owner = owner;
+            this.method = method;
+            this.display = "<static method " + owner.resolve().getName() +
+                "." + method + ">";
+        }
+        Object invoke(Object[] args) {
+            return JReflect.callStatic(owner, method, args);
+        }
+    }
+
     // ---------------- Latent classes (v0.3) ----------------
     /** A Latent method: uniform (self, args) shape so LtClass can hold
     a name -> implementation table without reflection. */
@@ -424,6 +497,26 @@ public class LtRt {
             if (arg instanceof StarArg || arg instanceof StarStarArg)
                 throw new ArgumentError(
                     "argument unpacking is not supported for Python/Java interop calls");
+    }
+    private static boolean containsInteropCallable(Object value) {
+        if (value instanceof LtFunction || value instanceof InteropBoundMethod ||
+                value instanceof InteropModuleFunction ||
+                value instanceof InteropStaticMethod)
+            return true;
+        if (value instanceof List)
+            for (Object item : (List<?>) value)
+                if (containsInteropCallable(item)) return true;
+        if (value instanceof Map)
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+                if (containsInteropCallable(entry.getKey()) ||
+                        containsInteropCallable(entry.getValue())) return true;
+        return false;
+    }
+    private static void rejectInteropCallables(Object[] args) {
+        for (Object arg : args)
+            if (containsInteropCallable(arg))
+                throw new RuntimeException(
+                    "Latent callable values cannot be passed to Python/Java interop calls");
     }
     private static Object[] bindArgs(String[] params, int requiredCount,
                                      Object[] args, String name) {
@@ -624,9 +717,24 @@ public class LtRt {
             restName, extraName, body);
     }
     public static Object callValue(Object value, Object... args) {
-        if (!(value instanceof LtFunction))
-            throw new RuntimeException("call on non-function value");
-        return ((LtFunction) value).invoke(args);
+        if (value instanceof LtFunction)
+            return ((LtFunction) value).invoke(args);
+        if (value instanceof InteropBoundMethod) {
+            rejectInteropArgs(args);
+            rejectInteropCallables(args);
+            return ((InteropBoundMethod) value).invoke(args);
+        }
+        if (value instanceof InteropModuleFunction) {
+            rejectInteropArgs(args);
+            rejectInteropCallables(args);
+            return ((InteropModuleFunction) value).invoke(args);
+        }
+        if (value instanceof InteropStaticMethod) {
+            rejectInteropArgs(args);
+            rejectInteropCallables(args);
+            return ((InteropStaticMethod) value).invoke(args);
+        }
+        throw new RuntimeException("call on non-function value");
     }
 
     public static class LtClass {
@@ -828,7 +936,17 @@ public class LtRt {
 
     /** Unified attribute access: py handles and java handles. */
     public static Object wgetattr(Object h, String attr) {
-        if (h instanceof PyHandle) return pyget(h, attr);
+        if (h instanceof PyHandle) {
+            PyHandle python = (PyHandle) h;
+            if (python.isModule()) {
+                PyModuleFunctionRef function =
+                    Daemon.inst().getModuleFunction(python, attr);
+                if (function != null) return new InteropModuleFunction(function);
+            }
+            PyBoundMethodRef method = Daemon.inst().getBoundMethod((PyHandle) h, attr);
+            if (method != null) return new InteropBoundMethod(method);
+            return pyget(h, attr);
+        }
         if (h instanceof LtObj) {
             LtObj o = (LtObj) h;
             Map<String, Object> f = o.fields;
@@ -849,10 +967,25 @@ public class LtRt {
         }
         if (h instanceof LtClass)
             throw new RuntimeException("cannot read fields on a class");
-        if (h instanceof JReflect.JClass)
-            return JReflect.getField((JReflect.JClass) h, attr);
-        if (h instanceof JReflect.JObj)
-            return JReflect.getField((JReflect.JObj) h, attr);
+        if (h instanceof JReflect.JClass) {
+            JReflect.JClass owner = (JReflect.JClass) h;
+            if (JReflect.hasPublicStaticField(owner, attr))
+                return JReflect.getField(owner, attr);
+            if (JReflect.hasPublicStaticMethod(owner, attr))
+                return new InteropStaticMethod(owner, attr);
+            return JReflect.getField(owner, attr);
+        }
+        if (h instanceof JReflect.JObj) {
+            JReflect.JObj object = (JReflect.JObj) h;
+            try {
+                return JReflect.getField(object, attr);
+            } catch (RuntimeException e) {
+                if (JReflect.hasPublicField(object, attr) ||
+                        !JReflect.hasPublicInstanceMethod(object, attr)) throw e;
+                return new InteropBoundMethod(object, attr,
+                    object.o.getClass().getName());
+            }
+        }
         throw new RuntimeException("attribute access on non-handle value: " + typeName(h));
     }
 
@@ -860,6 +993,7 @@ public class LtRt {
     public static Object wcall(Object h, String attr, Object... args) {
         if (h instanceof PyHandle) {
             rejectInteropArgs(args);
+            rejectInteropCallables(args);
             return pycall(h, attr, args);
         }
         if (h instanceof LtClass) {
@@ -895,12 +1029,14 @@ public class LtRt {
         }
         if (h instanceof JReflect.JClass) {
             rejectInteropArgs(args);
+            rejectInteropCallables(args);
             if (attr.equals("new"))
                 return JReflect.construct((JReflect.JClass) h, args);
             return JReflect.callStatic((JReflect.JClass) h, attr, args);
         }
         if (h instanceof JReflect.JObj) {
             rejectInteropArgs(args);
+            rejectInteropCallables(args);
             return JReflect.call((JReflect.JObj) h, attr, args);
         }
         throw new RuntimeException("call on non-handle value: " + typeName(h));
@@ -1084,16 +1220,22 @@ public class LtRt {
 
         /** One request -> decoded "value", or throws on daemon error. */
         private synchronized Object exchange(String req) {
+            Map<String, Object> m = exchangeResponse(req);
+            if (m.containsKey("error"))
+                throw new RuntimeException("python error: " + m.get("error"));
+            return decodeValue(m.get("value"));
+        }
+
+        @SuppressWarnings("unchecked")
+        private synchronized Map<String, Object> exchangeResponse(String req) {
             try {
                 sendRaw(req);
                 String line = in.readLine();
                 if (line == null) throw new RuntimeException("python daemon died");
-                Object resp = Json.parse(line);
-                @SuppressWarnings("unchecked")
-                Map<String, Object> m = (Map<String, Object>) resp;
-                if (m.containsKey("error"))
-                    throw new RuntimeException("python error: " + m.get("error"));
-                return decodeValue(m.get("value"));
+                Object response = Json.parse(line);
+                if (!(response instanceof Map))
+                    throw new RuntimeException("invalid Python daemon response");
+                return (Map<String, Object>) response;
             } catch (IOException e) {
                 throw new RuntimeException("python daemon io error: " + e.getMessage());
             }
@@ -1107,6 +1249,58 @@ public class LtRt {
         Object get(PyHandle h, String attr) {
             return exchange("{\"op\":\"get\",\"target\":" + targetJson(h) +
                             ",\"attr\":" + Json.str(attr) + "}");
+        }
+
+        PyModuleFunctionRef getModuleFunction(PyHandle h, String attr) {
+            Map<String, Object> response = exchangeResponse(
+                "{\"op\":\"get_module_function\",\"target\":" +
+                targetJson(h) + ",\"attr\":" + Json.str(attr) + "}");
+            if (response.containsKey("error"))
+                throw new RuntimeException("python error: " + response.get("error"));
+            Object raw = response.get("module_function");
+            if (!(raw instanceof Map)) return null;
+            Map<?, ?> function = (Map<?, ?>) raw;
+            long id = ((Number) function.get("id")).longValue();
+            String display = "<module function " + function.get("module") +
+                "." + function.get("name") + ">";
+            return new PyModuleFunctionRef(id, display);
+        }
+
+        PyBoundMethodRef getBoundMethod(PyHandle h, String attr) {
+            Map<String, Object> response = exchangeResponse(
+                "{\"op\":\"get_bound_method\",\"target\":" + targetJson(h) +
+                ",\"attr\":" + Json.str(attr) + "}");
+            if (response.containsKey("error"))
+                throw new RuntimeException("python error: " + response.get("error"));
+            Object raw = response.get("bound_method");
+            if (!(raw instanceof Map)) return null;
+            Map<?, ?> method = (Map<?, ?>) raw;
+            long id = ((Number) method.get("id")).longValue();
+            String display = "<bound method " + method.get("type") + "." +
+                method.get("member") + ">";
+            return new PyBoundMethodRef(id, display);
+        }
+
+        Object callBoundMethod(PyBoundMethodRef method, Object[] args) {
+            StringBuilder request = new StringBuilder(
+                "{\"op\":\"call_bound_method\",\"id\":" + method.id +
+                ",\"args\":[");
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) request.append(",");
+                request.append(encodeArg(args[i]));
+            }
+            return exchange(request.append("]}").toString());
+        }
+
+        Object callModuleFunction(PyModuleFunctionRef function, Object[] args) {
+            StringBuilder request = new StringBuilder(
+                "{\"op\":\"call_module_function\",\"id\":" + function.id +
+                ",\"args\":[");
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) request.append(",");
+                request.append(encodeArg(args[i]));
+            }
+            return exchange(request.append("]}").toString());
         }
 
         Object call(PyHandle h, String attr, Object[] args) {
@@ -1156,6 +1350,9 @@ public class LtRt {
         }
 
         private static String encodeArg(Object v) {
+            if (containsInteropCallable(v))
+                throw new RuntimeException(
+                    "Latent callable values cannot be passed to Python/Java interop calls");
             if (v instanceof PyHandle) {
                 PyHandle h = (PyHandle) v;
                 return h.isModule() ? "{\"__mod\":" + Json.str(h.module) + "}"

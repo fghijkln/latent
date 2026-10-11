@@ -1,6 +1,6 @@
 # P12：方法覆盖签名兼容性（实现记录）
 
-> **状态：已获用户批准并在当前工作区实现；尚未发布。** 设计基线为 `v0.13.3` / commit `857d8e324579956422de43e80651785009d4f739`。AST schema v6、运行时 binder 与已发布标签/资产保持不变。
+> **状态：已获用户批准、实现并随 v0.13.4 发布。** 设计基线为发布前的 `v0.13.3` / commit `857d8e324579956422de43e80651785009d4f739`。AST schema v6、运行时 binder 与 v0.13.3 及更早版本的历史标签/资产保持不变。
 
 ## 1. 摘要与已批准规则
 
@@ -243,7 +243,7 @@ override Child.run is incompatible with Base.run: required keyword-only paramete
 3. `parse.py`：未修改；现有语法已能表达位置、默认、仅关键字、`*rest`、`**extra`。
 4. 稳定 `latent-ast`：仍为 schema v6；序列化节点与树形不变。
 5. `gen_py.py`、`gen_java.py`、`runtime/ltpy.py`、`runtime/LtRt.java`：未修改。方法查找、运行时绑定和类元数据保持原样；两后端继续按运行时选中的实现签名绑定。
-6. `SPEC.md`、README、教程及 P11/P3/P12 设计记录已同步当前工作区状态；没有改写历史 tag、发布资产或版本号。
+6. `SPEC.md`、README、教程及 P11/P3/P12 设计记录已同步 P12 的实现与发布状态；没有改写历史 tag、发布资产或历史版本号。
 
 当前编译时收集完整类图并由 Python/Java 共用 `semant.py`，没有发现可以绕过该检查的外部类装载或 ABI 路径，因此无需新增 runtime binder 防御分支。
 
@@ -298,4 +298,4 @@ override Child.run is incompatible with Base.run: required keyword-only paramete
 
 ---
 
-**当前状态：**P12 已在共享语义分析、双后端回归与规范/设计文档中实现；AST v6 和运行时 binder 未改。实现及 v0.13.4 发布元数据目前是待审批候选，尚未提交、推送、打标签或发布；v0.13.3 历史标签与资产未改写。
+**当前状态：**P12 已在共享语义分析、双后端回归与规范/设计文档中实现，并随 v0.13.4 正式发布；发布提交为 `d860c54c3fd4c1b75175a7e7e688e58601c04a73`。AST v6 和运行时 binder 未改；v0.13.3 及更早版本的历史标签与资产未改写。

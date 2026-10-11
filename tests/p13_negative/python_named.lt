@@ -1,0 +1,4 @@
+host_module = py "p13_host"
+host = host_module.Sample()
+method = host.push
+method(value="named")

@@ -1,0 +1,60 @@
+# P14: Python module functions and Java public static method families as values.
+fn pass_through(action):
+    return action
+
+fn apply(action, value):
+    return action(value)
+
+fn capture(action):
+    fn saved(value):
+        return action(value)
+    return saved
+
+fn check_nonfunction(value):
+    try:
+        value()
+    catch e:
+        say e
+
+# Python functions are captured at property-read time; rebinding affects only
+# a later read. math.sqrt also covers a module-owned C function.
+host = py "p14_host"
+scale = pass_through(host.scale)
+say scale
+say apply(scale, 4)
+saved_scale = capture(scale)
+say saved_scale(5)
+host.rebind_scale()
+say scale(6)
+new_scale = host.scale
+say new_scale
+say new_scale(6)
+math = py "math"
+sqrt = math.sqrt
+say sqrt
+say sqrt(25)
+
+# Java method families capture class + name and select overload per invocation.
+Fixture = java "P14InteropFixture"
+classify = pass_through(Fixture.classify)
+say classify
+say apply(classify, "hello")
+say apply(classify, 7)
+saved_classify = capture(classify)
+say saved_classify("escaped")
+say Fixture.classify("direct")
+Child = java "P14InteropChild"
+inherited = Child.inherited
+say inherited
+say inherited("parent")
+
+# Static data fields win on extraction, but direct dot calls keep their old path.
+say Fixture.collision
+say Fixture.collision("direct")
+
+# Callable objects, dynamic module values, opaque refs, and a shadowed method
+# remain ordinary values rather than being promoted to Latent callables.
+check_nonfunction(host.callable_object)
+check_nonfunction(host.dynamic_callable)
+check_nonfunction(Fixture.opaque)
+check_nonfunction(Fixture.collision)

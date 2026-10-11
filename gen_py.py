@@ -10,8 +10,10 @@ import math as _math
 import os as _os
 import shutil as _shutil
 import subprocess as _subprocess
+import inspect as _inspect
 import sys as _sys
 import traceback as _traceback
+import types as _types
 
 
 class _LazyMod:
@@ -58,6 +60,10 @@ def _wv_repr(v):
         if v._display is not None:
             return v._display
         return "<function %s>" % v._name
+    if isinstance(v, _InteropBoundMethod):
+        return v._display
+    if isinstance(v, (_InteropModuleFunction, _InteropStaticMethod)):
+        return v._display
     if isinstance(v, _LtObj):
         return "<%s object>" % v._lt_class._name
     if isinstance(v, _JClass):
@@ -286,6 +292,9 @@ def _wv_iter(x):
 
 def _wv_pyarg(v):
     """Convert integral floats for Python APIs without erasing negative zero."""
+    if isinstance(v, (_LtFunction, _InteropBoundMethod,
+                      _InteropModuleFunction, _InteropStaticMethod)):
+        raise TypeError("Latent callable values cannot be passed to Python/Java interop calls")
     if isinstance(v, bool):
         return v
     if isinstance(v, float) and v.is_integer() and abs(v) < 1e18:
@@ -294,7 +303,13 @@ def _wv_pyarg(v):
     if isinstance(v, list):
         return [_wv_pyarg(x) for x in v]
     if isinstance(v, dict):
-        return {k: _wv_pyarg(x) for k, x in v.items()}
+        out = {}
+        for k, x in v.items():
+            if isinstance(k, (_LtFunction, _InteropBoundMethod,
+                              _InteropModuleFunction, _InteropStaticMethod)):
+                raise TypeError("Latent callable values cannot be passed to Python/Java interop calls")
+            out[k] = _wv_pyarg(x)
+        return out
     return v
 
 
@@ -580,13 +595,83 @@ class _LtFunction:
                                         self._required_keyword_only))
 
 
+class _InteropBoundMethod:
+    """A supported host instance method captured as a Latent callable."""
+    __slots__ = ("_kind", "_target", "_method", "_display")
+
+    def __init__(self, kind, target, method, display):
+        self._kind = kind
+        self._target = target
+        self._method = method
+        self._display = display
+
+
+class _InteropModuleFunction:
+    """A captured Python module-owned function exposed as a Latent callable."""
+    __slots__ = ("_function", "_display")
+
+    def __init__(self, function, display):
+        self._function = function
+        self._display = display
+
+
+class _InteropStaticMethod:
+    """A remote Java static method family captured as a Latent callable."""
+    __slots__ = ("_id", "_display")
+
+    def __init__(self, ref_id, display):
+        self._id = ref_id
+        self._display = display
+
+
+def _wv_python_bound_method(receiver, attr, value):
+    """Return a stable display for a genuine built-in/Python instance method."""
+    try:
+        descriptor = _inspect.getattr_static(receiver, attr)
+    except AttributeError:
+        return None
+    if type(descriptor) is _types.FunctionType:
+        if type(value) is not _types.MethodType or value.__self__ is not receiver:
+            return None
+    elif type(descriptor) in (getattr(_types, "MethodDescriptorType", object),
+                              getattr(_types, "WrapperDescriptorType", object)):
+        if type(value) is not _types.BuiltinMethodType or value.__self__ is not receiver:
+            return None
+    else:
+        return None
+    cls = type(receiver)
+    qualified_type = "%s.%s" % (cls.__module__, cls.__qualname__)
+    return qualified_type + "." + attr
+
+
 def _wv_call(fn, *args):
-    if not isinstance(fn, _LtFunction):
-        raise TypeError("call on non-function value")
-    return fn(*args)
+    if isinstance(fn, _LtFunction):
+        return fn(*args)
+    if isinstance(fn, _InteropBoundMethod):
+        _wv_reject_interop_args(args)
+        if fn._kind == "python":
+            return fn._target(*[_wv_pyarg(a) for a in args])
+        if fn._kind == "java":
+            jvm = _JVM.inst()
+            return jvm.req({"op": "call", "target": jvm.target(fn._target),
+                            "method": fn._method,
+                            "args": [_jvm_encode(a) for a in args]})
+        raise TypeError("invalid interop bound method")
+    if isinstance(fn, _InteropModuleFunction):
+        _wv_reject_interop_args(args)
+        return fn._function(*[_wv_pyarg(a) for a in args])
+    if isinstance(fn, _InteropStaticMethod):
+        _wv_reject_interop_args(args)
+        jvm = _JVM.inst()
+        return jvm.req({"op": "call_static_method", "id": fn._id,
+                        "args": [_jvm_encode(a) for a in args]})
+    raise TypeError("call on non-function value")
 
 
 def _jvm_encode(v):
+    if isinstance(v, (_LtFunction, _InteropBoundMethod,
+                      _InteropModuleFunction, _InteropStaticMethod)):
+        raise TypeError("Latent callable values cannot be passed to Python/Java interop calls")
     if isinstance(v, _JHandle):
         return {"__jref": v._id}
     if isinstance(v, _JClass):
@@ -606,7 +691,13 @@ def _jvm_encode(v):
     if isinstance(v, list):
         return [_jvm_encode(x) for x in v]
     if isinstance(v, dict):
-        return {"__map": [[str(k), _jvm_encode(x)] for k, x in v.items()]}
+        entries = []
+        for k, x in v.items():
+            if isinstance(k, (_LtFunction, _InteropBoundMethod,
+                              _InteropModuleFunction, _InteropStaticMethod)):
+                raise TypeError("Latent callable values cannot be passed to Python/Java interop calls")
+            entries.append([str(k), _jvm_encode(x)])
+        return {"__map": entries}
     raise TypeError("cannot send to JVM: " + _wv_repr(v))
 
 
@@ -704,6 +795,17 @@ class _JVM:
                 message = first_line.partition(": ")[2]
                 raise _LtJavaInteropError(message)
             raise RuntimeError("java error: " + resp["error"])
+        if "bound_method" in resp:
+            method = resp["bound_method"]
+            return _InteropBoundMethod(
+                "java", _JHandle(int(method["id"])), method["method"],
+                "<bound method %s.%s>" % (method["type"], method["method"]))
+        if "static_method" in resp:
+            method = resp["static_method"]
+            return _InteropStaticMethod(
+                int(method["id"]),
+                "<static method %s.%s>" %
+                (method["type"], method["method"]))
         return _jvm_decode(resp["value"])
 
     def target(self, h):
@@ -747,9 +849,26 @@ def _wv_jclass(name):
 # ---------------- unified handle access (py + java) ----------------
 
 def _wv_wgetattr(h, attr):
-    if isinstance(h, (_JClass, _JHandle)):
+    if isinstance(h, _JClass):
         jvm = _JVM.inst()
         return jvm.req({"op": "get", "target": jvm.target(h), "field": attr})
+    if isinstance(h, _JHandle):
+        jvm = _JVM.inst()
+        return jvm.req({"op": "get", "target": jvm.target(h), "field": attr})
+    if isinstance(h, _LazyMod):
+        module = h._load()
+        value = getattr(module, attr)
+        namespace = vars(module)
+        if (type(module) is _types.ModuleType and attr in namespace and
+                namespace[attr] is value and
+                (type(value) is _types.FunctionType or
+                 (type(value) is _types.BuiltinFunctionType and
+                  module.__name__ != "builtins" and
+                  value.__self__ is module))):
+            return _InteropModuleFunction(
+                value, "<module function %s.%s>" %
+                (module.__name__, attr))
+        return value
     if isinstance(h, _LtObj):
         if attr in h._lt_fields:
             return h._lt_fields[attr]
@@ -768,7 +887,13 @@ def _wv_wgetattr(h, attr):
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)
-    return getattr(h, attr)
+    value = getattr(h, attr)
+    display_member = _wv_python_bound_method(h, attr, value)
+    if display_member is not None:
+        return _InteropBoundMethod(
+            "python", value, attr,
+            "<bound method %s>" % display_member)
+    return value
 
 
 def _wv_wcall(h, attr, *args):

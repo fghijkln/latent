@@ -1,0 +1,5 @@
+J = java "P13InteropFixture"
+host = J.new()
+method = host.append
+items = ["expanded"]
+method(*items)

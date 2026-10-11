@@ -1,0 +1,7 @@
+fn callback(value):
+    return value
+
+J = java "P13InteropFixture"
+host = J.new()
+method = host.append
+host.acceptList([callback, method])

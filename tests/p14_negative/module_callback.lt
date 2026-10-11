@@ -1,0 +1,4 @@
+host = py "p14_host"
+fn local(value):
+    return value
+host.echo(local)

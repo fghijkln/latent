@@ -16,10 +16,14 @@ Values: JSON natives pass through; anything else becomes an opaque
 import sys
 import json
 import importlib
+import inspect
 import math
 import traceback
+import types
 
 _objs = {}
+_bound_methods = {}
+_module_functions = {}
 _next_id = [1]
 _mods = {}
 
@@ -108,6 +112,46 @@ def target(t):
     return _objs[t["id"]]
 
 
+def bound_instance_method(receiver, attr):
+    """Capture only native Python/C instance-method descriptors, never fields or properties."""
+    try:
+        descriptor = inspect.getattr_static(receiver, attr)
+    except AttributeError:
+        return None
+    if type(descriptor) is types.FunctionType:
+        method = getattr(receiver, attr)
+        if type(method) is types.MethodType and method.__self__ is receiver:
+            return method
+        return None
+    supported = tuple(t for t in (
+        getattr(types, "MethodDescriptorType", None),
+        getattr(types, "WrapperDescriptorType", None)) if t is not None)
+    if supported and type(descriptor) in supported:
+        method = getattr(receiver, attr)
+        if type(method) is types.BuiltinMethodType and method.__self__ is receiver:
+            return method
+    return None
+
+
+def module_function(module, attr):
+    """Capture only a function explicitly exported in a real module namespace."""
+    if type(module) is not types.ModuleType:
+        return None
+    namespace = vars(module)
+    if attr not in namespace:
+        return None
+    value = getattr(module, attr)
+    if namespace[attr] is not value:
+        return None
+    if type(value) is types.FunctionType:
+        return value
+    if (type(value) is types.BuiltinFunctionType and
+            module.__name__ != "builtins" and
+            value.__self__ is module):
+        return value
+    return None
+
+
 def main():
     inp = sys.stdin
     out = sys.stdout
@@ -120,6 +164,61 @@ def main():
             op = req["op"]
             if op == "quit":
                 break
+            if op == "call_bound_method":
+                method_id = req.get("id")
+                method = _bound_methods.get(method_id)
+                if method is None:
+                    raise RuntimeError("stale Python bound-method ref: %s" % method_id)
+                args = [_pyarg(a) for a in req.get("args", [])]
+                resp = {"value": encode(method(*args))}
+                out.write(json.dumps(resp) + "\n")
+                out.flush()
+                continue
+            if op == "call_module_function":
+                function_id = req.get("id")
+                function = _module_functions.get(function_id)
+                if function is None:
+                    raise RuntimeError("stale Python module-function ref: %s" % function_id)
+                args = [_pyarg(a) for a in req.get("args", [])]
+                resp = {"value": encode(function(*args))}
+                out.write(json.dumps(resp) + "\n")
+                out.flush()
+                continue
+            if op == "get_module_function":
+                raw_target = req["target"]
+                function = (module_function(getmod(raw_target["mod"]), req["attr"])
+                            if "mod" in raw_target else None)
+                if function is None:
+                    resp = {"module_function": None}
+                else:
+                    function_id = _next_id[0]
+                    _next_id[0] += 1
+                    _module_functions[function_id] = function
+                    resp = {"module_function": {
+                        "id": function_id,
+                        "module": getmod(raw_target["mod"]).__name__,
+                        "name": req["attr"]}}
+                out.write(json.dumps(resp) + "\n")
+                out.flush()
+                continue
+            if op == "get_bound_method":
+                tgt = target(req["target"])
+                method = (None if "mod" in req["target"] else
+                          bound_instance_method(tgt, req["attr"]))
+                if method is None:
+                    resp = {"bound_method": None}
+                else:
+                    method_id = _next_id[0]
+                    _next_id[0] += 1
+                    _bound_methods[method_id] = method
+                    cls = type(tgt)
+                    resp = {"bound_method": {
+                        "id": method_id,
+                        "type": "%s.%s" % (cls.__module__, cls.__qualname__),
+                        "member": req["attr"]}}
+                out.write(json.dumps(resp) + "\n")
+                out.flush()
+                continue
             if op == "binop":
                 # remote arithmetic: getattr(obj, "__add__")(*rest)
                 fargs = [_pyarg(a) for a in req.get("args", [])]

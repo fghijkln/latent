@@ -1,0 +1,4 @@
+J = java "P13InteropFixture"
+host = J.new()
+method = host.append
+method(value="named")

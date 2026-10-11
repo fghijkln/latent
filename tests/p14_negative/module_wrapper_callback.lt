@@ -1,0 +1,3 @@
+host = py "p14_host"
+scale = host.scale
+host.echo(scale)

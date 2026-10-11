@@ -1,0 +1,2 @@
+J = java "P14InteropFixture"
+static_value = J.classify

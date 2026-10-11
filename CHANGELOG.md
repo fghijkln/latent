@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.13.5 — 2026-10-11
+
+### Added
+
+- P13 promotes supported bound instance methods read from Python and Java object handles to Latent callable values. The captured method can be assigned, passed, returned, captured by closures, and indirectly invoked; Java overload resolution still occurs for each call.
+- P14 promotes precisely exported Python module functions (including module-owned C functions such as `math.sqrt`) and public Java static method families to Latent callable values. Python functions are captured when read; Java overloads are resolved at invocation time, and public static fields retain precedence over same-named method values.
+
+### Compatibility and scope
+
+- No syntax, AST node, or `latent-ast` schema change; the schema remains v6. Existing direct calls such as `obj.method(...)`, `module.function(...)`, and `Class.method(...)` retain their existing dispatch paths.
+- Host callable values remain position-argument-only. Arbitrary callable properties/objects, standalone built-ins such as `len`, constructors, and passing Latent callables as Python/Java callbacks remain unsupported.
+- The VS Code extension remains version 0.6.5: P13/P14 add language/runtime behavior without new editor features. A freshly packaged 0.6.5 VSIX from unchanged extension sources is included for convenience.
+
+### Verification
+
+- `python3 tests/run_tests.py`: **259 passed, 0 failed**, including the P13/P14 dual-backend cases, 13 read-only AST/CLI diagnostics, and 505 fixed-seed cross-backend property cases.
+- `python3 tests/test_editor_metadata.py`: **4 passed**; Python `compileall`, Java runtime plus Stage 1/P13/P14 fixture compilation, VS Code keyword synchronization, and `git diff --check` passed.
+- `cd vscode-latent && xvfb-run --auto-servernum npm test`: tokenization/snippet checks passed; **12 trusted-workspace tests + 2 Restricted Mode tests passed** (exit code 0).
+- `npm run package` and VSIX ZIP integrity check passed; archive contains 11 files and its manifest reports version 0.6.5.
+- VSIX asset: `latent-language-support-0.6.5.vsix` (14,084 bytes; SHA-256: `bb4cfdafc1b27cd81efd34da37769e5e3542c0321d4ba8a20eb50b5a524ff084`).
+
+
 ## v0.13.4 — 2026-10-11
 
 ### Changed

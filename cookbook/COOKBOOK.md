@@ -1,13 +1,13 @@
 # Latent 库 Cookbook
 
-`cookbook/` 有 19 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。`named_arguments.lt` 展示 v0.11.0/P8；`variadic_arguments.lt` 展示 v0.13.0/P10；`keyword_only_arguments.lt` 展示 v0.13.3/P11 中的仅限关键字形参。运行方式：
+`cookbook/` 有 21 个可运行入口 `.lt` 示例（不计被导入的辅助模块文件），全部在双后端（`-t py` / `-t java`）验证过输出逐字节一致。`named_arguments.lt` 展示 v0.11.0/P8；`variadic_arguments.lt` 展示 v0.13.0/P10；`keyword_only_arguments.lt` 展示 v0.13.3/P11；`interop_bound_methods.lt` 演示 v0.13.5 的 P13；`interop_function_values.lt` 演示 v0.13.5 的 P14。运行方式：
 
 ```bash
 python3 latent.py cookbook/py_json.lt -t py -o out --run
 python3 latent.py cookbook/py_json.lt -t java -o out --run
 ```
 
-`tests/run_tests.py` 会把全部 19 个例子自动双后端对拍。P11 示例需要 v0.13.3 或更新的编译器。
+`tests/run_tests.py` 会把全部 21 个例子自动双后端对拍。P11 示例需要 v0.13.3 或更新的编译器；P13/P14 示例需要 v0.13.5 或更新版本。
 
 ## Python 生态
 
@@ -35,6 +35,8 @@ python3 latent.py cookbook/py_json.lt -t java -o out --run
 | `classes.lt` | Latent 类 | `Account` 存取款：`init`/`new`/方法/字段，`==` 为 identity |
 | `inheritance.lt` | Latent 单继承 | `Dog(Animal)`、显式 `super.init`、覆盖方法与继承分派 |
 | `functions.lt` | 函数值与闭包 | 函数作参数/返回值、词法捕获、`nonlocal` 计数器状态闭包 |
+| `interop_bound_methods.lt` | P13/v0.13.5 | Python/C 与 Java 实例绑定方法作值、传入/返回/闭包捕获；Java 重载按每次调用的实参选择 |
+| `interop_function_values.lt` | P14/v0.13.5 | Python 模块函数与 Java 静态方法族作值、返回、逃逸闭包捕获和间接调用；Java overload 在调用时选择 |
 | `named_arguments.lt` | P8/v0.11.0 命名参数 | 命名函数调用、Latent 构造器与绑定方法调用；位置实参仍必须排在命名实参前 |
 | `variadic_arguments.lt` | P10/v0.13.0 变参 | `*rest` / `**extra`、位置/映射展开与默认形参混用；仅 Latent 调用 |
 | `keyword_only_arguments.lt` | P11/v0.13.3 仅限关键字形参 | 裸 `*`、必需/默认项交错、`*rest` 后关键字专用区及 `**extra` |
@@ -60,11 +62,13 @@ python3 latent.py cookbook/modules.lt -t java -o out/java --run
 - v0.11.0/P8 为 Latent 函数/方法提供命名参数；Python/Java 互操作调用与内建函数仍只支持位置参数。例如对句柄写 `timedelta(hours=36)` 会被拒绝。
 - v0.13.0/P10 为 Latent 调用增加变参及展开；内建函数和 Python/Java 互操作调用不接受 `*items` / `**mapping`。
 - v0.13.3/P11 在这些 Latent 调用路径上新增仅限关键字形参；内建函数及 Python/Java 互操作协议不变。
+- P13/v0.13.5 可将 `py`/`java` 对象实例上提取的受支持绑定方法作 Latent callable；字段/普通属性优先，Java 重载在每次调用时选择。仅位置参数；不包装模块/静态/类方法、构造器、独立 builtin 或 callable 字段/property/custom descriptor，也不接受 Latent callable 作为宿主 callback。该行为自 v0.13.5 起可用。
+- P14/v0.13.5 可将精确导出的 Python 模块函数（含模块拥有的 C 函数，如 `math.sqrt`）及 Java 公开静态方法族（含继承方法）作 Latent callable。Python 在读取时捕获；Java 每次调用按实参选择 overload；同名公开静态字段优先于方法值，但 `Class.name(...)` 直接调用不变。独立 builtin（如 `len`）、构造器、任意 callable 对象/动态属性与普通 opaque ref 不升级；只接受位置参数，不接受 Latent callback。该行为自 v0.13.5 起可用。
 
 ## 已知的坑
 
 1. **Latent 字符串是原生值，不是 Java 对象**：`"hi".toUpperCase()` 调不动。用 `S.join` / `S.format` 这类静态方法，或 `StringBuilder` 做拼接。
-2. **只有用户定义函数是一等值**：普通函数和嵌套闭包可以赋值、传递、返回、间接调用；内建函数（如 `int`）、Latent 类方法和 Python/Java 句柄方法仍不可作为函数值。`collections.defaultdict(int)` 仍不能把内建 `int` 作为回调传入。
+2. **函数值边界**：普通函数、嵌套闭包与 Latent 绑定方法可赋值、传递、返回、间接调用；v0.13.5 中的 P13/P14 分别支持特定 Python/Java 实例方法和 Python 模块函数/Java 静态方法值。独立内建函数（如 `int`）、构造器及任意 callable 字段/属性结果仍不是函数值。`collections.defaultdict(int)` 仍不能把内建 `int` 作为回调传入；P13/P14 于 v0.13.5 发布。
 3. **下标写支持范围**：Latent 列表/映射、py 句柄，以及 Java `List`/`Map` 句柄都支持 `xs[0] = v` / `m["k"] = v`；字符串仍不可写。负索引适用于序列。
 4. **Java 方法和构造器重载（阶段 1 已实现）**：运行时按参数位置比较转换等级，并按引用类型特异性比较；仅调用唯一未被支配候选，否则报告稳定歧义诊断。完整规则见 [SPEC.md §8](../SPEC.md#8-按需加载-java-java)。
 5. **跨边界有 JSON 行协议开销**：循环里逐个调 Java/Python 方法优先保证正确，不保证性能。真要快，把循环写进对端的一次调用里。

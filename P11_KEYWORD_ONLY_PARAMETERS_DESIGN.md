@@ -67,7 +67,7 @@ fn d(**extra): ...                         # P10 形式，保持有效
 - `super.method(self, ...)` 继续要求显式接收者为第一个普通位置实参；`self` 不得通过命名实参或展开映射替代。接收者之后按父类目标方法的签名规则绑定。
 - 继承构造仍使用运行时选中的 `init` 签名，包括继承来的 `init`；构造调用的仅限关键字参数按该签名检查。
 - **P11/v0.13.3 的覆盖规则（历史状态）：**非 `init` 覆盖按形参数量检查，不比较名称、位置/关键字类别或默认形状；调用按运行时选中的实现签名绑定。此历史版本可能让不兼容的多态调用在运行期失败。
-- **P12 当前工作区规则（未发布）：**该规则已由获批的 P12 实现取代。非 `init` 覆盖必须保留基类固定形参名称及位置槽、不可要求基类可省略的实参，并保留基类已有的 `*rest` / `**extra` 能力；`**extra` 不能代替固定形参。`init` 仍豁免。细节见 [P12 方法覆盖签名兼容性记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。
+- **P12/v0.13.4 当前规则（已发布）：**该规则已由获批的 P12 实现取代。非 `init` 覆盖必须保留基类固定形参名称及位置槽、不可要求基类可省略的实参，并保留基类已有的 `*rest` / `**extra` 能力；`**extra` 不能代替固定形参。`init` 仍豁免。细节见 [P12 方法覆盖签名兼容性记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。
 
 ## 5. 静态检查、动态检查与诊断
 
@@ -149,6 +149,6 @@ KeywordOnlyParam(name, default)
 - `node ./tests/tokenization.test.js`（`vscode-latent`）：通过，含裸 `*` 分隔符和 P11 片段契约。
 - `git diff --check`：通过。首次验收时的 `HEAD` 为 `b14ee42babc3a8ddb38ce3e3914d6d3165e5b55c`（v0.13.2）；该验收在本次发布提交、标签和 Release 创建之前完成。
 
-## 11. P12 后续：方法覆盖签名兼容性（当前工作区，未发布）
+## 11. P12 后续：方法覆盖签名兼容性（v0.13.4，已发布）
 
-P12 获批后，普通方法覆盖从 P11 当时的“按形参数量”升级为固定参数名称/槽位、必需性及收集器能力的编译期兼容检查。综合样例 `tests/p11_keyword_only_parameters.lt` 已将 `Child.describe` 改为保留基类 `value` 的位置槽；`init` 仍豁免。上方第 10 节的 **211 项**结果是 P11/v0.13.3 时的历史验收快照，不代表当前工作区套件总数。P12 当前工作区的 **221 项全量套件已全部通过**；专项和工具链验收详见 [P12 实施记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。不改写已发布标签或资产。
+P12 获批并随 v0.13.4 发布后，普通方法覆盖从 P11 当时的“按形参数量”升级为固定参数名称/槽位、必需性及收集器能力的编译期兼容检查。综合样例 `tests/p11_keyword_only_parameters.lt` 已将 `Child.describe` 改为保留基类 `value` 的位置槽；`init` 仍豁免。上方第 10 节的 **211 项**结果是 P11/v0.13.3 时的历史验收快照；P12 实施验收时的 **221 项全量套件全部通过**，专项和工具链验收详见 [P12 实施记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。v0.13.3 及以前的历史标签与资产未改写。

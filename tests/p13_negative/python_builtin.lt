@@ -1,0 +1,3 @@
+builtins = py "builtins"
+function_value = builtins.len
+function_value([])

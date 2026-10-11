@@ -1,0 +1,3 @@
+Fixture = java "P14InteropFixture"
+collision = Fixture.collision
+collision()

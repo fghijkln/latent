@@ -70,6 +70,46 @@ public class JReflect {
         return callOn(jo.o.getClass(), jo.o, method, args, false);
     }
 
+    /** Whether an opaque instance exposes at least one public instance method. */
+    public static boolean hasPublicInstanceMethod(JObj jo, String method) {
+        for (Method m : jo.o.getClass().getMethods()) {
+            if (m.getName().equals(method) &&
+                    !Modifier.isStatic(m.getModifiers()) && !m.isBridge())
+                return true;
+        }
+        return false;
+    }
+
+    /** Whether the existing object-member lookup has a public field to prefer. */
+    public static boolean hasPublicField(JObj jo, String field) {
+        try {
+            jo.o.getClass().getField(field);
+            return true;
+        } catch (NoSuchFieldException e) {
+            return false;
+        }
+    }
+
+    /** Public static fields take precedence over extracted static method values. */
+    public static boolean hasPublicStaticField(JClass jc, String field) {
+        try {
+            return Modifier.isStatic(
+                jc.resolve().getField(field).getModifiers());
+        } catch (NoSuchFieldException e) {
+            return false;
+        }
+    }
+
+    /** Mirrors callOn's public static method set, including inherited methods. */
+    public static boolean hasPublicStaticMethod(JClass jc, String method) {
+        for (Method m : jc.resolve().getMethods()) {
+            if (m.getName().equals(method) &&
+                    Modifier.isStatic(m.getModifiers()) && !m.isBridge())
+                return true;
+        }
+        return false;
+    }
+
     static Object callOn(Class<?> c, Object target, String method,
                          Object[] args, boolean wantStatic) {
         Map<String, Method> unique = new LinkedHashMap<>();

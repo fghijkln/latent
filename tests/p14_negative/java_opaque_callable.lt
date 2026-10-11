@@ -1,0 +1,3 @@
+Fixture = java "P14InteropFixture"
+value = Fixture.opaque
+value()

@@ -1,4 +1,4 @@
-# Latent 语言规范（v0.13.4 候选）
+# Latent 语言规范（v0.13.5）
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -15,7 +15,7 @@
 > v0.13.0（P10）增加变参形参与调用展开；`latent-ast` JSON schema 升级到版本 5。
 > v0.13.3/P11 增加仅限关键字形参；`latent-ast` JSON schema 升级到版本 6。
 >
-> **发布状态：** 本文记录 v0.13.4 候选及历史版本的语言语义；候选尚待发布审批，v0.13.3 及以前的历史标签与资产保持不变。
+> **发布状态：** 本文记录 v0.13.5 与历史版本语言语义；v0.13.5 保持 AST schema v6，早期历史标签与资产保持不变。
 
 ## 1. 设计目标
 
@@ -132,8 +132,30 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
   传参、返回、被闭包捕获并间接调用；显示为 `<bound method Class.method>`，其中 `Class`
   是接收者的运行期类名。属性读取若字段和方法都不存在，仍报未定义字段错误。
 - **直接分派与外部方法边界**：`obj.name(...)` 仍走原有专用方法分派，不受实例同名字段
-  遮蔽影响；`obj.name = value` 仍写字段。内建函数以及 Python/Java 句柄的方法仍不是
-  函数值；`super.method(...)` 也不作为值。
+  遮蔽影响；`obj.name = value` 仍写字段。独立内建函数仍不是函数值；`super.method(...)`
+  也不作为值。Python/Java 句柄方法值的 P13/v0.13.5 规则见下。
+- **互操作绑定实例方法值（P13/v0.13.5）**：对 Python/Java 对象实例读取
+  `obj.name` 时，若现有字段/普通属性读取命中则保留原值并优先于方法；否则只将下述受
+  支持的绑定实例方法包装为 Latent callable。wrapper 可赋值、传给 Latent 函数、作为
+  返回值或由闭包捕获；间接调用不再传 receiver。显示为
+  `<bound method <qualified-type>.<member>>`。Python 在提取时捕获真实 bound method，
+  仅接受普通 Python 实例方法描述符或 C 方法描述符，且 `__self__` 必须是读取对象；独立
+  builtin、模块函数、`staticmethod`、`classmethod`、任意 callable 字段、property 结果和
+  自定义 descriptor 均排除。Java 仅接受公开非静态实例方法；公开字段优先，wrapper
+  捕获 receiver 与方法名，重载在每次调用时按实际位置实参沿既有规则重新选择。两条路径
+  都只支持位置实参；命名参数、`*`/`**` 及 Latent callable 作为宿主 callback 仍被拒绝。
+  daemon 持有的远端引用维持强引用至 daemon 退出，不增加 release/refcount 协议。
+- **互操作模块函数与 Java 静态方法值（P14/v0.13.5）**：读取 `py` 模块
+  的精确 namespace 导出函数时捕获当时的函数对象；支持 Python `FunctionType`，以及由该
+  模块拥有并在其 namespace 中导出的 C 函数（如 `math.sqrt`），但 `builtins` 模块中的独立
+  builtin（如 `builtins.len`）明确排除，即使 CPython 将 `len.__self__` 指向该模块；动态
+  `__getattr__` callable 也不支持。读取 Java 类句柄的公开静态方法族
+  时返回 `<static method 类名.方法名>`；按直接静态调用相同的公开/继承方法集合筛选，并在
+  每次间接调用时按实参复用现有 overload resolver。公开静态字段优先于同名方法值，但
+  `Class.name(...)` 直接调用保持不变。值可赋值、传参、返回、被逃逸闭包捕获和间接调用；
+  仅接受位置参数，不接受 Latent callback（含嵌套容器），也不把构造器、任意 callable 对象、
+  property/dynamic descriptor 或普通 `__ref`/`__jref` 提升为 callable。daemon typed 引用
+  强持有至进程退出。无新语法、AST 节点或 schema 版本。
 - **`.` 访问**：py / java 句柄成员按既有规则脱糖为 `__wgetattr(h, "attr")` /
   `__wcall(h, "attr", args)`；模块命名空间成员则在编译期按导入别名静态解析，
   不构造运行时模块对象（见 §11）。Latent 实例的裸 `Dot` 读取沿用 `__wgetattr`，
@@ -165,15 +187,15 @@ v0.13.0/P10 增加 `*rest`、`**extra` 形参与 Latent 调用中的 `*items`、
 
 `*rest` 继续收集超出位置区的值，并同时开启仅限关键字区；裸 `*` 只开启该区，且其后至少需要一个仅限关键字形参。位置区规则不变：位置值不会填充仅限关键字形参。所有固定形参（包括仅限关键字形参）仍可按名称绑定；未知名称仅在声明 `**extra` 时收集。仅限关键字形参的必需项与默认项可以交错。默认表达式沿用 P9 的调用时求值规则：显式实参先全部求值，然后按声明顺序求省略的默认值。
 
-此规则适用于 Latent 普通函数、函数值/闭包、公开模块函数、方法、继承/`super`、`init` 与构造调用；静态检查与动态绑定共用规则，Python/Java 后端诊断一致。方法的首个接收者仍须为必需位置形参。v0.13.3 当时的覆盖实现只比较形参数量；该历史规则已由下方 P12 候选规则替代。内建函数及 Python/Java 互操作方法和构造器不接受命名或展开实参。
+此规则适用于 Latent 普通函数、函数值/闭包、公开模块函数、方法、继承/`super`、`init` 与构造调用；静态检查与动态绑定共用规则，Python/Java 后端诊断一致。方法的首个接收者仍须为必需位置形参。v0.13.3 当时的覆盖实现只比较形参数量；该历史规则已由下方 P12/v0.13.4 规则替代。内建函数及 Python/Java 互操作方法和构造器不接受命名或展开实参。
 
 稳定 AST 从 schema v5 升至 **v6**，新增 `KeywordOnlyParam(name, default)`；必需项的 `default` 序列化为 `null`，带默认项保留表达式。v1–v5 节点字段和顺序不变。详见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。
 
-### P12：方法覆盖签名兼容性（v0.13.4 候选，待审批）
+### P12/v0.13.4：方法覆盖签名兼容性
 
 P12 在共享语义分析中为非 `init` 覆盖增加编译期签名兼容检查。覆盖必须保留最近父类实现的全部固定形参名称与位置绑定槽，不能把位置形参缩为仅限关键字形参，不能把可选形参变必需，也不能新增必需固定形参；仅限关键字形参可以放宽为可位置绑定。子类可增加默认形参及收集器，但 `**extra` 不能替代基类固定形参；基类已有 `*rest` 或 `**extra` 时，覆盖必须保留相应收集能力。比较必需/可选状态，不比较默认表达式值。
 
-`init` 仍豁免覆盖签名检查，因为 `C.new(...)` 绑定到实际选中的构造器；`super` 仍按其父链目标方法签名绑定。规则不检查返回值，也不改变 AST schema v6、方法派发或 Python/Java runtime binder。它是对 v0.13.3 接受范围的有意收紧；旧发布标签与资产不变。详细决策、诊断和双后端测试见 [P12 方法覆盖签名兼容性记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。
+`init` 仍豁免覆盖签名检查，因为 `C.new(...)` 绑定到实际选中的构造器；`super` 仍按其父链目标方法签名绑定。规则不检查返回值，也不改变 AST schema v6、方法派发或 Python/Java runtime binder。它是对 v0.13.3 接受范围的有意收紧；v0.13.3 及更早版本的已发布标签与资产保持不变。详细决策、诊断和双后端测试见 [P12 方法覆盖签名兼容性记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。
 
 ## 5. 类（v0.3 新增）
 
@@ -204,7 +226,7 @@ v0.10.0 允许把实例方法取作值：
 2. `class Child(Parent):` 表示单继承，父类必须是已声明的 Latent 类；声明顺序可
    前后不限。允许通过 P2 的模块别名继承公开类：`class Child(models.Base):`。
    未知/非类父引用、私有模块类、自继承和传递循环均为编译期错误。
-3. 实例方法按最具体类优先查找，未覆盖的方法沿父链继承。v0.13.4 候选中，普通方法
+3. 实例方法按最具体类优先查找，未覆盖的方法沿父链继承。v0.13.4 中，普通方法
    覆盖须满足 P12 签名兼容规则：保留父实现的固定形参名称及位置槽，不增加必需
    参数，并保留父实现已有的 `*rest` / `**extra` 收集能力；`init` 仍可增加或调整
    参数，构造调用按实际选中的 `init` 校验。已发布 v0.13.3 的历史行为见 P12 记录。
@@ -280,6 +302,21 @@ say a                    # 打印远端对象：[1 2 3]
   （`__add__` 等）委托执行，双后端一致；`say` 远端对象走远端 `str()`。
 7. **`==` 在远端对象上是 identity 比较**（同一句柄才相等），双后端一致；
    `<` 等比较不支持远端对象。
+8. **Python 绑定方法值（P13/v0.13.5）**：读取对象实例的 `obj.name` 时，
+   先保留已有字段/普通属性值；只有静态 descriptor 检查确认是类上的普通 Python 实例
+   方法或 C 方法描述符、并且读取结果的 `__self__ is obj` 时，才产生 callable wrapper。
+   wrapper 捕获取值时的真实 bound method，不在后续调用时重新查找 descriptor。独立 builtin、
+   模块函数、`staticmethod`、`classmethod`、callable 实例字段、property 返回值及自定义
+   descriptor 不提升为 callable。Java target 的 Python daemon 为此类 bound method 分配专用
+   opaque id，并强引用至 daemon 退出；普通 `__ref` 仍不是 callable。
+9. **Python 模块函数值（P14/v0.13.5）**：对 `py "module"` 读取成员时，
+   仅将真实模块 namespace 中该名字的精确 `FunctionType`，或该模块拥有且 namespace 导出的
+   精确 `BuiltinFunctionType` 提升为 callable；例如 `math.sqrt` 可赋值、传参、返回、被闭包
+   捕获并间接调用。`builtins` namespace 中的独立 builtin（如 `builtins.len`）明确排除，
+   即使 CPython 的 `len.__self__` 指向 `builtins` 模块。读取时保存真实函数对象，之后模块同名
+   属性重绑定不会更改已有值；新的读取才观察新绑定。动态 `__getattr__` callable、callable 数据
+   属性与普通 `__ref` 仍不可间接调用。显示为 `<module function module.name>`；daemon 使用
+   独立 typed id 并强引用至退出，不改变直接 `module.name(...)` 路径。
 
 ## 8. 按需加载 Java：`java`
 
@@ -349,6 +386,19 @@ for x in a:                      # Java List/数组可迭代
 6. **`==` 在 java 句柄上是 identity 比较**（同一对象才相等），与 py 句柄一致；
    java 句柄的真值恒为真（非空）。
 7. Java 出错 → 运行时异常（Java 后端直接抛；Python 后端带 Java 堆栈信息透出）。
+8. **Java 绑定方法值（P13/v0.13.5）**：对 `JObj` 读取 `o.name` 时，
+   公开字段仍优先并返回其字段值；无字段而存在一个或多个公开非静态实例方法时，
+   返回 `<bound method <运行期二进制类名>.<name>>` wrapper，捕获原 Java 对象和方法名。
+   每次间接调用都使用当次实际位置实参进入本节既有 `JReflect` 重载选择；不在方法提取时
+   选定 overload。Java 类句柄上的静态方法/字段、构造器和非公开方法不作为 callable 值。
+   Java object reference 由 wrapper 强持有；daemon 端对象表延续至 daemon 退出。
+9. **Java 静态方法族值（P14/v0.13.5）**：对 `JClass` 读取属性时，公开
+   静态字段先返回；字段不存在而有与 `callStatic` 候选范围相同的公开静态方法时，返回
+   `<static method 类名.方法名>` wrapper，包含沿现有 `Class.getMethods()` 候选集继承到的
+   静态方法。wrapper 捕获类句柄与方法名，每次间接调用按当次位置实参使用本节现有 overload
+   resolver；赋值、传参、返回和逃逸闭包捕获均可用。`Class.name(...)` 与 `Class.new(...)`
+   继续走既有直接调用/构造路径；构造器值、Latent callback、命名/展开实参、普通对象引用
+   与任意 callable 字段均不因此变为 callable。daemon static-method typed ref 强持有至退出。
 
 ## 9. 内建函数
 
@@ -444,15 +494,17 @@ class Box:
 
 P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模块初始化、命名空间可见性及父类分派语义。
 
-## 12. 仍不支持（v0.13.3）
+## 12. 仍不支持（v0.13.5）
 
-- 多继承、接口、Java 类继承、类/静态方法、运算符重载。
-- 类方法/内建函数/Python 与 Java 句柄方法的一等值化；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
+- 多继承、接口、Java 类继承、Latent 类/静态方法、运算符重载。
+- 独立内建函数、任意 callable 属性/对象、构造器，以及 P13/P14 明确准入范围之外的宿主 callable 不作为一等函数值；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
 - v0.12.0 发布语义不含可变参数或实参展开；v0.13.0/P10 引入两者，v0.13.3/P11 加入仅限关键字形参。`py` 内联代码块（`py:` 多行 Python 源码）仍不支持。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
+
+以上按 v0.13.5 发布语义描述；P13 互操作绑定实例方法值与 P14 Python 模块函数/Java 静态方法值已纳入本版。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md) 与 [P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)。
 
 ## 13. 示例
 

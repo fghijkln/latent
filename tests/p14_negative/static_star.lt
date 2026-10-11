@@ -1,0 +1,4 @@
+Fixture = java "P14InteropFixture"
+classify = Fixture.classify
+items = ["x"]
+classify(*items)

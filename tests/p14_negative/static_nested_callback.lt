@@ -1,0 +1,3 @@
+Fixture = java "P14InteropFixture"
+classify = Fixture.classify
+Fixture.accept({"fn": classify})
