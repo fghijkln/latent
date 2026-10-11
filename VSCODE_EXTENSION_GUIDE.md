@@ -1,13 +1,13 @@
 # Latent VS Code 插件使用指南
 
-Latent Language Support 为 `.lt` 文件提供语法高亮、代码片段、编译与运行入口。此指南对应随 Latent **v0.13.2** 一同发布的 VS Code 插件 **0.6.3**；大纲与代码折叠需要 v0.13.2 或更新的编译器，P10 变参与调用展开需要 v0.13.0 或更新版本。
+Latent Language Support 为 `.lt` 文件提供语法高亮、代码片段、编译与运行入口。此指南对应随 Latent **v0.13.3** 发布的 VS Code 插件 **0.6.4**；大纲与代码折叠需要 v0.13.2 或更新的编译器，P10 变参与调用展开需要 v0.13.0 或更新版本，P11 仅限关键字形参需要 v0.13.3 或更新版本。
 
 ## 安装
 
-从 [Latent v0.13.2 GitHub Release](https://github.com/fghijkln/latent/releases/tag/v0.13.2) 下载 `latent-language-support-0.6.3.vsix`。在 VS Code 中打开命令面板（Windows/Linux：`Ctrl+Shift+P`，macOS：`Cmd+Shift+P`），运行 **Extensions: Install from VSIX...** 并选择下载的文件；也可以在终端运行：
+从 [Latent v0.13.3 GitHub Release](https://github.com/fghijkln/latent/releases/tag/v0.13.3) 下载 `latent-language-support-0.6.4.vsix`。在 VS Code 中打开命令面板（Windows/Linux：`Ctrl+Shift+P`，macOS：`Cmd+Shift+P`），运行 **Extensions: Install from VSIX...** 并选择下载的文件；也可以在终端运行：
 
 ```sh
-code --install-extension /absolute/path/to/latent-language-support-0.6.3.vsix
+code --install-extension /absolute/path/to/latent-language-support-0.6.4.vsix
 ```
 
 安装或升级完成后，执行 **Developer: Reload Window**。插件要求 VS Code 1.85.0 或更新版本。
@@ -22,11 +22,11 @@ code --install-extension /absolute/path/to/latent-language-support-0.6.3.vsix
 
 在 Latent 文件中输入片段前缀并按 `Ctrl+Space`（macOS 通常为 `Cmd+Space`；也可在键入前缀后等待建议）查看可用片段。常用前缀包括：
 
-- `fn`、`fndef`、`fnv`：普通函数、默认参数函数、含 `*rest` / `**extra` 的变参函数。
+- `fn`、`fndef`、`fnv`、`fnkw`：普通函数、默认参数函数、含 `*rest` / `**extra` 的变参函数、含仅限关键字形参的函数。
 - `callnamed`、`callspread`：命名参数调用、带 `*items` / `**mapping` 展开的调用。
 - `class`、`if`、`for`、`try`、`import`、`say`、`py`、`java`：类、控制流、模块导入、输出及 Python/Java 互操作句柄。
 
-选中片段后，按 `Tab` 在占位符之间移动。P10 的 `*rest`、`**extra`、`*items` 和 `**mapping` 会在函数签名或调用实参位置获得专属语法高亮；普通乘法与幂运算不会被误当作展开标记。
+选中片段后，按 `Tab` 在占位符之间移动。P10 的 `*rest`、`**extra`、`*items` 和 `**mapping` 及 P11 的裸 `*` 分隔符会在函数签名或调用实参位置获得专属语法高亮；普通乘法与幂运算不会被误当作展开标记。
 
 ## 编译、运行与测试
 

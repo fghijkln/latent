@@ -1,0 +1,3 @@
+fn take(*items, flag):
+    return flag
+take(1)

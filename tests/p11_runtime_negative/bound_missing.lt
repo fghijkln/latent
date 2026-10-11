@@ -1,0 +1,7 @@
+class C:
+    fn required(self, *, flag):
+        return flag
+fn invoke(target):
+    return target.required()
+obj = C.new()
+invoke(obj)

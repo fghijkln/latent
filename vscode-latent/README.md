@@ -1,6 +1,6 @@
 # Latent Language Support for VS Code
 
-Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不会改写 Latent 编译器源码。插件 0.6.3 随 Latent v0.13.2 一同发布，新增解析器驱动的大纲与代码折叠、由编译器词法表生成的关键字补全，并强化项目输出路径和运行测试前保存的安全处理。大纲/折叠需要 v0.13.2 或更新的编译器；P10 编译/运行需要 v0.13.0 或更新版本。
+Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不会改写 Latent 编译器源码。插件 0.6.4 随 Latent v0.13.3 发布，除解析器驱动的大纲与代码折叠、关键字补全及路径/保存安全处理外，还高亮仅限关键字形参的裸 `*` 分隔符并提供 `fnkw` 片段。大纲/折叠需要 v0.13.2 或更新的编译器；P11 语法需要 v0.13.3 或更新版本。
 
 完整安装和使用说明见 [VS Code 插件使用指南](../VSCODE_EXTENSION_GUIDE.md)。
 
@@ -9,7 +9,7 @@ Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不�
 - 自动识别 `.lt` 文件并提供语法高亮、`#` 行注释、括号/引号配对和块缩进。
 - 关键字高亮与补全清单由编译器词法表同步生成；新增保留字可自动进入编辑器补全。
 - 在 VS Code 大纲中展示函数与类（类方法按层级归入类），并支持函数、类及控制流缩进块的代码折叠。
-- 高亮普通/默认形参、`*rest`、`**extra`、命名实参，以及调用中的 `*items` 和 `**mapping`。展开标记只在函数签名或调用实参位置获得专属高亮，不会把普通乘法或幂运算误标为展开。
+- 高亮普通/默认形参、`*rest`、裸 `*` 仅限关键字分隔符、`**extra`、命名实参，以及调用中的 `*items` 和 `**mapping`。展开标记只在函数签名或调用实参位置获得专属高亮，不会把普通乘法或幂运算误标为展开。
 - 提供函数、默认参数、变参函数、命名调用和展开调用等代码片段，以及 `class`、`if`、`for`、`try/catch`、模块导入、Python/Java 句柄等片段。
 - 从命令面板运行 **Latent: 编译到 Python**、**Latent: 编译到 Java**、**Latent: 运行（Python）**、**Latent: 运行（Java）** 或 **Latent: 运行项目测试**。打开 `.lt` 编辑器时，右上角也可直接运行两个后端。
 - 读取编译器的位置诊断并标记在对应 `.lt` 文件上；完整输出显示在 **Latent** 输出面板。
@@ -22,14 +22,14 @@ Latent Language Support 为 `.lt` 文件提供轻量编辑与运行支持，不�
 
 - 打开的工作区是 Latent 项目（项目根目录或其子目录中有 `latent.py`）。
 - Python 3（默认使用 `python3`）；大纲与折叠也通过项目的 `latent.py --editor-metadata` 解析当前缓冲区。Java 后端需要 JDK（包括 `javac` 和 `java`）。
-- 使用 P10 的源程序需要编译器实现 P10；扩展本身只提供编辑器支持和调用入口。
+- 使用 P10 的源程序需要 v0.13.0 或更新的编译器；使用 P11 仅限关键字形参的程序需要 v0.13.3 或更新版本。扩展本身只提供编辑器支持和调用入口。
 
 ## 安装
 
-在 VS Code 中执行 **Extensions: Install from VSIX...**，选择 `latent-language-support-0.6.3.vsix`；或在终端执行：
+在 VS Code 中执行 **Extensions: Install from VSIX...**，选择 `latent-language-support-0.6.4.vsix`；或在终端执行：
 
 ```sh
-code --install-extension /absolute/path/to/latent-language-support-0.6.3.vsix
+code --install-extension /absolute/path/to/latent-language-support-0.6.4.vsix
 ```
 
 安装后重新加载 VS Code 窗口，以载入新版本。然后打开 Latent 项目，编辑 `.lt` 文件，并从命令面板选择命令。

@@ -1,2 +1,2 @@
-fn bad(value=1, *rest, later):
+fn bad(*rest, **extra, later):
     return later

@@ -1,0 +1,2 @@
+fn bad(**extra, value):
+    return value

@@ -24,6 +24,7 @@ POSITIVE = ["hello", "fib", "loop", "data", "truthy", "scope",
 POSITIVE.append("p8_named_arguments")
 POSITIVE.append("p9_default_parameters")
 POSITIVE.append("p10_variadic_arguments")
+POSITIVE.append("p11_keyword_only_parameters")
 POSITIVE.append("phase1_semantics")
 MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/inheritance/main",
@@ -31,7 +32,7 @@ MODULE_POSITIVE = ["modules/app/main", "modules/same/main",
                    "modules/bound_methods/main",
                    "modules/named_arguments/main",
                    "modules/default_arguments/main",
-                   "modules/variadic/main"]
+                   "modules/variadic/main", "modules/keyword_only/main"]
 NEG_COMPILE = ["err_undef", "err_arity", "err_readbefore", "err_exprstmt",
                "err_break", "err_dupmethod", "err_assign_target",
                "err_nested_readbefore", "err_p6_nonlocal_missing",
@@ -75,10 +76,26 @@ P10_NEG_COMPILE = {
     "p10_negative/rest_after_extra": "*rest must precede **extra and appear once",
     "p10_negative/duplicate_rest": "*rest must precede **extra and appear once",
     "p10_negative/duplicate_extra": "multiple **extra parameters",
-    "p10_negative/keyword_only": "expected NAME",
+    "p10_negative/keyword_only": "bare * must be followed by at least one keyword-only parameter",
     "p10_negative/unpack_after_named": "positional unpacking follows named argument",
     "p10_negative/builtin_star": "built-in function 'len' does not support argument unpacking",
     "p10_negative/builtin_starstar": "built-in function 'len' does not support argument unpacking",
+}
+P11_NEG_COMPILE = {
+    "p11_negative/required_missing": "take() missing required keyword-only argument 'flag'",
+    "p11_negative/position_does_not_bind": "take() missing required keyword-only argument 'flag'",
+    "p11_negative/unknown_name": "take() got unexpected named argument 'other'",
+    "p11_negative/duplicate_name": "take() got duplicate named argument 'flag'",
+    "p11_negative/bare_star_empty": "bare * must be followed by at least one keyword-only parameter",
+    "p11_negative/default_future": "cannot reference parameter 'later' before it is bound",
+    "p11_negative/keyword_only_receiver": "receiver must be a required positional parameter",
+    "p11_negative/positional_capacity": "take() takes 1 args, got 2",
+    "p11_negative/collector_capacity": "collect() takes 0 args, got 1",
+    "p11_negative/method_missing": "run() missing required keyword-only argument 'flag'",
+    "p11_negative/constructor_missing": "C.new() missing required keyword-only argument 'flag'",
+    "p11_negative/super_missing": "super.run() missing required keyword-only argument 'flag'",
+    "p11_negative/duplicate_separator": "*rest must precede **extra and appear once",
+    "p11_negative/after_extra": "positional parameter follows variadic parameter",
 }
 NEG_INHERITANCE_COMPILE = [
     "inheritance_negative/unknown", "inheritance_negative/not_class",
@@ -189,6 +206,13 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "p10_negative/python_interop_starstar",
                "p10_negative/java_interop_star",
                "p10_negative/java_interop_starstar",
+               "p11_runtime_negative/indirect_missing",
+               "p11_runtime_negative/position_does_not_bind",
+               "p11_runtime_negative/starstar_missing",
+               "p11_runtime_negative/bound_missing",
+               "p11_runtime_negative/constructor_missing",
+               "p11_runtime_negative/duplicate_mapping",
+               "p11_runtime_negative/unknown_mapping",
                "phase1_negative/ambiguous_method",
                "phase1_negative/ambiguous_constructor",
                "phase1_negative/ambiguous_parameters",
@@ -228,6 +252,13 @@ RUNTIME_SOURCE_LINES = {
     "p10_negative/python_interop_starstar": [2],
     "p10_negative/java_interop_star": [3],
     "p10_negative/java_interop_starstar": [3],
+    "p11_runtime_negative/indirect_missing": [4],
+    "p11_runtime_negative/position_does_not_bind": [4],
+    "p11_runtime_negative/starstar_missing": [4, 5],
+    "p11_runtime_negative/bound_missing": [5, 7],
+    "p11_runtime_negative/constructor_missing": [5, 6],
+    "p11_runtime_negative/duplicate_mapping": [4, 5],
+    "p11_runtime_negative/unknown_mapping": [4, 5],
     "phase1_negative/ambiguous_method": [2],
     "phase1_negative/ambiguous_constructor": [2],
     "phase1_negative/ambiguous_parameters": [2],
@@ -271,6 +302,15 @@ P10_RUNTIME_ERROR_MARKERS = {
     "p10_negative/java_interop_star": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
     "p10_negative/java_interop_starstar": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls",
 }
+P11_RUNTIME_ERROR_MARKERS = {
+    "p11_runtime_negative/indirect_missing": "Latent runtime error: ArgumentError: required() missing required keyword-only argument 'flag'",
+    "p11_runtime_negative/position_does_not_bind": "Latent runtime error: ArgumentError: required() missing required keyword-only argument 'flag'",
+    "p11_runtime_negative/starstar_missing": "Latent runtime error: ArgumentError: required() missing required keyword-only argument 'flag'",
+    "p11_runtime_negative/bound_missing": "Latent runtime error: ArgumentError: required() missing required keyword-only argument 'flag'",
+    "p11_runtime_negative/constructor_missing": "Latent runtime error: ArgumentError: C.new() missing required keyword-only argument 'flag'",
+    "p11_runtime_negative/duplicate_mapping": "Latent runtime error: ArgumentError: required() got duplicate named argument 'flag'",
+    "p11_runtime_negative/unknown_mapping": "Latent runtime error: ArgumentError: required() got unexpected named argument 'other'",
+}
 PHASE1_RUNTIME_ERROR_MARKERS = {
     "phase1_negative/ambiguous_method": (
         "Latent runtime error: RuntimeException: java: ambiguous method "
@@ -298,6 +338,7 @@ COOKBOOK = ["py_math", "py_datetime", "py_json", "py_re", "py_os",
             "java_bigdecimal", "mixed_io", "classes", "inheritance",
             "pipeline", "modules", "functions", "named_arguments"]
 COOKBOOK.append("variadic_arguments")
+COOKBOOK.append("keyword_only_arguments")
 
 TRY_BASIC_STDOUT = ("caught: index out of range: 5\n"
                     "k=key not found: zz\n"
@@ -376,6 +417,23 @@ P10_EXPECTED_STDOUT = {
         '["expanded", 3, [4], {"mode": "module"}]\n'
         '["value", 5, [], {"extra": "function-value"}]\n'),
 }
+P11_EXPECTED_STDOUT = {
+    "p11_keyword_only_parameters": (
+        '["ops", "copy", ["archive"], true, "safe", false, {"trace": 7}]\n'
+        '["api", nil, [], false, "fast", true, {"source": "mapping"}]\n'
+        '[1, "yes", 2]\n[1, 2, 4, 3]\nARPK\n'
+        '["captured-closure", true]\n'
+        '["wolf", ["Nova", "dog", "direct", "child", false]]\n'
+        '["wolf", ["Nova", "dog", "dynamic", "child", true]]\n'
+        '["wolf", ["Nova", "dog", "bound", "child", true]]\n'
+        '["old", "inherited"]\n'
+        '["old", "base", "parent", "base", true]\n'),
+    "modules/keyword_only/main": (
+        '["module", "module-default", 3]\n'
+        '["expanded", "fast", 5]\n'
+        '["function-value", "slow", true]\n'
+        '["worker", "Kira", "module-default", 9]\n'),
+}
 PHASE1_EXPECTED_STDOUT = (
     "true\nnan\nnan is truthy\n"
     "false\ntrue\nfalse\ntrue\nfalse\ntrue\n"
@@ -397,6 +455,10 @@ COOKBOOK_VARIADIC_STDOUT = (
     '["default", 2, [], {}]\n'
     '["card", 3, ["extra"], {"color": "blue"}]\n'
     '["keyword", 4, [], {"border": true}]\n')
+COOKBOOK_KEYWORD_ONLY_STDOUT = (
+    '["api.example", 80, true, 5]\n'
+    '["edge.example", 80, false, nil]\n'
+    '["build", ["clean", "test"], "safe", 2, {"verbose": true}]\n')
 
 
 def run(cmd, cwd=None, timeout=60):
@@ -487,6 +549,8 @@ def main():
             ok = ok and py[1] == P9_EXPECTED_STDOUT[name]
         if name in P10_EXPECTED_STDOUT:
             ok = ok and py[1] == P10_EXPECTED_STDOUT[name]
+        if name in P11_EXPECTED_STDOUT:
+            ok = ok and py[1] == P11_EXPECTED_STDOUT[name]
         if name == "phase1_semantics":
             ok = ok and py[1] == PHASE1_EXPECTED_STDOUT
         print(("PASS " if ok else "FAIL ") + name)
@@ -576,6 +640,28 @@ def main():
             print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
             print(f"  java: rc={results[1]} detail={details[1][-500:]}")
 
+    print("== P11 negative compile: keyword-only syntax and static binding ==")
+    for name, marker in P11_NEG_COMPILE.items():
+        details = []
+        results = []
+        for target in ("py", "java"):
+            outdir = os.path.join(OUT, "t_" + name.replace("/", "_") + "_" + target)
+            rc, so, se = run([sys.executable, LATENTC,
+                              os.path.join(TESTS, name + ".lt"),
+                              "-t", target, "-o", outdir])
+            details.append(so + se)
+            results.append(rc)
+        first_lines = [d.strip().splitlines()[0] if d.strip() else ""
+                       for d in details]
+        ok = (all(rc != 0 for rc in results) and
+              all(marker in detail for detail in details) and
+              first_lines[0] == first_lines[1])
+        print(("PASS " if ok else "FAIL ") + name)
+        if not ok:
+            fails += 1
+            print(f"  py:   rc={results[0]} detail={details[0][-500:]}")
+            print(f"  java: rc={results[1]} detail={details[1][-500:]}")
+
     print("== negative inheritance compile: parent graph and super rules ==")
     for name in NEG_INHERITANCE_COMPILE:
         src = os.path.join(TESTS, name + ".lt")
@@ -616,10 +702,12 @@ def main():
         if (name in P8_RUNTIME_ERROR_MARKERS or
                 name in P9_RUNTIME_ERROR_MARKERS or
                 name in P10_RUNTIME_ERROR_MARKERS or
+                name in P11_RUNTIME_ERROR_MARKERS or
                 name in PHASE1_RUNTIME_ERROR_MARKERS):
             expected = (P8_RUNTIME_ERROR_MARKERS.get(name) or
                         P9_RUNTIME_ERROR_MARKERS.get(name) or
                         P10_RUNTIME_ERROR_MARKERS.get(name) or
+                        P11_RUNTIME_ERROR_MARKERS.get(name) or
                         PHASE1_RUNTIME_ERROR_MARKERS[name])
             py_error = next((line for line in py[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
@@ -648,6 +736,8 @@ def main():
             ok = ok and py[1] == "tea:3\n6\n"
         elif name == "variadic_arguments":
             ok = ok and py[1] == COOKBOOK_VARIADIC_STDOUT
+        elif name == "keyword_only_arguments":
+            ok = ok and py[1] == COOKBOOK_KEYWORD_ONLY_STDOUT
         print(("PASS " if ok else "FAIL ") + "cookbook/" + name)
         if not ok:
             fails += 1
@@ -689,6 +779,7 @@ def main():
              len(P8_NEG_COMPILE) +
              len(P9_NEG_COMPILE) +
              len(P10_NEG_COMPILE) +
+             len(P11_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
              len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 1)
     print(f"\n{total - fails} passed, {fails} failed")

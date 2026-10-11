@@ -1,0 +1,11 @@
+default_mode = "module-default"
+
+fn summarize(title, *, mode=default_mode, required):
+    return [title, mode, required]
+
+class Worker:
+    fn init(self, *, name, role=default_mode):
+        self.name = name
+        self.role = role
+    fn describe(self, *, prefix="worker", request):
+        return [prefix, self.name, self.role, request]

@@ -15,6 +15,14 @@
     ],
     "description": "Define a function with a default parameter"
   },
+  "Function with keyword-only parameters": {
+    "prefix": "fnkw",
+    "body": [
+      "fn ${1:name}(${2:required}, *, ${3:option}, ${4:retry}=2):",
+      "    ${0:pass}"
+    ],
+    "description": "Define a function with keyword-only parameters"
+  },
   "Function with variadic arguments": {
     "prefix": "fnv",
     "body": [

@@ -1,0 +1,64 @@
+fn send(to, retry=2, *rest, urgent, mode="safe", audit, **extra):
+    return [to, retry, rest, urgent, mode, audit, extra]
+
+say send("ops", "copy", "archive", urgent=true, audit=false, trace=7)
+say send(to="api", retry=nil, urgent=false, mode="fast", audit=true, **{"source": "mapping"})
+
+fn bare(*, initial=1, required, final=initial + 1):
+    return [initial, required, final]
+say bare(required="yes")
+
+trace = ""
+fn mark(label, value):
+    global trace
+    trace = trace + label
+    return value
+
+fn ordered(first, preset=mark("P", 2), *, required, option=mark("K", 3)):
+    return [first, preset, required, option]
+say ordered(mark("A", 1), required=mark("R", 4))
+say trace
+
+fn make(prefix):
+    fn combine(value, *, detail=false):
+        return [prefix + value, detail]
+    return combine
+
+fn invoke_closure(fn_value):
+    return fn_value(value="closure", detail=true)
+
+say invoke_closure(make("captured-"))
+
+class Base:
+    fn init(self, name, *, kind="base"):
+        self.name = name
+        self.kind = kind
+    fn describe(self, value, *, suffix="base", required):
+        return [self.name, self.kind, value, suffix, required]
+
+class Child(Base):
+    fn init(self, name, *, breed, kind="dog"):
+        super.init(self, name, kind=kind)
+        self.breed = breed
+    fn describe(self, *, value, required, suffix="child"):
+        return [self.breed, super.describe(self, value=value, required=required, suffix=suffix)]
+
+class BaseChild(Base):
+    fn label(self, *, marker="inherited"):
+        return [self.name, marker]
+
+fn describe_dynamic(target):
+    return target.describe(value="dynamic", required=true)
+
+fn invoke_method(fn_value):
+    return fn_value(value="bound", required=true)
+
+pet = Child.new("Nova", breed="wolf")
+say pet.describe(value="direct", required=false)
+say describe_dynamic(pet)
+bound = pet.describe
+say invoke_method(bound)
+
+inherited = BaseChild.new("old")
+say inherited.label()
+say inherited.describe("parent", required=true)

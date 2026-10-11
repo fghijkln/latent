@@ -1,0 +1,10 @@
+import "lib.lt" as lib
+
+say lib.summarize("module", required=3)
+say lib.summarize(required=5, title="expanded", **{"mode": "fast"})
+
+summarize = lib.summarize
+say summarize("function-value", mode="slow", required=true)
+
+worker = lib.Worker.new(name="Kira")
+say worker.describe(request=9)

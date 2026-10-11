@@ -1,0 +1,5 @@
+class C:
+    fn run(self, *, flag):
+        return flag
+c = C.new()
+c.run()

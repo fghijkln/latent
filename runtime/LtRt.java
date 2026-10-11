@@ -427,31 +427,46 @@ public class LtRt {
     }
     private static Object[] bindArgs(String[] params, int requiredCount,
                                      Object[] args, String name) {
-        return bindArgs(params, requiredCount, null, null, args, name);
+        return bindArgs(params, requiredCount, params.length, new String[0],
+                        null, null, args, name);
     }
     private static Object[] bindArgs(String[] params, int requiredCount,
                                      String restName, String extraName,
                                      Object[] rawArgs, String name) {
+        return bindArgs(params, requiredCount, params.length, new String[0],
+                        restName, extraName, rawArgs, name);
+    }
+    private static Object[] bindArgs(String[] params, int requiredCount,
+                                     int positionalCount,
+                                     String[] requiredKeywordOnly,
+                                     String restName, String extraName,
+                                     Object[] rawArgs, String name) {
         Object[] args = expandArgs(rawArgs);
         if (!hasNamedArgs(args)) {
-            if (args.length > params.length && restName == null)
-                throw new ArgumentError(name + "() takes " + params.length +
+            if (args.length > positionalCount && restName == null)
+                throw new ArgumentError(name + "() takes " + positionalCount +
                     " args, got " + args.length);
             if (args.length < requiredCount) {
-                if (requiredCount == params.length)
-                    throw new ArgumentError(name + "() takes " + params.length +
+                if (requiredCount == positionalCount)
+                    throw new ArgumentError(name + "() takes " + positionalCount +
                         " args, got " + args.length);
                 throw new ArgumentError(name +
                     "() missing required argument '" + params[args.length] + "'");
             }
-            int fixedCount = params.length;
-            Object[] values = Arrays.copyOf(args, fixedCount +
-                (restName == null ? 0 : 1) + (extraName == null ? 0 : 1));
-            Arrays.fill(values, Math.min(args.length, fixedCount), fixedCount, MISSING);
-            int next = fixedCount;
+            Object[] values = new Object[params.length +
+                (restName == null ? 0 : 1) + (extraName == null ? 0 : 1)];
+            Arrays.fill(values, 0, params.length, MISSING);
+            System.arraycopy(args, 0, values, 0,
+                             Math.min(args.length, positionalCount));
+            for (String parameter : requiredKeywordOnly)
+                throw new ArgumentError(name +
+                    "() missing required keyword-only argument '" +
+                    parameter + "'");
+            int next = params.length;
             if (restName != null) {
                 List<Object> rest = new ArrayList<>();
-                for (int i = fixedCount; i < args.length; i++) rest.add(args[i]);
+                for (int i = positionalCount; i < args.length; i++)
+                    rest.add(args[i]);
                 values[next++] = rest;
             }
             if (extraName != null) values[next] = new LinkedHashMap<String, Object>();
@@ -484,9 +499,9 @@ public class LtRt {
                     supplied[index] = true;
                 }
             } else {
-                if (pos >= params.length) {
+                if (pos >= positionalCount) {
                     if (restName == null)
-                        throw new ArgumentError(name + "() takes " + params.length +
+                        throw new ArgumentError(name + "() takes " + positionalCount +
                             " args, got " + (pos + 1));
                     restValues.add(arg);
                 } else {
@@ -501,6 +516,13 @@ public class LtRt {
                 throw new ArgumentError(name +
                     "() missing required argument '" + params[i] + "'");
         }
+        for (String parameter : requiredKeywordOnly) {
+            int index = Arrays.asList(params).indexOf(parameter);
+            if (!supplied[index])
+                throw new ArgumentError(name +
+                    "() missing required keyword-only argument '" +
+                    parameter + "'");
+        }
         Object[] bound = Arrays.copyOf(values, params.length +
             (restName == null ? 0 : 1) + (extraName == null ? 0 : 1));
         int next = params.length;
@@ -511,6 +533,8 @@ public class LtRt {
     public static class LtFunction {
         final int arity;
         final int requiredCount;
+        final int positionalCount;
+        final String[] requiredKeywordOnly;
         final String name;
         final String display;
         final String[] params;
@@ -518,19 +542,28 @@ public class LtRt {
         final String extraName;
         final LtBody body;
         LtFunction(String[] params, int requiredCount, String name, LtBody body) {
-            this(params, requiredCount, name, "<function " + name + ">",
-                 null, null, body);
+            this(params, requiredCount, params.length, new String[0], name,
+                 "<function " + name + ">", null, null, body);
         }
         LtFunction(String[] params, int requiredCount, String name,
                    String display, LtBody body) {
-            this(params, requiredCount, name, display, null, null, body);
+            this(params, requiredCount, params.length, new String[0], name,
+                 display, null, null, body);
         }
         LtFunction(String[] params, int requiredCount, String name,
                    String display, String restName, String extraName,
                    LtBody body) {
+            this(params, requiredCount, params.length, new String[0], name,
+                 display, restName, extraName, body);
+        }
+        LtFunction(String[] params, int requiredCount, int positionalCount,
+                   String[] requiredKeywordOnly, String name, String display,
+                   String restName, String extraName, LtBody body) {
             this.params = params.clone();
             this.arity = params.length;
             this.requiredCount = requiredCount;
+            this.positionalCount = positionalCount;
+            this.requiredKeywordOnly = requiredKeywordOnly.clone();
             this.name = name;
             this.display = display;
             this.restName = restName;
@@ -538,8 +571,9 @@ public class LtRt {
             this.body = body;
         }
         Object invoke(Object[] args) {
-            return body.call(bindArgs(params, requiredCount, restName,
-                                      extraName, args, name));
+            return body.call(bindArgs(params, requiredCount, positionalCount,
+                                      requiredKeywordOnly, restName, extraName,
+                                      args, name));
         }
     }
     /** Per-invocation binding cells; nested functions retain this frame. */
@@ -580,6 +614,15 @@ public class LtRt {
         return new LtFunction(params, requiredCount, name,
             "<function " + name + ">", restName, extraName, body);
     }
+    public static LtFunction function(String[] params, int requiredCount,
+                                      int positionalCount,
+                                      String[] requiredKeywordOnly,
+                                      String name, String restName,
+                                      String extraName, LtBody body) {
+        return new LtFunction(params, requiredCount, positionalCount,
+            requiredKeywordOnly, name, "<function " + name + ">",
+            restName, extraName, body);
+    }
     public static Object callValue(Object value, Object... args) {
         if (!(value instanceof LtFunction))
             throw new RuntimeException("call on non-function value");
@@ -593,12 +636,16 @@ public class LtRt {
         public final Map<String, Integer> methodArities;
         public final Map<String, String[]> methodParameters;
         public final Map<String, Integer> methodRequiredCounts;
+        public final Map<String, Integer> methodPositionalCounts;
+        public final Map<String, String[]> methodRequiredKeywordOnly;
         public final Map<String, String> methodRestNames;
         public final Map<String, String> methodExtraNames;
         LtClass(String name, LtClass parent, Map<String, LtMethod> methods,
                 Map<String, Integer> methodArities,
                 Map<String, String[]> methodParameters,
                 Map<String, Integer> methodRequiredCounts,
+                Map<String, Integer> methodPositionalCounts,
+                Map<String, String[]> methodRequiredKeywordOnly,
                 Map<String, String> methodRestNames,
                 Map<String, String> methodExtraNames) {
             this.name = name;
@@ -607,6 +654,8 @@ public class LtRt {
             this.methodArities = methodArities;
             this.methodParameters = methodParameters;
             this.methodRequiredCounts = methodRequiredCounts;
+            this.methodPositionalCounts = methodPositionalCounts;
+            this.methodRequiredKeywordOnly = methodRequiredKeywordOnly;
             this.methodRestNames = methodRestNames;
             this.methodExtraNames = methodExtraNames;
         }
@@ -632,10 +681,26 @@ public class LtRt {
                                     int[] arities, String[][] parameters,
                                     int[] requiredCounts, String[] restNames,
                                     String[] extraNames) {
+        int[] positionalCounts = arities.clone();
+        String[][] requiredKeywordOnly = new String[names.length][0];
+        return makeClass(name, parent, names, methods, arities, parameters,
+                         requiredCounts, positionalCounts,
+                         requiredKeywordOnly, restNames, extraNames);
+    }
+
+    public static LtClass makeClass(String name, LtClass parent,
+                                    String[] names, LtMethod[] methods,
+                                    int[] arities, String[][] parameters,
+                                    int[] requiredCounts,
+                                    int[] positionalCounts,
+                                    String[][] requiredKeywordOnly,
+                                    String[] restNames, String[] extraNames) {
         Map<String, LtMethod> m = new LinkedHashMap<>();
         Map<String, Integer> a = new LinkedHashMap<>();
         Map<String, String[]> p = new LinkedHashMap<>();
         Map<String, Integer> r = new LinkedHashMap<>();
+        Map<String, Integer> positional = new LinkedHashMap<>();
+        Map<String, String[]> keywordOnly = new LinkedHashMap<>();
         Map<String, String> rest = new LinkedHashMap<>();
         Map<String, String> extra = new LinkedHashMap<>();
         for (int i = 0; i < names.length; i++) {
@@ -643,10 +708,13 @@ public class LtRt {
             a.put(names[i], arities[i]);
             p.put(names[i], parameters[i].clone());
             r.put(names[i], requiredCounts[i]);
+            positional.put(names[i], positionalCounts[i]);
+            keywordOnly.put(names[i], requiredKeywordOnly[i].clone());
             rest.put(names[i], restNames[i]);
             extra.put(names[i], extraNames[i]);
         }
-        return new LtClass(name, parent, m, a, p, r, rest, extra);
+        return new LtClass(name, parent, m, a, p, r, positional, keywordOnly,
+                           rest, extra);
     }
 
     static LtMethod findMethod(LtClass cls, String name) {
@@ -681,6 +749,22 @@ public class LtRt {
         return 0;
     }
 
+    static int findMethodPositionalCount(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent) {
+            Integer count = c.methodPositionalCounts.get(name);
+            if (count != null) return count;
+        }
+        return 0;
+    }
+
+    static String[] findMethodRequiredKeywordOnly(LtClass cls, String name) {
+        for (LtClass c = cls; c != null; c = c.parent) {
+            String[] names = c.methodRequiredKeywordOnly.get(name);
+            if (names != null) return names;
+        }
+        return new String[0];
+    }
+
     static String findMethodRestName(LtClass cls, String name) {
         for (LtClass c = cls; c != null; c = c.parent)
             if (c.methodRestNames.containsKey(name))
@@ -710,6 +794,8 @@ public class LtRt {
         return target.call(receiver,
             bindArgs(findMethodParameters(owner.parent, method),
                      findMethodRequiredCount(owner.parent, method),
+                     findMethodPositionalCount(owner.parent, method),
+                     findMethodRequiredKeywordOnly(owner.parent, method),
                      findMethodRestName(owner.parent, method),
                      findMethodExtraName(owner.parent, method), args, method));
     }
@@ -751,7 +837,9 @@ public class LtRt {
             if (method != null) {
                 String[] params = findMethodParameters(o.cls, attr);
                 return new LtFunction(params,
-                    findMethodRequiredCount(o.cls, attr), attr,
+                    findMethodRequiredCount(o.cls, attr),
+                    findMethodPositionalCount(o.cls, attr),
+                    findMethodRequiredKeywordOnly(o.cls, attr), attr,
                     "<bound method " + o.cls.name + "." + attr + ">",
                     findMethodRestName(o.cls, attr),
                     findMethodExtraName(o.cls, attr),
@@ -782,6 +870,8 @@ public class LtRt {
                 String[] params = findMethodParameters(c, "init");
                 if (init != null) init.call(o, bindArgs(params,
                     findMethodRequiredCount(c, "init"),
+                    findMethodPositionalCount(c, "init"),
+                    findMethodRequiredKeywordOnly(c, "init"),
                     findMethodRestName(c, "init"),
                     findMethodExtraName(c, "init"), args, c.name + ".new"));
                 else if (args.length > 0) bindArgs(new String[0], 0, args, c.name + ".new");
@@ -798,6 +888,8 @@ public class LtRt {
                     "' on " + o.cls.name);
             return m.call(o, bindArgs(findMethodParameters(o.cls, attr),
                 findMethodRequiredCount(o.cls, attr),
+                findMethodPositionalCount(o.cls, attr),
+                findMethodRequiredKeywordOnly(o.cls, attr),
                 findMethodRestName(o.cls, attr),
                 findMethodExtraName(o.cls, attr), args, attr));
         }

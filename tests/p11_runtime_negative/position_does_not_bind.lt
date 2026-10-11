@@ -1,0 +1,4 @@
+fn required(*items, flag):
+    return flag
+callable = required
+say callable(1)

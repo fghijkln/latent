@@ -349,11 +349,12 @@ class _LtClass:
         if init is not None:
             # Latent-level dispatch: values stay Latent (no _wv_pyarg;
             # that int conversion is only for calling real Python functions)
-                init(o, *_wv_bind_args(_wv_method_params(init),
-                                       _wv_method_required(init), args,
-                                       self._name + ".new", _LtFunction.MISSING,
-                                       _wv_method_rest(init),
-                                       _wv_method_extra(init)))
+                init(o, *_wv_bind_args(
+                    _wv_method_params(init), _wv_method_required(init), args,
+                    self._name + ".new", _LtFunction.MISSING,
+                    _wv_method_rest(init), _wv_method_extra(init),
+                    _wv_method_position_count(init),
+                    _wv_method_required_keyword_only(init)))
         elif args:
             _wv_bind_args((), 0, args, self._name + ".new",
                           _LtFunction.MISSING)
@@ -441,22 +442,32 @@ def _wv_reject_interop_args(args):
 
 
 def _wv_bind_args(params, required_count, args, name, missing,
-                  rest_name=None, extra_name=None):
+                  rest_name=None, extra_name=None, positional_count=None,
+                  required_keyword_only=()):
     params = tuple(params)
+    positional_count = (len(params) if positional_count is None
+                        else positional_count)
+    required_keyword_only = tuple(required_keyword_only)
     args = _wv_expand_args(args)
     if not _wv_has_named(args):
-        if len(args) > len(params) and rest_name is None:
+        if len(args) > positional_count and rest_name is None:
             raise _LtArgumentError("%s() takes %d args, got %d" %
-                                   (name, len(params), len(args)))
+                                   (name, positional_count, len(args)))
         if len(args) < required_count:
-            if required_count == len(params):
+            if required_count == positional_count:
                 raise _LtArgumentError("%s() takes %d args, got %d" %
-                                       (name, len(params), len(args)))
+                                       (name, positional_count, len(args)))
             raise _LtArgumentError("%s() missing required argument %r" %
                                    (name, params[len(args)]))
-        values = list(args[:len(params)]) + [missing] * max(0, len(params) - len(args))
+        values = [missing] * len(params)
+        for index, value in enumerate(args[:positional_count]):
+            values[index] = value
+        for parameter in required_keyword_only:
+            raise _LtArgumentError(
+                "%s() missing required keyword-only argument %r" %
+                (name, parameter))
         if rest_name is not None:
-            values.append(list(args[len(params):]))
+            values.append(list(args[positional_count:]))
         if extra_name is not None:
             values.append({})
         return values
@@ -487,10 +498,10 @@ def _wv_bind_args(params, required_count, args, name, missing,
                 values[index] = arg.value
                 supplied[index] = True
         else:
-            if pos >= len(params):
+            if pos >= positional_count:
                 if rest_name is None:
                     raise _LtArgumentError("%s() takes %d args, got %d" %
-                                           (name, len(params), pos + 1))
+                                           (name, positional_count, pos + 1))
                 rest_values.append(arg)
             else:
                 values[pos] = arg
@@ -500,6 +511,12 @@ def _wv_bind_args(params, required_count, args, name, missing,
         if not supplied[index]:
             raise _LtArgumentError("%s() missing required argument %r" %
                                    (name, params[index]))
+    for parameter in required_keyword_only:
+        index = params.index(parameter)
+        if not supplied[index]:
+            raise _LtArgumentError(
+                "%s() missing required keyword-only argument %r" %
+                (name, parameter))
     if rest_name is not None:
         values.append(rest_values)
     if extra_name is not None:
@@ -516,6 +533,14 @@ def _wv_method_required(method):
     return getattr(method, "_lt_required_count", len(_wv_method_params(method)))
 
 
+def _wv_method_position_count(method):
+    return getattr(method, "_lt_positional_count", len(_wv_method_params(method)))
+
+
+def _wv_method_required_keyword_only(method):
+    return tuple(getattr(method, "_lt_required_keyword_only", ()))
+
+
 def _wv_method_rest(method):
     return getattr(method, "_lt_rest_name", None)
 
@@ -527,15 +552,20 @@ def _wv_method_extra(method):
 class _LtFunction:
     """A first-class Latent function with backend-independent arity checks."""
     MISSING = object()
-    __slots__ = ("_fn", "_params", "_required", "_arity", "_name",
-                 "_display", "_rest", "_extra")
+    __slots__ = ("_fn", "_params", "_required", "_positional",
+                 "_required_keyword_only", "_arity", "_name", "_display",
+                 "_rest", "_extra")
 
     def __init__(self, fn, params, name, display=None, required_count=None,
-                 rest_name=None, extra_name=None):
+                 rest_name=None, extra_name=None, positional_count=None,
+                 required_keyword_only=()):
         self._fn = fn
         self._params = tuple(params)
         self._required = (len(self._params) if required_count is None
                           else required_count)
+        self._positional = (len(self._params) if positional_count is None
+                            else positional_count)
+        self._required_keyword_only = tuple(required_keyword_only)
         self._arity = len(self._params)
         self._name = name
         self._display = display
@@ -545,7 +575,9 @@ class _LtFunction:
     def __call__(self, *args):
         return self._fn(*_wv_bind_args(self._params, self._required, args,
                                         self._name, self.MISSING,
-                                        self._rest, self._extra))
+                                        self._rest, self._extra,
+                                        self._positional,
+                                        self._required_keyword_only))
 
 
 def _wv_call(fn, *args):
@@ -729,7 +761,10 @@ def _wv_wgetattr(h, attr):
                 "<bound method %s.%s>" % (h._lt_class._name, attr),
                 required_count=_wv_method_required(method),
                 rest_name=_wv_method_rest(method),
-                extra_name=_wv_method_extra(method))
+                extra_name=_wv_method_extra(method),
+                positional_count=_wv_method_position_count(method),
+                required_keyword_only=
+                    _wv_method_required_keyword_only(method))
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)
@@ -757,7 +792,10 @@ def _wv_wcall(h, attr, *args):
                            _wv_method_params(m), attr,
                            required_count=_wv_method_required(m),
                            rest_name=_wv_method_rest(m),
-                           extra_name=_wv_method_extra(m))(*args)
+                           extra_name=_wv_method_extra(m),
+                           positional_count=_wv_method_position_count(m),
+                           required_keyword_only=
+                               _wv_method_required_keyword_only(m))(*args)
     if isinstance(h, _LazyMod):
         _wv_reject_interop_args(args)
         return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
@@ -781,7 +819,10 @@ def _wv_supercall(receiver, owner, attr, *args):
                        _wv_method_params(method), attr,
                        required_count=_wv_method_required(method),
                        rest_name=_wv_method_rest(method),
-                       extra_name=_wv_method_extra(method))(*args)
+                       extra_name=_wv_method_extra(method),
+                       positional_count=_wv_method_position_count(method),
+                       required_keyword_only=
+                           _wv_method_required_keyword_only(method))(*args)
 
 
 def _wv_wsetattr(h, attr, v):
@@ -1070,11 +1111,17 @@ class Gen:
         for method in cd.methods:
             required = required_parameter_count(method.params[1:])
             fixed = fixed_parameter_names(method.params[1:])
+            positional = positional_parameter_count(method.params[1:])
+            required_keyword_only = required_keyword_only_names(
+                method.params[1:])
             rest = rest_parameter_name(method.params[1:])
             extra = extra_parameter_name(method.params[1:])
             self.w(f"_LtMethods.{method.name}._lt_params = "
                    f"{json.dumps(fixed, ensure_ascii=False)}")
             self.w(f"_LtMethods.{method.name}._lt_required_count = {required}")
+            self.w(f"_LtMethods.{method.name}._lt_positional_count = {positional}")
+            self.w(f"_LtMethods.{method.name}._lt_required_keyword_only = "
+                   f"{json.dumps(required_keyword_only, ensure_ascii=False)}")
             self.w(f"_LtMethods.{method.name}._lt_rest_name = "
                    f"{rest!r}")
             self.w(f"_LtMethods.{method.name}._lt_extra_name = "
@@ -1124,7 +1171,8 @@ class Gen:
         self._collect(fn.body, assigned)
         global_names = self._scope_globals(fn.body)
         nonlocal_names = self._scope_nonlocals(fn.body)
-        names = parameter_names(fn.params)
+        names = [parameter_name(param)
+                 for param in bound_parameter_order(fn.params)]
         assigned -= set(names) | global_names | nonlocal_names
         self.w(f"def {fn.name}({', '.join(names)}):", fn.line,
                fn.source_path)
@@ -1136,7 +1184,7 @@ class Gen:
         for name in sorted(assigned):
             self.w(f"{name} = None")
         for param in fn.params:
-            if isinstance(param, DefaultParam):
+            if parameter_has_default(param):
                 self.w(f"if {param.name} is {self._missing_name}:",
                        param.line, param.source_path)
                 self.indent += 1
@@ -1153,6 +1201,9 @@ class Gen:
                    f"{json.dumps(fixed_parameter_names(fn.params), ensure_ascii=False)}, "
                    f"{json.dumps(fn.source_name, ensure_ascii=False)}, "
                    f"required_count={required_parameter_count(fn.params)}, "
+                   f"positional_count={positional_parameter_count(fn.params)}, "
+                   f"required_keyword_only="
+                   f"{json.dumps(required_keyword_only_names(fn.params), ensure_ascii=False)}, "
                    f"rest_name={rest_parameter_name(fn.params)!r}, "
                    f"extra_name={extra_parameter_name(fn.params)!r})")
 

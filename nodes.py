@@ -115,6 +115,14 @@ class DefaultParam(Node):
         self.default = default
 
 
+class KeywordOnlyParam(Node):
+    """One formal parameter that can only be bound by name."""
+    def __init__(self, name, default=None, **kw):
+        super().__init__(**kw)
+        self.name = name
+        self.default = default
+
+
 class RestParam(Node):
     """Collect extra positional values into a Latent list."""
     def __init__(self, name, **kw):
@@ -130,7 +138,8 @@ class ExtraParam(Node):
 
 
 def parameter_name(param):
-    return (param.name if isinstance(param, (DefaultParam, RestParam, ExtraParam))
+    return (param.name if isinstance(param, (DefaultParam, KeywordOnlyParam,
+                                             RestParam, ExtraParam))
             else param)
 
 
@@ -141,6 +150,29 @@ def parameter_names(params):
 def fixed_parameter_names(params):
     return [parameter_name(param) for param in params
             if not isinstance(param, (RestParam, ExtraParam))]
+
+
+def bound_parameter_order(params):
+    """Fixed slots first, then the positional and named collectors."""
+    return ([param for param in params
+             if not isinstance(param, (RestParam, ExtraParam))] +
+            [param for param in params
+             if isinstance(param, (RestParam, ExtraParam))])
+
+
+def positional_parameter_count(params):
+    return sum(not isinstance(param, (KeywordOnlyParam, RestParam, ExtraParam))
+               for param in params)
+
+
+def required_keyword_only_names(params):
+    return [param.name for param in params
+            if isinstance(param, KeywordOnlyParam) and param.default is None]
+
+
+def parameter_has_default(param):
+    return (isinstance(param, DefaultParam) or
+            (isinstance(param, KeywordOnlyParam) and param.default is not None))
 
 
 def rest_parameter_name(params):
@@ -158,6 +190,8 @@ def required_parameter_count(params):
     for param in params:
         if isinstance(param, (RestParam, ExtraParam)):
             break
+        if isinstance(param, KeywordOnlyParam):
+            continue
         if isinstance(param, DefaultParam):
             return count
         count += 1

@@ -1,0 +1,6 @@
+class Base:
+    fn run(self, *, flag):
+        return flag
+class Child(Base):
+    fn run(self, *, flag):
+        return super.run(self)

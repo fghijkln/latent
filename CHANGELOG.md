@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.13.3 — 2026-10-11
+
+### Added
+
+- Keyword-only parameters: `*rest` or a bare `*` starts a keyword-only section; required and defaulted keyword-only parameters may be interleaved and bind only by name. Supported across functions, closures, modules, methods, inheritance, `super`, and constructors on both backends.
+- `latent-ast` schema v6 adds `KeywordOnlyParam(name, default)`; required keyword-only parameters serialize a `null` default, while earlier node shapes remain unchanged.
+- VS Code extension 0.6.4 highlights the bare keyword-only separator and adds the `fnkw` keyword-only function snippet.
+
+### Compatibility
+
+- Positional binding and capacity remain limited to parameters before the separator. P10 collectors and call expansion remain supported; built-ins and Python/Java interop protocols are unchanged.
+- Method override compatibility checks retain the established parameter-count rule; runtime binding uses the selected implementation's signature.
+
+### Verification
+
+- `python3 tests/run_tests.py`: **211 passed, 0 failed**, including 13 AST/CLI diagnostic regressions, 19 dual-backend cookbook examples, and 505 fixed-seed cross-backend property cases.
+- Editor metadata contract tests: **4 passed**; Python syntax checks, Java runtime/interop fixture compilation, VS Code keyword synchronization, TextMate tokenization, and `git diff --check` passed.
+- VS Code extension tests: **12 trusted-workspace + 2 Restricted Mode passed**; VSIX packaging and archive validation passed.
+- VSIX asset: `latent-language-support-0.6.4.vsix` (SHA-256: `af3247dd5d38f2262623832c001d979d2a67c356b1e9414972aebcf7abc0d95f`).
+
 ## v0.13.2 — 2026-10-11
 
 ### Added

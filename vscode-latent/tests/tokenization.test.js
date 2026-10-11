@@ -57,6 +57,10 @@ async function main() {
   assertScope(grammar, signature, '**', 'keyword.operator.unpacking.named.latent');
   assertScope(grammar, signature, 'extra', 'variable.parameter.variadic.named.latent');
 
+  const keywordOnlySignature = 'fn send(to, *, urgent, retry=2):';
+  assertScope(grammar, keywordOnlySignature, '*', 'keyword.operator.parameter.separator.latent');
+  assertScope(grammar, keywordOnlySignature, 'urgent', 'variable.parameter.latent');
+
   const call = 'collect(head, *items, scale=2, **mapping)';
   assertScope(grammar, call, 'items', 'variable.other.argument.unpacking.positional.latent');
   assertScope(grammar, call, 'mapping', 'variable.other.argument.unpacking.named.latent');

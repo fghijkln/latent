@@ -363,6 +363,9 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
         for param in stmt.params:
             if isinstance(param, nodes.DefaultParam):
                 param.default = _rewrite_expr(param.default, unit, visible)
+            elif (isinstance(param, nodes.KeywordOnlyParam) and
+                  param.default is not None):
+                param.default = _rewrite_expr(param.default, unit, visible)
         stmt.body = [x for x in (_rewrite_stmt(s, unit, visible) for s in stmt.body)
                      if x is not None]
         return stmt
@@ -403,6 +406,10 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
             method_locals = _function_locals(method)
             for param in method.params:
                 if isinstance(param, nodes.DefaultParam):
+                    param.default = _rewrite_expr(param.default, unit,
+                                                   method_locals)
+                elif (isinstance(param, nodes.KeywordOnlyParam) and
+                      param.default is not None):
                     param.default = _rewrite_expr(param.default, unit,
                                                    method_locals)
             method.body = [x for x in (_rewrite_stmt(s, unit,

@@ -183,6 +183,8 @@ class Gen:
                 self.w(f"static Object {ident(g)} = LtRt.function(" +
                        f"{self.string_array(fixed_parameter_names(fn.params))}, "
                        f"{required_parameter_count(fn.params)}, "
+                       f"{positional_parameter_count(fn.params)}, "
+                       f"{self.string_array(required_keyword_only_names(fn.params))}, "
                        f"{java_str(fn.source_name)}, "
                        f"{self._nullable_string(rest_parameter_name(fn.params))}, "
                        f"{self._nullable_string(extra_parameter_name(fn.params))}, " +
@@ -329,6 +331,12 @@ class Gen:
                                 for m in cd.methods)
         required_counts = ", ".join(
             str(required_parameter_count(m.params[1:])) for m in cd.methods)
+        positional_counts = ", ".join(
+            str(positional_parameter_count(m.params[1:]))
+            for m in cd.methods)
+        required_keyword_only = ", ".join(
+            self.string_array(required_keyword_only_names(m.params[1:]))
+            for m in cd.methods)
         rest_names = ", ".join(
             self._nullable_string(rest_parameter_name(m.params[1:]))
             for m in cd.methods)
@@ -345,6 +353,8 @@ class Gen:
         self.w(f"new int[]{{{arities}}},")
         self.w(f"new String[][]{{{parameters}}},")
         self.w(f"new int[]{{{required_counts}}},")
+        self.w(f"new int[]{{{positional_counts}}},")
+        self.w(f"new String[][]{{{required_keyword_only}}},")
         self.w(f"new String[]{{{rest_names}}},")
         self.w(f"new String[]{{{extra_names}}});")
         self.ind -= 1
@@ -370,12 +380,13 @@ class Gen:
         names = sorted(self.scope["locals"])
         self.w("LtRt.Env _env = new LtRt.Env(_closure, new String[]{" +
                ", ".join(java_str(name) for name in names) + "});")
-        for i, param in enumerate(fn.params):
+        for i, param in enumerate(bound_parameter_order(fn.params)):
             name = parameter_name(param)
             self.w(f"_env.setLocal({java_str(name)}, _args[{i}]);")
-            if isinstance(param, DefaultParam):
-                self.w(f"if (_args[{i}] == LtRt.MISSING) "
-                       f"_env.setLocal({java_str(name)}, "
+        for param in fn.params:
+            if parameter_has_default(param):
+                self.w(f"if (_env.get({java_str(param.name)}) == LtRt.MISSING) "
+                       f"_env.setLocal({java_str(param.name)}, "
                        f"{self.expr(param.default)});")
         for s in fn.body:
             self.stmt(s)
@@ -519,6 +530,8 @@ class Gen:
         if isinstance(s, FnDef):
             closure = f"LtRt.function({self.string_array(fixed_parameter_names(s.params))}, " \
                       f"{required_parameter_count(s.params)}, " \
+                      f"{positional_parameter_count(s.params)}, " \
+                      f"{self.string_array(required_keyword_only_names(s.params))}, " \
                       f"{java_str(s.source_name)}, " \
                       f"{self._nullable_string(rest_parameter_name(s.params))}, " \
                       f"{self._nullable_string(extra_parameter_name(s.params))}, " \

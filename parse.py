@@ -169,6 +169,10 @@ class Parser:
         self.expect("(")
         params = []
         saw_default = False
+        saw_star_separator = False
+        bare_star = False
+        bare_star_marker = None
+        keyword_only_count = 0
         saw_rest = False
         saw_extra = False
         if self.peek().kind != ")":
@@ -183,29 +187,49 @@ class Parser:
                     saw_extra = True
                 elif self.peek().kind == "*":
                     marker = self.next()
-                    if saw_rest or saw_extra:
+                    if saw_star_separator or saw_extra:
                         self.err("*rest must precede **extra and appear once",
                                  marker)
-                    param = self.expect("NAME")
-                    params.append(RestParam(param.value, line=marker.line,
-                                            col=marker.col))
-                    saw_rest = True
-                else:
-                    param = self.expect("NAME")
-                    if saw_rest or saw_extra:
-                        self.err("positional parameter follows variadic parameter",
-                                 param)
-                    if self.match("="):
-                        saw_default = True
-                        params.append(DefaultParam(param.value, self.expr(),
-                                                   line=param.line, col=param.col))
+                    saw_star_separator = True
+                    if self.peek().kind == "NAME":
+                        param = self.next()
+                        params.append(RestParam(param.value, line=marker.line,
+                                                col=marker.col))
+                        saw_rest = True
                     else:
-                        if saw_default:
+                        bare_star = True
+                        bare_star_marker = marker
+                else:
+                    if saw_extra:
+                        self.err("positional parameter follows variadic parameter")
+                    param = self.expect("NAME")
+                    if self.match("="):
+                        default = self.expr()
+                        if saw_star_separator:
+                            params.append(KeywordOnlyParam(
+                                param.value, default, line=param.line,
+                                col=param.col))
+                            keyword_only_count += 1
+                        else:
+                            saw_default = True
+                            params.append(DefaultParam(param.value, default,
+                                                       line=param.line,
+                                                       col=param.col))
+                    else:
+                        if saw_star_separator:
+                            params.append(KeywordOnlyParam(
+                                param.value, line=param.line, col=param.col))
+                            keyword_only_count += 1
+                        elif saw_default:
                             self.err("required parameter follows defaulted parameter",
                                      param)
-                        params.append(param.value)
+                        else:
+                            params.append(param.value)
                 if not self.match(","):
                     break
+        if bare_star and not keyword_only_count:
+            self.err("bare * must be followed by at least one keyword-only parameter",
+                     bare_star_marker)
         self.expect(")")
         if self.match("=>"):
             e = self.expr()

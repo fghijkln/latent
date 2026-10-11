@@ -1,0 +1,5 @@
+fn required(*, flag):
+    return flag
+fn invoke(function, mapping):
+    return function(**mapping)
+invoke(required, {"other": 1})

@@ -1,2 +1,2 @@
-fn bad(*, value):
-    return value
+fn bad(*):
+    return nil

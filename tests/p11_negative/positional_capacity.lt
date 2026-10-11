@@ -1,0 +1,3 @@
+fn take(head=1, *, flag=false):
+    return [head, flag]
+take(1, 2)

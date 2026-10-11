@@ -55,7 +55,8 @@ class Checker:
                         _err(m, f"method {s.name}.{m.name} must declare a receiver parameter")
                     if isinstance(m.params[0], DefaultParam):
                         _err(m.params[0], f"method {s.name}.{m.name} receiver parameter cannot have a default")
-                    if isinstance(m.params[0], (RestParam, ExtraParam)):
+                    if isinstance(m.params[0], (RestParam, ExtraParam,
+                                                 KeywordOnlyParam)):
                         _err(m.params[0], f"method {s.name}.{m.name} receiver must be a required positional parameter")
                 self.classes[s.name] = s
         self.module_bindings = self._top_bindings(prog.stmts)
@@ -107,7 +108,8 @@ class Checker:
                         _err(method, f"method {s.name}.{method.name} must declare a receiver parameter")
                     if isinstance(method.params[0], DefaultParam):
                         _err(method.params[0], f"method {s.name}.{method.name} receiver parameter cannot have a default")
-                    if isinstance(method.params[0], (RestParam, ExtraParam)):
+                    if isinstance(method.params[0], (RestParam, ExtraParam,
+                                                      KeywordOnlyParam)):
                         _err(method.params[0], f"method {s.name}.{method.name} receiver must be a required positional parameter")
                 self.classes[s.name] = s
         self.module_bindings.update(self.functions)
@@ -331,7 +333,7 @@ class Checker:
                "parent": parent_ctx, "fn": fn, "classdef": classdef}
         names = parameter_names(fn.params)
         for index, param in enumerate(fn.params):
-            if not isinstance(param, DefaultParam):
+            if not parameter_has_default(param):
                 continue
             not_yet_bound = set(names[index:])
             for name_node in self._name_nodes(param.default):
@@ -739,27 +741,37 @@ class Checker:
 
     def _check_arguments(self, node, actuals, params, label):
         names = fixed_parameter_names(params)
+        positional_names = [parameter_name(param) for param in params
+                            if not isinstance(param, (KeywordOnlyParam,
+                                                      RestParam, ExtraParam))]
+        positional_capacity = len(positional_names)
         required = required_parameter_count(params)
+        required_keyword_only = required_keyword_only_names(params)
         has_rest = rest_parameter_name(params) is not None
         has_extra = extra_parameter_name(params) is not None
         has_expansion = any(isinstance(arg, (StarArg, StarStarArg))
                             for arg in actuals)
+        has_starstar = any(isinstance(arg, StarStarArg) for arg in actuals)
         positional_count = sum(not isinstance(arg, (NamedArg, StarArg,
                                                       StarStarArg))
                                for arg in actuals)
         if not any(isinstance(arg, NamedArg) for arg in actuals) and \
                 not has_expansion:
-            if positional_count > len(names) and not has_rest:
-                _err(node, f"{label}() takes {len(names)} args, got {positional_count}")
+            if positional_count > positional_capacity and not has_rest:
+                _err(node, f"{label}() takes {positional_capacity} args, got {positional_count}")
             if positional_count < required:
-                if required == len(names):
-                    _err(node, f"{label}() takes {len(names)} args, got {positional_count}")
+                if required == positional_capacity:
+                    _err(node, f"{label}() takes {positional_capacity} args, got {positional_count}")
                 _err(node,
-                     f"{label}() missing required argument {names[positional_count]!r}")
+                     f"{label}() missing required argument {positional_names[positional_count]!r}")
+            if required_keyword_only:
+                _err(node, f"{label}() missing required keyword-only argument "
+                           f"{required_keyword_only[0]!r}")
             return
-        if positional_count > len(names) and not has_rest:
-            _err(node, f"{label}() takes {len(names)} args, got {positional_count}")
-        supplied = set(names[:min(positional_count, len(names))])
+        if positional_count > positional_capacity and not has_rest:
+            _err(node, f"{label}() takes {positional_capacity} args, got {positional_count}")
+        supplied = set(positional_names[:min(positional_count,
+                                             positional_capacity)])
         seen_names = set()
         for arg in actuals:
             if not isinstance(arg, NamedArg):
@@ -774,9 +786,15 @@ class Checker:
                 _err(arg, f"{label}() got multiple values for argument {name!r}")
             if name in names:
                 supplied.add(name)
-        missing = [name for name in names[:required] if name not in supplied]
+        missing = [name for name in positional_names[:required]
+                   if name not in supplied]
         if missing and not has_expansion:
             _err(node, f"{label}() missing required argument {missing[0]!r}")
+        missing_keyword_only = [name for name in required_keyword_only
+                                if name not in supplied]
+        if missing_keyword_only and not has_starstar:
+            _err(node, f"{label}() missing required keyword-only argument "
+                       f"{missing_keyword_only[0]!r}")
 
     def _class_of(self, expr, ctx):
         if isinstance(expr, Call) and expr.direct_method == "new" and expr.args:

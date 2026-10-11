@@ -1,0 +1,6 @@
+class C:
+    fn init(self, *, flag):
+        self.flag = flag
+fn construct(cls):
+    return cls.new()
+construct(C)

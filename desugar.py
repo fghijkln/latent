@@ -137,7 +137,12 @@ class Desugar:
             body = self._implicit_return([self.stmt(x) for x in s.body])
             params = [DefaultParam(p.name, self.expr(p.default),
                                    line=p.line, col=p.col)
-                      if isinstance(p, DefaultParam) else p
+                      if isinstance(p, DefaultParam) else
+                      KeywordOnlyParam(p.name,
+                                       self.expr(p.default)
+                                       if p.default is not None else None,
+                                       line=p.line, col=p.col)
+                      if isinstance(p, KeywordOnlyParam) else p
                       for p in s.params]
             fn = FnDef(s.name, params, body, line=s.line, col=s.col)
             fn.source_name = s.source_name

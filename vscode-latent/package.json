@@ -2,7 +2,7 @@
   "name": "latent-language-support",
   "displayName": "Latent Language Support",
   "description": "Latent language syntax, snippets, diagnostics, and compiler commands.",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "publisher": "fghijkln",
   "license": "MIT",
   "repository": {

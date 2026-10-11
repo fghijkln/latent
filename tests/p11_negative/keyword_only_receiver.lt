@@ -1,0 +1,3 @@
+class C:
+    fn bad(*, self):
+        return self

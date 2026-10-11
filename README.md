@@ -6,11 +6,12 @@
 
 万物皆潜在（latent），直到被触碰的那一刻。
 
-**当前发布：v0.13.2**（编辑器元数据 CLI 与 VS Code 0.6.3 大纲、折叠和关键字补全；并包含 P10 变参形参与调用展开、`latent-ast` schema v5，以及 P9 默认参数、P8 命名参数、v0.10.0 的 Latent 实例绑定方法值、v0.9.0 的 `nonlocal` 词法绑定与 v0.8.0 的函数值和闭包）。
+**当前发布：v0.13.3**（P11 仅限关键字形参与 `latent-ast` schema v6；VS Code 0.6.4 增加裸 `*` 分隔符高亮和 `fnkw` 片段；并包含 v0.13.2 的编辑器元数据、大纲、折叠、关键字补全，以及 P10 变参与调用展开）。
 
 P8 设计与实现记录见 [P8 命名参数设计](P8_NAMED_ARGUMENTS_DESIGN.md)。
 P9 默认参数语义与 AST schema v4 见 [P9 默认参数设计](P9_DEFAULT_PARAMETERS_DESIGN.md)。
 P10 变参语义与 AST schema v5 见 [P10 变参形参与调用展开](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
+P11 仅限关键字形参与 AST schema v6 的设计与验收记录见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。v0.13.2 历史标签与既有资产保持不变。
 
 Latent 不追求在简单脚本上赢过 Python——写纯 Python 逻辑，Python 的工具和
 生态成熟得多，无需争辩。它的赌注只有一个：**同一份源码，跑在 Python 和
@@ -19,7 +20,7 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 运行时，直到真正被用到的那一刻。
 
 代价是真实的：两套后端、跨语言对象让调试和错误处理更难。为此编译器用
-机制而不是运气来还债：`tests/run_tests.py` 当前有 186 个回归条目（包括 12 项只读 AST/CLI 诊断），其中包含阶段 1 的固定语义用例和 1 个有界、固定种子的性质测试入口；该入口运行时会报告实际案例数，但在套件总数中按 1 项计。双后端输出逐字节对拍，两端行为不一致即失败。P10 新增 25 项回归。
+机制而不是运气来还债：`tests/run_tests.py` 当前有 211 个回归条目（包括 13 项只读 AST/CLI 诊断），其中包含阶段 1 的固定语义用例和 1 个有界、固定种子的性质测试入口；该入口运行时会报告实际案例数，但在套件总数中按 1 项计。双后端输出逐字节对拍，两端行为不一致即失败。P10 新增 25 项回归，P11 增加 24 项双后端回归与 1 项 AST 诊断。
 
 - 教程：[TUTORIAL.md](TUTORIAL.md)
 - 语言规范：[SPEC.md](SPEC.md)
@@ -30,6 +31,7 @@ Java 两个运行时上，并在同一个程序里按需使用两边的库**。`
 - P8 命名参数设计：[P8_NAMED_ARGUMENTS_DESIGN.md](P8_NAMED_ARGUMENTS_DESIGN.md)
 - P9 默认参数设计：[P9_DEFAULT_PARAMETERS_DESIGN.md](P9_DEFAULT_PARAMETERS_DESIGN.md)
 - P10 变参与调用展开：[P10_VARIADIC_ARGUMENTS_DESIGN.md](P10_VARIADIC_ARGUMENTS_DESIGN.md)
+- P11 仅限关键字形参（v0.13.3）：[P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
 - VS Code 插件使用指南：[VSCODE_EXTENSION_GUIDE.md](VSCODE_EXTENSION_GUIDE.md)
 - 发布记录：[CHANGELOG.md](CHANGELOG.md)
 - 贡献与测试指南：[CONTRIBUTING.md](CONTRIBUTING.md)
@@ -90,16 +92,16 @@ say java "java.lang.Math".sqrt(2)  # 静态方法直接调：1.4142135623730951
 ## 工程
 
 - 纯 Python 标准库实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 测试：`python3 tests/run_tests.py` —— 186 个回归条目，其中 12 项为只读 AST/CLI 诊断；包括阶段 1 固定语义用例和 1 个有界、固定种子的性质测试入口（实际生成案例数会在运行时打印，套件计数为 1 项）。
+- 测试：`python3 tests/run_tests.py` —— 211 个回归条目，其中 13 项为只读 AST/CLI 诊断；包括阶段 1 固定语义用例和 1 个有界、固定种子的性质测试入口（实际生成案例数会在运行时打印，套件计数为 1 项）。
   正例与 cookbook 双后端输出逐字节对拍，运行期负例验证两端失败状态与 `.lt` 源码位置。
 - 编译期错误显示 `文件:行:列`、源码行和 `^`；未捕获的运行期错误在
   Python/Java 后端显示 `.lt` 文件、行号和 Latent 调用栈。无法映射时回退到
   原生 traceback/Java 堆栈；运行期暂不显示列号。
 
-## 已知边界（已发布 v0.13.0）
+## 已知边界（v0.13.3）
 
 支持 Latent 单继承、`super`、`try`/`catch`/`throw`、属性与下标读写；未捕获的运行期错误
-已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承随 v0.6.0 发布；v0.7.0 增加只读 AST/脱糖诊断；v0.8.0 增加用户定义函数值、嵌套词法闭包和 `global`，详见 [P5 设计记录](P5_FUNCTION_VALUES_DESIGN.md)；v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)；v0.10.0 让 `obj.method` 在没有同名字段时返回捕获实例的绑定方法值，实例字段仍优先；v0.11.0/P8 增加 Latent 调用的命名参数；v0.12.0/P9 增加函数、闭包、模块函数、方法与构造器的默认参数；v0.13.0/P10 增加相同调用范围内的 `*rest`、`**extra` 形参及 `*items`、`**mapping` 实参展开，并将 `latent-ast` 升级到 schema v5。模块导入仍只支持本地显式别名，不支持循环导入或包管理。仍无多继承；内建函数及互操作句柄方法不作为函数值；
+已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承随 v0.6.0 发布；v0.7.0 增加只读 AST/脱糖诊断；v0.8.0 增加用户定义函数值、嵌套词法闭包和 `global`，详见 [P5 设计记录](P5_FUNCTION_VALUES_DESIGN.md)；v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)；v0.10.0 让 `obj.method` 在没有同名字段时返回捕获实例的绑定方法值，实例字段仍优先；v0.11.0/P8 增加 Latent 调用的命名参数；v0.12.0/P9 增加默认参数；v0.13.0/P10 增加变参形参与调用展开；v0.13.3/P11 增加仅限关键字形参，并将 `latent-ast` 升至 schema v6。模块导入仍只支持本地显式别名，不支持循环导入或包管理。仍无多继承；内建函数及互操作句柄方法不作为函数值；
 `py` 只支持模块句柄，
 不支持内联 Python 代码块；`java` 不支持基本类型类名（`java "int"`）；数字只有 float64 一种类型。
 
@@ -111,11 +113,15 @@ say java "java.lang.Math".sqrt(2)  # 静态方法直接调：1.4142135623730951
 
 ## v0.12.0：默认参数
 
-Latent 用户定义函数的默认表达式在每次调用时、仅对省略的实参按形参顺序求值；显式传入 `nil` 不会触发默认值。必需形参必须位于默认形参之前，默认值可引用更早的形参。该功能适用于函数值、闭包、模块函数、Latent 方法与构造器；内建函数及 Python/Java 互操作调用不变。`latent-ast` schema 升级到 v4，新增 `DefaultParam(name, default)` 节点。
+Latent 用户定义函数的默认表达式在每次调用时、仅对省略的实参按形参顺序求值；显式传入 `nil` 不会触发默认值。位置区必需形参必须位于默认位置形参之前，默认值可引用更早的形参；P11 的仅限关键字区允许必需项与默认项交错。该功能适用于函数值、闭包、模块函数、Latent 方法与构造器；内建函数及 Python/Java 互操作调用不变。`latent-ast` schema 升级到 v4，新增 `DefaultParam(name, default)` 节点。
 
 ## v0.13.0：P10 变参与调用展开
 
 P10 为 Latent 函数增加 `*rest` 位置收集器和 `**extra` 命名收集器，并允许 Latent 调用使用 `*items`、`**mapping` 展开实参；支持函数值、闭包、模块函数、Latent 方法、`super` 与构造器。`*items` 只接受 Latent 列表；`**mapping` 只接受键为字符串的 Latent 映射，并按插入顺序展开。内建函数及 Python/Java 互操作调用不接受展开实参；仍不支持仅限关键字形参。AST schema v5 新增 `RestParam`、`ExtraParam`、`StarArg` 和 `StarStarArg`，详见 [P10 设计记录](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
+
+## P11：仅限关键字形参（v0.13.3）
+
+`*rest` 或裸 `*` 可开启仅限关键字区。`fn send(to, *, urgent, retry=2)` 中，`urgent` 必须按名称提供，`retry` 可省略；`*rest` 后的普通形参同样仅限关键字。必需项与默认项可以交错，位置实参不会填充该区。P11 将 AST schema 从 v5 升至 v6，新增 `KeywordOnlyParam(name, default)`；详见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。
 
 ## 许可证
 

@@ -94,6 +94,12 @@
     "parameterVariadics": {
       "patterns": [
         {
+          "match": "(?<=[(,])\\s*(\\*)(?=\\s*(?:,|\\)))",
+          "captures": {
+            "1": { "name": "keyword.operator.parameter.separator.latent" }
+          }
+        },
+        {
           "match": "(?<=[(,])\\s*(\\*\\*)(\\s*)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.operator.unpacking.named.latent" },
