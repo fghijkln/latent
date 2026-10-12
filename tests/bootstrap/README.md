@@ -114,3 +114,4 @@ A `--run` fixture that raises `ZeroDivisionError` confirms the Stage1 CLI propag
 On POSIX, the standalone module smoke also compiles through a symlinked `--source-root` alias and runs the result, covering canonical root normalization for both entry and import paths.
 On POSIX, an output directory symlink is intentionally followed: the CLI preserves the link, writes both the generated Python file and Java daemon sidecar into its real target, and the emitted program runs successfully.
 Projection harness tests also verify that timeout results retain partial stdout/stderr as text and that process-spawn `OSError` becomes a structured `rc: error` result rather than an uncaught exception.
+A dummy-sentinel Host test pins the product contract that `run_python(env=None)` inherits its caller's environment; this remains distinct from test harnesses, which pass the narrow allowlisted environment explicitly.

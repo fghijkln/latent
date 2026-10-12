@@ -273,6 +273,19 @@ class HostContractTests(unittest.TestCase):
             self.assertEqual(result["stderr"], "problem\n")
             self.assertTrue(result["ok"])
 
+    def test_run_python_inherits_callers_environment_by_default(self):
+        with tempfile.TemporaryDirectory() as root:
+            script = Path(root, "environment.py")
+            script.write_text(
+                "import os\n"
+                "print(os.environ.get('LATENT_RUN_ENV_SENTINEL', 'missing'))\n",
+                encoding="utf-8")
+            with patch.dict(os.environ, {"LATENT_RUN_ENV_SENTINEL": "visible"}):
+                result = host.run_python(str(script), cwd=root)
+            self.assertEqual(result, {
+                "ok": True, "returncode": 0, "stdout": "visible\n",
+                "stderr": "", "error": ""})
+
     def test_run_python_maps_spawn_errors_to_stable_results(self):
         with tempfile.TemporaryDirectory() as root:
             script = Path(root, "program.py")

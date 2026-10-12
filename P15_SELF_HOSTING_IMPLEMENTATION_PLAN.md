@@ -345,3 +345,5 @@ Source-root normalization also has a POSIX integration case: Stage1 compiles the
 The POSIX CLI smoke also covers `-o` as a symlink to an existing directory: Stage1 retains the directory link, places the generated `.py` and Java daemon sidecar in the real target, and the program runs correctly. Emitter focused smoke **1/1** passed; this is test/documentation only.
 
 Projection subprocess-wrapper coverage now includes a timed command that preserves partial stdout/stderr as text and a missing executable that returns structured `rc: error`; `tests/bootstrap/test_checker.py` passes **10/10**. No production changes or long gates were needed for this test-only addition.
+
+The Host contract also explicitly distinguishes product execution from test isolation: `run_python(env=None)` inherits the caller's environment (verified with a dummy sentinel), while test harnesses pass their narrow allowlist. Host contract now passes **19/19**; no production behavior changed.
