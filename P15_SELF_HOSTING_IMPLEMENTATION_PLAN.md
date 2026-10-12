@@ -1,6 +1,6 @@
 # Latent 自托管编译器实施计划（P15）
 
-> **状态：** P15 原 DoD 与旧本机/远端 CI 曾通过；M13 随后发现第二根只复制 `bootstrap/`，最终复核又发现先前本地修复曾覆盖调用方工作树。当前实现已改为两份同 HEAD 的完整 Git 克隆、各自 `git status` 干净且不覆盖工作树；严格 clean-checkout 本机复验进行中，验证通过后再推送并检查 CI。用户已授权实施、测试并推送，但不包括创建 tag/Release 或修改 main 分支保护。范围仍是 Python 宿主上的可复现自托管 bootstrap，不声称 native 或 host-independent。
+> **状态：** P15 原 DoD 与旧 CI 曾通过；M13 审计发现第二根仅复制 `bootstrap/`，后续审阅又剔除了会污染干净检出的工作树 overlay。当前严格实现已在本地提交 `3c23a2323efe1fd658ad74026e6d14b146a32176` 上通过 clean-clone 全套验证：bootstrap 28/28、Stage0 基线 259/259；最终 manifest 为两份同提交且 `git status` 干净的完整 checkout，构建无写入，Stage2/3 根内及跨根字节/manifest 零差异。现待记录验收结果、推送并验证新 GitHub CI。用户授权实施、测试并推送；不包括创建 tag/Release 或修改 main 分支保护。范围仍为 Python 宿主上的可复现自托管 bootstrap，不声称 native 或 host-independent。
 >
 > **依据：** [P15 自举设计提案](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md)。本计划落实该提案已批准的首期范围，不重新扩大或缩小范围。
 >
@@ -284,15 +284,15 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **M14 账本报告补充（最终投影已验证）：** CI JSON 现分别列出 runner 用例 **243/0**（included/excluded）、fixture 路径 **285/6**（共 291 项）、辅助测试路径 **11/2**、P14 协议操作 **2/1**，并逐项记录全部 9 个明确排除项的理由。3 个 Java-only host helper 源文件虽不作为 Latent 输入 fixture 计入，但仍由纳入的 Python-target interop/property 用例编译和使用。报告 schema 扩展后的完整投影再次通过：244/244 fixture、505/505 property，Stage2→Stage3 及 artifact 门均零差异。
 
 
-### 2026-10-13 追加审计：M13 双完整检出证据补强（严格 clean-clone 本机复验进行中）
+### 2026-10-13 追加审计：M13 双完整检出证据补强（本机 clean-clone 门禁通过，远端 CI 待验收）
 
 - **审计发现：** 原固定点测试的第二个根目录仅复制 `bootstrap/`，故虽有 Stage2/3 字节一致结果，却不足以证明 M13 所要求的两个完整 checkout 路径可复现。历史 CI run `38285571371` 和最新的 `38287288939` 均运行了这一旧测试；两次绿色结果都不作为完整 checkout 证据。M13 已重新开放。
 - **测试修复：** `tests/test_bootstrap_smoke.py` 现在从同一当前 Git HEAD 创建两个独立的完整本地 clone，核验二者 HEAD 相同、所有 `git ls-files` 路径均存在，并要求两个 clone 的 `git status --porcelain` 为空；不覆盖调用方工作树，确保二者都是记录提交的干净检出。Stage0 archive 每根独立提取；Stage1→2→3 源码来自对应完整根，Stage0 在 Stage1 编译 Stage2 前删除；Stage 输出位于两根之外。构建前后对所有非 `.git` 项（类型、权限模式、`mtime_ns`、文件内容、符号链接目标、目录/特殊节点）做 SHA-256 快照，完整源树从初始 clean copy 之外不允许任何持久写入。产物按递归相对路径生成 manifest，精确拒绝缺失/多余文件、目录或链接，并同时比较每根 Stage2==Stage3 以及两根 Stage2/Stage3 的 manifest 与原始 bytes。固定点子进程设 `PYTHONPATH=''`、`enable_mcp=false`；对应 CI bootstrap job 也在 job 级别显式设置 `enable_mcp: "false"`。
-- **本机证据（工作树 overlay 版本，非最终 clean-checkout 证据）：** 完整 bootstrap host/smoke/lexer/parser 套件曾通过 **28/28**（463.105 秒），当时双根 Stage2/3 产物零差异；但该版本将调用方工作树覆盖到 clone，因此不作为“两份干净 checkout”的最终证据。Stage0 全量回归 **259/259**、Stage0→1/2 projector 的 243 case / 244 fixtures / 505 properties 零差异及账本 3 项测试通过。
-- **后续门禁状态：** Stage0 基线和投影/账本结果如上；严格 clean clone 版本需在本地提交后重跑完整 bootstrap suite。当前工作流仍以 `enable_mcp=false`；通过后再推送并检查 Python 3.11/JDK 17/21 的 GitHub CI。
+- **本机证据：** 提交 `3c23a2323efe1fd658ad74026e6d14b146a32176` 上的最终 bootstrap host/smoke/lexer/parser suite 通过 **28/28**（456.119 秒）。报告确认 checkout-a/b HEAD 同为该提交；各自 `git status --porcelain` 为空，372 个 tracked paths / **432** 个快照项完整，跨根类型/权限/内容一致，每根构建前后含 `mtime_ns` 的快照一致。两根内 Stage2==Stage3、跨根 Stage2/Stage3 的 manifest 和原始 bytes 均一致、差异为零；Stage2/3 仅有 5 个声明文件，无多余项。
+- **后续门禁状态：** 同一提交上的 Stage0 全量双后端基线通过 **259/259**；Stage0→1/2 projector 对 **243** 个账本 case ID / **244** 个 fixture / **505** 个 properties 的既有验证零差异，账本 243 included、0 excluded 且 checker 3 项测试通过（投影器未改、此提交只调整测试/文档/CI）。本机为 Python 3.12.3 / OpenJDK 25.0.4.1；推送后仍需 GitHub CI 验证 Python 3.11/JDK 17/21 矩阵与 clean checkout run。
 
 
-### 2026-10-13 追加复核：源树快照内容与元数据完整性（clean clone 复验中）
+### 2026-10-13 追加复核：源树快照内容与元数据完整性（clean clone 已通过）
 
 - 最终 diff 复核发现原快照把目录编码成固定字节 `b"<directory>"`，可能与同路径文件内容碰撞，且会跳过 FIFO/socket 等特殊节点；仅 hash 内容也看不出内容不变的 touch 或 checkout 根目录中新建再删除的路径。最终实现把每个条目的类型、权限模式、`mtime_ns` 及文件内容/符号链接目标/特殊节点类型纳入摘要，并包括根目录本身。
-- 回归探针只在测试临时目录运行，验证同路径 `b"<directory>"` 文件与目录摘要不同、内容不变的持久 touch 可见；不改动任何 checkout 根。随后审计发现本机 clone 曾被工作树覆盖，现已移除覆盖并加入 clean-status 断言；完整 clean-clone suite 与新 manifest 尚待本机重跑。
+- 回归探针仅在临时目录验证文件/目录类型碰撞和内容不变的持久 touch；最终 28/28 suite 已在无 overlay 的 clean clones 上通过。报告的 `both_git_worktrees_clean`、`both_checkouts_content_mode_identical`、`working_tree_write_free` 均为 true；各根 Stage2/3 与跨根 Stage2/3 manifest/bytes 的 file differences 均为空。
