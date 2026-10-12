@@ -189,6 +189,8 @@ fn check_known_call(call, context):
     if not checked_constructor["ok"]:
         return checked_constructor
     function = call["func"]
+    if function["type"] == "Name" and function["id"] == "__wcall" and call["direct_method"] != nil:
+        return success(nil)
     if function["type"] != "Name":
         return success(nil)
     name = function["id"]
@@ -217,6 +219,160 @@ fn drop_first_parameter(parameters):
             out = out + [parameter]
     return out
 
+fn class_parent(class_node, classes):
+    if class_node == nil or class_node["parent"] == nil:
+        return nil
+    return classes[class_node["parent"]["name"]]
+
+fn find_class_method(class_node, method_name, classes):
+    current = class_node
+    while current != nil:
+        for method in current["methods"]:
+            if method["name"] == method_name:
+                return {"method": method, "owner": current}
+        current = class_parent(current, classes)
+    return nil
+
+fn parameter_has_default(parameter):
+    return parameter["type"] == "DefaultParam" or (parameter["type"] == "KeywordOnlyParam" and parameter["default"] != nil)
+
+fn fixed_parameters(parameters):
+    result = []
+    for parameter in parameters:
+        if parameter["type"] != "RestParam" and parameter["type"] != "ExtraParam":
+            result = result + [parameter]
+    return result
+
+fn positional_parameters(parameters):
+    result = []
+    for parameter in parameters:
+        if parameter["type"] != "RestParam" and parameter["type"] != "ExtraParam" and parameter["type"] != "KeywordOnlyParam":
+            result = result + [parameter]
+    return result
+
+fn parameter_by_name(parameters, name):
+    for parameter in parameters:
+        if parameter_name(parameter) == name:
+            return parameter
+    return nil
+
+fn parameter_position(parameters, name):
+    position = 0
+    for parameter in parameters:
+        if parameter_name(parameter) == name:
+            return position
+        position = position + 1
+    return -1
+
+fn rest_parameter(parameters):
+    for parameter in parameters:
+        if parameter["type"] == "RestParam":
+            return parameter["name"]
+    return nil
+
+fn extra_parameter(parameters):
+    for parameter in parameters:
+        if parameter["type"] == "ExtraParam":
+            return parameter["name"]
+    return nil
+
+fn override_signature_problem(class_node, method, inherited, inherited_owner):
+    base_parameters = drop_first_parameter(inherited["param_specs"])
+    child_parameters = drop_first_parameter(method["param_specs"])
+    base_fixed = fixed_parameters(base_parameters)
+    child_fixed = fixed_parameters(child_parameters)
+    base_positional = positional_parameters(base_parameters)
+    child_positional = positional_parameters(child_parameters)
+    for base_parameter in base_fixed:
+        name = parameter_name(base_parameter)
+        child_parameter = parameter_by_name(child_fixed, name)
+        if child_parameter == nil:
+            if base_parameter["type"] != "KeywordOnlyParam":
+                slot = parameter_position(base_positional, name)
+                if slot >= 0 and slot < len(child_positional):
+                    replacement = parameter_name(child_positional[slot])
+                    return "parameter '" + name + "' is renamed to '" + replacement + "'; callers of " + inherited_owner["source_name"] + "." + method["name"] + " may pass " + name + "=..."
+            if extra_parameter(child_parameters) != nil:
+                return "fixed parameter '" + name + "' is missing; **extra cannot replace a base fixed parameter"
+            return "fixed parameter '" + name + "' is missing"
+        if base_parameter["type"] != "KeywordOnlyParam" and child_parameter["type"] == "KeywordOnlyParam":
+            return "parameter '" + name + "' is keyword-only here, but " + inherited_owner["source_name"] + "." + method["name"] + " accepts it positionally"
+    for slot in range(len(base_positional)):
+        name = parameter_name(base_positional[slot])
+        actual_slot = parameter_position(child_positional, name)
+        if actual_slot != slot:
+            return "positional parameter '" + name + "' must remain in slot " + str(slot + 1) + "; it is in slot " + str(actual_slot + 1) + " in " + class_node["source_name"] + "." + method["name"]
+    for base_parameter in base_fixed:
+        name = parameter_name(base_parameter)
+        child_parameter = parameter_by_name(child_fixed, name)
+        if parameter_has_default(base_parameter) and not parameter_has_default(child_parameter):
+            return "optional parameter '" + name + "' became required"
+    for child_parameter in child_fixed:
+        name = parameter_name(child_parameter)
+        if parameter_by_name(base_fixed, name) == nil and not parameter_has_default(child_parameter):
+            if child_parameter["type"] == "KeywordOnlyParam":
+                return "required keyword-only parameter '" + name + "' is new"
+            return "required positional parameter '" + name + "' is new"
+    if rest_parameter(base_parameters) != nil and rest_parameter(child_parameters) == nil:
+        return "*rest collector required by " + inherited_owner["source_name"] + "." + method["name"] + " is missing"
+    if extra_parameter(base_parameters) != nil and extra_parameter(child_parameters) == nil:
+        return "**extra collector required by " + inherited_owner["source_name"] + "." + method["name"] + " is missing"
+    return nil
+
+fn validate_class_hierarchy(statements, classes, functions, module_names):
+    for class_node in statements:
+        if class_node["type"] != "ClassDef" or class_node["parent"] == nil:
+            continue
+        parent = class_node["parent"]
+        if parent["alias"] != nil:
+            return failure_at(parent, "qualified parent '" + parent["display"] + "' requires a module import")
+        if not map_has(classes, parent["name"]):
+            if map_has(functions, parent["name"]) or has(module_names, parent["name"]):
+                return failure_at(parent, "parent '" + parent["display"] + "' is not a Latent class")
+            return failure_at(parent, "unknown parent class '" + parent["display"] + "'")
+    for start in statements:
+        if start["type"] != "ClassDef":
+            continue
+        path = []
+        current = start
+        previous = nil
+        while current != nil:
+            if has(path, current["name"]):
+                cycle = []
+                in_cycle = false
+                for path_name in path:
+                    if path_name == current["name"]:
+                        in_cycle = true
+                    if in_cycle:
+                        cycle = cycle + [path_name]
+                cycle = cycle + [current["name"]]
+                message = "inheritance cycle: "
+                first = true
+                for cycle_name in cycle:
+                    if first:
+                        first = false
+                    else:
+                        message = message + " -> "
+                    message = message + classes[cycle_name]["source_name"]
+                return failure_at(previous["parent"], message)
+            path = path + [current["name"]]
+            previous = current
+            current = class_parent(current, classes)
+    for class_node in statements:
+        if class_node["type"] != "ClassDef":
+            continue
+        parent = class_parent(class_node, classes)
+        for method in class_node["methods"]:
+            if method["name"] == "init":
+                continue
+            inherited = find_class_method(parent, method["name"], classes)
+            if inherited != nil:
+                inherited_owner = inherited["owner"]
+                problem = override_signature_problem(class_node, method, inherited["method"], inherited_owner)
+                if problem != nil:
+                    return failure_at(method, "override " + class_node["source_name"] + "." + method["name"] + " is incompatible with " + inherited_owner["source_name"] + "." + method["name"] + ": " + problem)
+    return success(nil)
+
 fn check_class_constructor_call(call, context):
     function = call["func"]
     if function["type"] != "Name" or function["id"] != "__wcall":
@@ -231,12 +387,9 @@ fn check_class_constructor_call(call, context):
     for index in range(2, len(actuals)):
         parameters = parameters + [actuals[index]]
     synthetic_call = {"args": parameters, "line": call["line"], "col": call["col"], "source_id": call["source_id"]}
-    initializer = nil
-    for method in context["classes"][class_name]["methods"]:
-        if method["name"] == "init":
-            initializer = method
-    if initializer != nil:
-        return check_arguments(synthetic_call, drop_first_parameter(initializer["param_specs"]), class_name + ".new")
+    inherited = find_class_method(context["classes"][class_name], "init", context["classes"])
+    if inherited != nil:
+        return check_arguments(synthetic_call, drop_first_parameter(inherited["method"]["param_specs"]), class_name + ".new")
     return check_arguments(synthetic_call, [], class_name + ".new")
 
 fn collect_module_names(statements, names):
@@ -415,6 +568,26 @@ fn check_expression(node, context, as_callee):
     if kind == "JavaImport":
         return check_expression(node["class_expr"], context, false)
     if kind == "SuperCall":
+        class_name = context["class_name"]
+        if class_name == nil:
+            return failure_at(node, "super is only valid inside an instance method")
+        owner = context["classes"][class_name]
+        parent = class_parent(owner, context["classes"])
+        if parent == nil:
+            return failure_at(node, "class '" + owner["source_name"] + "' has no parent for super")
+        if len(node["args"]) == 0 or node["args"][0]["type"] != "Name" or len(context["current_parameters"]) == 0 or node["args"][0]["id"] != parameter_name(context["current_parameters"][0]):
+            return failure_at(node, "super.method() must pass the current receiver first")
+        inherited = find_class_method(parent, node["method"], context["classes"])
+        if inherited == nil:
+            return failure_at(node, "parent chain of '" + owner["source_name"] + "' has no method '" + node["method"] + "'")
+        call_arguments = []
+        for index in range(1, len(node["args"])):
+            call_arguments = call_arguments + [node["args"][index]]
+        synthetic_call = {"args": call_arguments, "line": node["line"], "col": node["col"], "source_id": node["source_id"]}
+        checked_call = check_arguments(synthetic_call, drop_first_parameter(inherited["method"]["param_specs"]), "super." + node["method"])
+        if not checked_call["ok"]:
+            return checked_call
+        node["owner"] = class_name
         for argument in node["args"]:
             if argument["type"] == "NamedArg" or argument["type"] == "StarArg" or argument["type"] == "StarStarArg":
                 checked = check_expression(argument["value"], context, false)
@@ -448,7 +621,7 @@ fn check_statement(node, context, in_loop):
             return success(nil)
         context["done"] = add_unique(context["done"], node["name"])
         outer = context["outer"] + context["locals"]
-        return check_function(node, context["globals"], outer, context["functions"], context["classes"])
+        return check_function(node, context["globals"], outer, context["functions"], context["classes"], nil)
     if kind == "Assign":
         value_result = check_expression(node["value"], context, false)
         if not value_result["ok"]:
@@ -519,7 +692,7 @@ fn check_statement(node, context, in_loop):
         return success(nil)
     return failure_at(node, "unexpected statement node in semantic analysis: " + kind)
 
-fn check_function(node, module_names, outer_names, function_map, class_map):
+fn check_function(node, module_names, outer_names, function_map, class_map, class_name):
     parameters = node["param_specs"]
     parameter_names = []
     for parameter in parameters:
@@ -549,7 +722,7 @@ fn check_function(node, module_names, outer_names, function_map, class_map):
     locals = locals + parameter_names
     nested_functions = collect_functions(node["body"], {})
     functions = copy_functions(function_map, nested_functions)
-    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "classes": class_map, "default_for": "", "default_unbound": []}
+    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "classes": class_map, "default_for": "", "default_unbound": [], "class_name": class_name, "current_parameters": parameters}
     bound = []
     parameter_index = 0
     for parameter in parameters:
@@ -577,12 +750,12 @@ fn check_definitions(statements, module_names, outer_names, function_map, class_
     for node in statements:
         kind = node["type"]
         if kind == "FnDef":
-            checked = check_function(node, module_names, outer_names, function_map, class_map)
+            checked = check_function(node, module_names, outer_names, function_map, class_map, nil)
             if not checked["ok"]:
                 return checked
         elif kind == "ClassDef":
             for method in node["methods"]:
-                checked = check_function(method, module_names, outer_names, function_map, class_map)
+                checked = check_function(method, module_names, outer_names, function_map, class_map, node["name"])
                 if not checked["ok"]:
                     return checked
     return success(nil)
@@ -599,6 +772,9 @@ fn check(tree):
     for node in tree["stmts"]:
         if node["type"] == "ClassDef":
             class_map[node["name"]] = node
+    hierarchy = validate_class_hierarchy(tree["stmts"], class_map, function_map, module_names)
+    if not hierarchy["ok"]:
+        return hierarchy
     definitions = check_definitions(tree["stmts"], module_names, [], function_map, class_map)
     if not definitions["ok"]:
         return definitions
@@ -606,7 +782,7 @@ fn check(tree):
     for node in tree["stmts"]:
         if node["type"] == "FnDef" or node["type"] == "ClassDef":
             visible = add_unique(visible, node["name"])
-    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map, "classes": class_map}
+    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map, "classes": class_map, "class_name": nil, "current_parameters": []}
     checked = check_block(tree["stmts"], context, 0)
     if not checked["ok"]:
         return checked

@@ -1,5 +1,5 @@
 # P15 limited Python emitter slice. P8-P11 function parameters/calls are supported;
-# py/java/super remain fail-closed until their target runtimes exist.
+# py/java interop and linked multi-module classes remain fail-closed.
 # All traversal, ordering, target spelling, and literal escaping stay in Latent.
 fn result(code):
     return {"ok": true, "code": code, "error": ""}
@@ -98,6 +98,8 @@ fn emit_expression(node):
     if kind == "Nil":
         return result("None")
     if kind == "Name":
+        if node["id"] == "__say":
+            return result("_lt_bootstrap_say")
         if node["id"] == "str":
             return result("_lt_bootstrap_str")
         if node["id"] == "__wgetattr":
@@ -106,6 +108,10 @@ fn emit_expression(node):
             return result("_lt_bootstrap_wcall")
         if node["id"] == "__wsetattr":
             return result("_lt_bootstrap_wsetattr")
+        if node["id"] == "__index":
+            return result("_lt_bootstrap_index")
+        if node["id"] == "__wsetindex":
+            return result("_lt_bootstrap_wsetindex")
         if node["id"] == "keys":
             return result("_lt_bootstrap_keys")
         if node["id"] == "push":
@@ -136,6 +142,8 @@ fn emit_expression(node):
         suffix = ""
         if arguments["code"] != "":
             suffix = ", " + arguments["code"]
+        if function["code"] == "_lt_bootstrap_wcall":
+            return result(function["code"] + "(" + arguments["code"] + ")")
         return result("_lt_bootstrap_call(" + function["code"] + suffix + ")")
     if kind == "Dot":
         object = emit_expression(node["obj"])
@@ -170,7 +178,21 @@ fn emit_expression(node):
     if kind == "Super":
         return failure("super requires the unavailable class runtime")
     if kind == "SuperCall":
-        return failure("super requires the unavailable class runtime")
+        if len(node["args"]) == 0:
+            return failure("super call is missing its receiver")
+        receiver = emit_expression(node["args"][0])
+        if not receiver["ok"]:
+            return receiver
+        arguments = []
+        for index in range(1, len(node["args"])):
+            arguments = arguments + [node["args"][index]]
+        emitted_arguments = emit_call_arguments(arguments)
+        if not emitted_arguments["ok"]:
+            return emitted_arguments
+        suffix = ""
+        if emitted_arguments["code"] != "":
+            suffix = ", " + emitted_arguments["code"]
+        return result("_lt_bootstrap_supercall(" + receiver["code"] + ", " + node["owner"] + ", " + quote_string(node["method"]) + suffix + ")")
     return failure("unsupported expression node: " + kind)
 
 fn emit_block(statements, indent):
@@ -185,8 +207,11 @@ fn emit_block(statements, indent):
     return result(output)
 
 fn emit_class(node, indent, factory_name):
+    parent_expression = "None"
     if node["parent"] != nil:
-        return failure("inheritance requires the unavailable class runtime")
+        if node["parent"]["alias"] != nil:
+            return failure("qualified class parents require the module linker")
+        parent_expression = node["parent"]["name"]
     output = indent + "def " + factory_name + "():\n"
     output = output + indent + "    class _LtBootstrapMethods:\n"
     for method in node["methods"]:
@@ -203,7 +228,7 @@ fn emit_class(node, indent, factory_name):
             methods = methods + ", "
         methods = methods + quote_string(method["name"]) + ": _LtBootstrapMethods." + method["name"]
     methods = methods + "}"
-    output = output + indent + "    return _LtBootstrapClass(" + quote_string(node["source_name"]) + ", " + methods + ")\n"
+    output = output + indent + "    return _LtBootstrapClass(" + quote_string(node["source_name"]) + ", " + parent_expression + ", " + methods + ")\n"
     output = output + indent + node["name"] + " = " + factory_name + "()\n"
     return result(output)
 
@@ -242,6 +267,29 @@ fn names_have(names, wanted):
         if name == wanted:
             return true
     return false
+
+fn order_classes(statements):
+    pending = []
+    for statement in statements:
+        if statement["type"] == "ClassDef":
+            pending = pending + [statement]
+    ordered = []
+    ordered_names = []
+    while len(pending) > 0:
+        remaining = []
+        progressed = false
+        for class_node in pending:
+            parent = class_node["parent"]
+            if parent == nil or names_have(ordered_names, parent["name"]):
+                ordered = ordered + [class_node]
+                ordered_names = ordered_names + [class_node["name"]]
+                progressed = true
+            else:
+                remaining = remaining + [class_node]
+        if not progressed:
+            return {"ok": false, "classes": [], "error": "class parent order is unresolved"}
+        pending = remaining
+    return {"ok": true, "classes": ordered, "error": ""}
 
 fn emit_statement(node, indent):
     kind = node["type"]
@@ -425,13 +473,14 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_bind_args(function, args):\n    params = function._params\n    positional_count = function._positional_count\n    args = _lt_bootstrap_expand_args(args)\n    has_named = any(isinstance(arg, _LtBootstrapNamedArg) for arg in args)\n    if not has_named:\n        if len(args) > positional_count and function._rest_name is None:\n            raise _LtBootstrapArgumentError('%s() takes %d args, got %d' % (function._name, positional_count, len(args)))\n        if len(args) < function._required_count:\n            if function._required_count == positional_count:\n                raise _LtBootstrapArgumentError('%s() takes %d args, got %d' % (function._name, positional_count, len(args)))\n            raise _LtBootstrapArgumentError('%s() missing required argument %r' % (function._name, params[len(args)]))\n        values = [function.MISSING] * len(params)\n        for index, value in enumerate(args[:positional_count]):\n            values[index] = value\n        for parameter in function._required_keyword_only:\n            raise _LtBootstrapArgumentError('%s() missing required keyword-only argument %r' % (function._name, parameter))\n        if function._rest_name is not None:\n            values.append(list(args[positional_count:]))\n        if function._extra_name is not None:\n            values.append({})\n        return values\n    values = [function.MISSING] * len(params)\n    supplied = [False] * len(params)\n    rest_values = []\n    extra_values = {}\n    pos = 0\n    seen_names = set()\n    for arg in args:\n        if isinstance(arg, _LtBootstrapNamedArg):\n            if arg.name in seen_names:\n                raise _LtBootstrapArgumentError('%s() got duplicate named argument %r' % (function._name, arg.name))\n            seen_names.add(arg.name)\n            if arg.name not in params:\n                if function._extra_name is None:\n                    raise _LtBootstrapArgumentError('%s() got unexpected named argument %r' % (function._name, arg.name))\n                extra_values[arg.name] = arg.value\n            else:\n                index = params.index(arg.name)\n                if supplied[index]:\n                    raise _LtBootstrapArgumentError('%s() got multiple values for argument %r' % (function._name, arg.name))\n                values[index] = arg.value\n                supplied[index] = True\n        else:\n            if pos >= positional_count:\n                if function._rest_name is None:\n                    raise _LtBootstrapArgumentError('%s() takes %d args, got %d' % (function._name, positional_count, pos + 1))\n                rest_values.append(arg)\n            else:\n                values[pos] = arg\n                supplied[pos] = True\n            pos = pos + 1\n    for index in range(function._required_count):\n        if not supplied[index]:\n            raise _LtBootstrapArgumentError('%s() missing required argument %r' % (function._name, params[index]))\n    for parameter in function._required_keyword_only:\n        index = params.index(parameter)\n        if not supplied[index]:\n            raise _LtBootstrapArgumentError('%s() missing required keyword-only argument %r' % (function._name, parameter))\n    if function._rest_name is not None:\n        values.append(rest_values)\n    if function._extra_name is not None:\n        values.append(extra_values)\n    return values\n\n"
     output = output + "class _LtBootstrapFunction:\n    MISSING = object()\n    def __init__(self, fn, params, name, required_count, positional_count, required_keyword_only, rest_name, extra_name, display=None):\n        self._fn = fn\n        self._params = tuple(params)\n        self._name = name\n        self._required_count = required_count\n        self._positional_count = positional_count\n        self._required_keyword_only = tuple(required_keyword_only)\n        self._rest_name = rest_name\n        self._extra_name = extra_name\n        self._display = display\n    def __call__(self, *args):\n        return self._fn(*_lt_bootstrap_bind_args(self, args))\n\n"
     output = output + "class _LtBootstrapInstance:\n    __slots__ = ('_lt_class', '_lt_fields')\n    def __init__(self, cls):\n        self._lt_class = cls\n        self._lt_fields = {}\n\n"
-    output = output + "class _LtBootstrapClass:\n    def __init__(self, name, methods):\n        self._name = name\n        self._methods = methods\n    def _new(self, *args):\n        instance = _LtBootstrapInstance(self)\n        initializer = self._methods.get('init')\n        if initializer is not None:\n            _lt_bootstrap_bound_method(initializer, instance, name=self._name + '.new')(*args)\n        else:\n            _lt_bootstrap_no_arg_constructor(self._name + '.new', args)\n        return instance\n\n"
-    output = output + "def _lt_bootstrap_bound_method(method, receiver, display=None, name=None):\n    return _LtBootstrapFunction(lambda *args: method(receiver, *args), method._params[1:], name or method._name, required_count=method._required_count - 1, positional_count=method._positional_count - 1, required_keyword_only=method._required_keyword_only, rest_name=method._rest_name, extra_name=method._extra_name, display=display)\n\n"
+    output = output + "class _LtBootstrapClass:\n    def __init__(self, name, parent, methods):\n        self._name = name\n        self._parent = parent\n        self._methods = methods\n    def _find_method(self, name):\n        current = self\n        while current is not None:\n            method = current._methods.get(name)\n            if method is not None:\n                return method\n            current = current._parent\n        return None\n    def _new(self, *args):\n        instance = _LtBootstrapInstance(self)\n        initializer = self._find_method('init')\n        if initializer is not None:\n            _lt_bootstrap_bound_method(initializer, instance, name=self._name + '.new')(*args)\n        else:\n            _lt_bootstrap_no_arg_constructor(self._name + '.new', args)\n        return instance\n\n"
+    output = output + "def _lt_bootstrap_bound_method(method, receiver, display=None, name=None):\n    return _LtBootstrapFunction(lambda *args: method._fn(receiver, *args), method._params[1:], name or method._name, required_count=method._required_count - 1, positional_count=method._positional_count - 1, required_keyword_only=method._required_keyword_only, rest_name=method._rest_name, extra_name=method._extra_name, display=display)\n\n"
+    output = output + "def _lt_bootstrap_supercall(receiver, owner, attr, *args):\n    if not isinstance(receiver, _LtBootstrapInstance) or not isinstance(owner, _LtBootstrapClass):\n        raise TypeError('super call requires a Latent instance and class')\n    current = receiver._lt_class\n    while current is not None and current is not owner:\n        current = current._parent\n    if current is None or owner._parent is None:\n        raise TypeError('super call owner is not in the instance inheritance chain')\n    method = owner._parent._find_method(attr)\n    if method is None:\n        raise AttributeError('no parent method %r on class %s' % (attr, owner._name))\n    return _lt_bootstrap_bound_method(method, receiver)(*args)\n\n"
     output = output + "def _lt_bootstrap_no_arg_constructor(name, args):\n    for argument in _lt_bootstrap_expand_args(args):\n        if isinstance(argument, _LtBootstrapNamedArg):\n            raise _LtBootstrapArgumentError('%s() got unexpected named argument %r' % (name, argument.name))\n        raise _LtBootstrapArgumentError('%s() takes 0 args, got 1' % name)\n\n"
     output = output + "_lt_bootstrap_missing = _LtBootstrapFunction.MISSING\n"
     output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
-    output = output + "def _lt_bootstrap_wgetattr(value, name):\n    if isinstance(value, _LtBootstrapInstance):\n        if name in value._lt_fields:\n            return value._lt_fields[name]\n        method = value._lt_class._methods.get(name)\n        if method is not None:\n            display = '<bound method ' + value._lt_class._name + '.' + name + '>'\n            return _lt_bootstrap_bound_method(method, value, display=display)\n        raise AttributeError('no field %r' % name)\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('class %s has no fields' % value._name)\n    return getattr(value, name)\n\n"
-    output = output + "def _lt_bootstrap_wcall(value, name, *args):\n    if isinstance(value, _LtBootstrapClass):\n        if name == 'new':\n            return value._new(*args)\n        raise AttributeError('no class-level method %r' % name)\n    if isinstance(value, _LtBootstrapInstance):\n        method = value._lt_class._methods.get(name)\n        if method is None:\n            raise AttributeError('no method %r' % name)\n        return _lt_bootstrap_bound_method(method, value)(*args)\n    if any(isinstance(arg, (_LtBootstrapNamedArg, _LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments and unpacking are not yet supported for Python/Java interop calls')\n    return getattr(value, name)(*args)\n\n"
+    output = output + "def _lt_bootstrap_wgetattr(value, name):\n    if isinstance(value, _LtBootstrapInstance):\n        if name in value._lt_fields:\n            return value._lt_fields[name]\n        method = value._lt_class._find_method(name)\n        if method is not None:\n            display = '<bound method ' + value._lt_class._name + '.' + name + '>'\n            return _lt_bootstrap_bound_method(method, value, display=display)\n        raise AttributeError('no field %r' % name)\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('class %s has no fields' % value._name)\n    return getattr(value, name)\n\n"
+    output = output + "def _lt_bootstrap_wcall(value, name, *args):\n    if isinstance(value, _LtBootstrapClass):\n        if name == 'new':\n            return value._new(*args)\n        raise AttributeError('no class-level method %r' % name)\n    if isinstance(value, _LtBootstrapInstance):\n        method = value._lt_class._find_method(name)\n        if method is None:\n            raise AttributeError('no method %r' % name)\n        return _lt_bootstrap_bound_method(method, value)(*args)\n    if any(isinstance(arg, (_LtBootstrapNamedArg, _LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments and unpacking are not yet supported for Python/Java interop calls')\n    return getattr(value, name)(*args)\n\n"
     output = output + "def _lt_bootstrap_wsetattr(value, name, item):\n    if isinstance(value, _LtBootstrapInstance):\n        value._lt_fields[name] = item\n        return None\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('cannot set attribute on a class')\n    if isinstance(value, _LtBootstrapModule):\n        raise AttributeError('cannot set attribute on a module')\n    raise AttributeError('attribute assignment on non-Latent objects is not supported')\n\n"
     output = output + "def _lt_bootstrap_say(value):\n    print(_lt_bootstrap_repr(value))\n\n"
     output = output + "def _lt_bootstrap_str(value):\n    return _lt_bootstrap_repr(value)\n\n"
@@ -459,21 +508,25 @@ fn generate(tree):
     declarations = ""
     body_statements = []
     reserved = collect_module_bindings(tree["stmts"], [])
+    ordered = order_classes(tree["stmts"])
+    if not ordered["ok"]:
+        return failure(ordered["error"])
     for statement in tree["stmts"]:
         if statement["type"] == "FnDef":
             emitted = emit_statement(statement, "")
             if not emitted["ok"]:
                 return emitted
             declarations = declarations + emitted["code"] + "\n"
-        elif statement["type"] == "ClassDef":
-            allocated = class_factory_name(statement["name"], reserved)
-            reserved = allocated["reserved"]
-            emitted = emit_class(statement, "", allocated["name"])
-            if not emitted["ok"]:
-                return emitted
-            declarations = declarations + emitted["code"] + "\n"
         else:
-            body_statements = body_statements + [statement]
+            if statement["type"] != "ClassDef":
+                body_statements = body_statements + [statement]
+    for statement in ordered["classes"]:
+        allocated = class_factory_name(statement["name"], reserved)
+        reserved = allocated["reserved"]
+        emitted = emit_class(statement, "", allocated["name"])
+        if not emitted["ok"]:
+            return emitted
+        declarations = declarations + emitted["code"] + "\n"
     body_code = ""
     if len(body_statements) > 0:
         body = emit_block(body_statements, "")

@@ -341,12 +341,12 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertIn("target() missing required argument 'value'",
                           invalid_stage1_result[2])
 
-    def test_remaining_unimplemented_interop_and_super_nodes_fail_closed(self):
+    def test_unimplemented_interop_and_invalid_super_fail_closed(self):
         cases = (
             ('say java "java.lang.String"\n', True,
              "Java interop requires the unavailable target runtime"),
             ("class Plain:\n    fn method(self):\n        return super.method(self)\n",
-             False, "super requires the unavailable class runtime"),
+             False, "class 'Plain' has no parent for super"),
         )
         with tempfile.TemporaryDirectory(prefix="p15-emitter-boundary-") as temporary:
             root = Path(temporary)
@@ -710,26 +710,6 @@ say _lt_bootstrap_make_class_Point()
                              repository_stage1_result[2] or
                              repository_stage1_result[1])
 
-            for index, invalid_source in enumerate((
-                    "class Child(Base):\n    fn value(self):\n        return super.value(self)\n",
-                    "class Parent:\n    fn value(self):\n        return 1\n\n"
-                    "class Child(Parent):\n    fn value(self):\n        return 2\n")):
-                invalid = root / f"inheritance-{index}.lt"
-                invalid.write_text(invalid_source, encoding="utf-8",
-                                   newline="\n")
-                out = root / f"inheritance-{index}-out"
-                rejected = subprocess.run(
-                    [sys.executable, str(stage1_dir / "compiler.py"),
-                     str(invalid), "-o", str(out)], cwd=root, env=clean_env,
-                    text=True, encoding="utf-8", capture_output=True,
-                    check=False)
-                self.assertEqual(rejected.returncode, 1,
-                                 rejected.stdout + rejected.stderr)
-                self.assertIn(
-                    "codegen error: inheritance requires the unavailable class runtime",
-                    rejected.stderr)
-                self.assertFalse(out.exists())
-
             semantic_cases = (
                 ("duplicate-method", "class A:\n    fn init(self):\n        return nil\n\n"
                  "    fn init(self, value):\n        return value\n"),
@@ -758,6 +738,72 @@ say _lt_bootstrap_make_class_Point()
                                  stage0_error.returncode)
                 self.assertEqual(stage1_error.stderr.splitlines()[0],
                                  stage0_error.stderr.splitlines()[0])
+
+    def test_single_file_inheritance_super_and_override_match_fixed_stage0(self):
+        with tempfile.TemporaryDirectory(prefix="p15-inheritance-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+
+            for name in ("inheritance", "p12_override_compatibility"):
+                fixture = ROOT / "tests" / f"{name}.lt"
+                stage0_out = root / f"{name}-stage0"
+                stage1_out = root / f"{name}-stage1"
+                checked([sys.executable, str(stage0 / "latent.py"),
+                         str(fixture), "-t", "py", "-o", str(stage0_out)],
+                        cwd=root, env=clean_env)
+                checked([sys.executable, str(stage1_dir / "compiler.py"),
+                         str(fixture), "-o", str(stage1_out)], cwd=root,
+                        env=clean_env)
+                stage0_result = run_stage_program(
+                    stage0_out / f"{name}.py", root)
+                stage1_result = run_stage_program(
+                    stage1_out / f"{name}.py", root)
+                self.assertEqual(stage0_result[0], 0,
+                                 stage0_result[1] + stage0_result[2])
+                self.assertEqual(stage1_result, stage0_result,
+                                 stage1_result[2] or stage1_result[1])
+
+            negative_fixtures = (
+                sorted((ROOT / "tests" / "inheritance_negative").glob("*.lt"))
+                + sorted((ROOT / "tests" / "p12_negative").glob("*.lt"))
+                + [ROOT / "tests" / "inheritance_bad_init_arity.lt",
+                   ROOT / "tests" / "p8_negative" / "super_unknown.lt",
+                   ROOT / "tests" / "p11_negative" / "super_missing.lt"]
+            )
+            self.assertEqual(len(negative_fixtures), 21)
+            for fixture in negative_fixtures:
+                label = fixture.relative_to(ROOT / "tests").as_posix().replace(
+                    "/", "_").removesuffix(".lt")
+                stage0_out = root / f"negative-{label}-stage0"
+                stage1_out = root / f"negative-{label}-stage1"
+                stage0_error = subprocess.run(
+                    [sys.executable, str(stage0 / "latent.py"), str(fixture),
+                     "-t", "py", "-o", str(stage0_out)], cwd=root,
+                    env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                stage1_error = subprocess.run(
+                    [sys.executable, str(stage1_dir / "compiler.py"),
+                     str(fixture), "-o", str(stage1_out)], cwd=root,
+                    env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                self.assertEqual(stage0_error.returncode, 1,
+                                 stage0_error.stdout + stage0_error.stderr)
+                self.assertEqual(stage1_error.returncode, 1,
+                                 stage1_error.stdout + stage1_error.stderr)
+                self.assertEqual(stage1_error.stderr.splitlines()[0],
+                                 stage0_error.stderr.splitlines()[0], label)
+                self.assertFalse(stage0_out.exists())
+                self.assertFalse(stage1_out.exists())
 
     def test_stage1_compiles_stage2_and_stage3_to_a_dual_root_fixed_point(self):
         with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:

@@ -217,3 +217,14 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - `tests/bootstrap/README.md`、`manifest.json` 已更新，区分该单文件类切片和仍明确拒绝/缺失的能力。
 - 最终验证：Python 工具/测试 `compileall` 与 `git diff --check` 通过；projection checker 报告 **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**；host/lexer/parser 聚焦用例 **13 passed**；host object 字段写入收紧为明确 unsupported 后，完整 bootstrap smoke **8 passed**，覆盖仓库 `class_basic.lt`、host-write 负例及 Stage1→Stage2→Stage3 fixed-point/双根 bytes 门禁；固定 Stage0 全量双后端 **259 passed / 0 failed**（含 **505** 固定种子性质案例，本机 Python 3.12.3 / OpenJDK 25.0.4.1）。未在本机重跑 Python 3.11/JDK 17、21 CI 矩阵。
 - **后续硬缺口：** 尚未做到 ledger 中 243 个 Python-target runner case 的 Stage0/Stage1 逐案行为与诊断零差异验收；继承/override/`super`、跨模块 class、完整 host 属性写入与 Python/Java interop/回调、完整 scope/class semantics、全部负编译/运行期诊断和 source map、全 CLI 兼容及 CI M15 尚未完成。M4/M5/M6/M7/M8/M9/M10/M11/M12/M13/M14/M15 的完整 DoD 仍未全部通过。必须继续逐项扩展并对拍；本轮仅完成 class 基础切片，不得宣称所有自举准备工作或 P15 已完成。
+
+
+### 本轮增量：单文件继承、override 兼容与 `super`（M8/M6 仍未完成）
+
+> 本节更新上一节“继承/override/`super` 尚未实现”的状态。此为固定 Stage0 下的单文件继承切片，不等于完整 M6/M8、243-case 投影或 P15 DoD。
+
+- `bootstrap/semant.lt` 现由 Latent 校验父类必须是同文件类、拒绝未知/非类父类、检查继承环，并沿继承链查找 `init` 与方法。非 `init` override 按 P12 绑定规则检查：保留位置形参次序/名称与关键字槽位、可选性、rest/extra 能力以及不新增必需参数。方法体的 `super.method(self, ...)` 检查实例方法上下文、当前 receiver、父链目标方法和调用实参签名；直接 `Class.new(...)` 可沿父链找到 initializer。
+- `bootstrap/gen_py.lt` 现以确定的父先子后顺序生成同文件类；实例方法读取/调用沿父链分派，构造器继承父 `init`，`super` 从当前方法所属类的直接父类开始查找。bound-method wrapper 在参数绑定后调用其底层函数，避免继承的 keyword-only/default 形参二次绑定；Latent `__wcall` 的命名实参直接交给 Latent runtime，且映射双下划线 helper 名避免 Python 类体名称改写。多模块类、限定父类 alias 仍 fail-closed。
+- `tests/test_bootstrap_smoke.py` 增加固定 Stage0/Stage1 的 `inheritance.lt` 与 `p12_override_compatibility.lt` 输出/退出状态差分；另对比 **21** 个继承/override/构造器/`super` 编译负例的退出状态、诊断首行和失败不落盘。原有“无父类 `super` 的 emitter 失败”断言已更新为准确的 M6 语义错误。`tests/bootstrap/README.md` 更新支持范围与未实现边界；未增加 ledger 路径或 Stage0 测试用例。
+- 验证：`python -m unittest tests.test_bootstrap_host tests.test_bootstrap_smoke tests.test_bootstrap_lexer tests.test_bootstrap_parser -v` **22 passed**（含 Stage1→2→3 fixed point 与双根 bytes 复现）；固定 Stage0 `python3 tests/run_tests.py` **259 passed / 0 failed**（505 个固定种子性质案例）；`compileall`、`git diff --check`、ledger checker 与 ledger 单测 **3 passed**，账本为 **243 included / 0 excluded / 291 inventoried paths**。本机为 Python 3.12 / OpenJDK 25；未因此宣称 CI 的 Python 3.11/JDK 17 门通过。
+- **下一阻塞与未完成项：** 首要门槛仍是把 ledger 的 **243 个适用 runner case** 做成逐项 Stage0/Stage1 成功行为、编译诊断、运行错误、stdout/stderr/退出码差分；该全量投影尚未实现。随后还需扩展多模块 class/inheritance、可静态推导类型的直接方法实参检查、完整 Python/Java interop 与回调、诊断/source map/CLI 完整兼容，并通过 M10–M15 的所有硬门。M4/M5/M6/M7/M8/M9 及完整 P15 DoD 仍未完成，不得宣称“所有自举准备工作已完成”。
