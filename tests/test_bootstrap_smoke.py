@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -259,6 +260,23 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertTrue(run_result.stdout.endswith(EXPECTED_STDOUT))
             self.assertEqual(run_result.stderr, "")
 
+            bad_source = root / "compile-failure.lt"
+            bad_source.write_text("say missing\n", encoding="utf-8",
+                                  newline="\n")
+            stage0_bad = subprocess.run(
+                [sys.executable, str(stage0 / "latent.py"), str(bad_source),
+                 "-t", "py", "-o", str(root / "stage0-bad-out")],
+                cwd=root, env=clean_env, text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            stage1_bad = subprocess.run(
+                [sys.executable, str(compiler_a), str(bad_source),
+                 "-o", str(root / "stage1-bad-out")],
+                cwd=root, env=clean_env, text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            self.assertEqual(stage0_bad.returncode, 1)
+            self.assertEqual(stage1_bad.returncode, 1)
+            self.assertEqual(stage1_bad.stderr, stage0_bad.stderr)
+
             dotted_source = root / "multi.part.name.lt"
             dotted_source.write_text('say "dotted stem"\n',
                                      encoding="utf-8", newline="\n")
@@ -277,7 +295,11 @@ class BootstrapEmitterTests(unittest.TestCase):
                 env=clean_env, text=True, encoding="utf-8",
                 capture_output=True, check=False)
             self.assertEqual(run_failure.returncode, 1)
-            self.assertIn("ZeroDivisionError", run_failure.stderr)
+            self.assertIn("Latent runtime error: ZeroDivisionError: float division by zero",
+                          run_failure.stderr)
+            self.assertIn("runtime-failure.lt:1 in main", run_failure.stderr)
+            self.assertNotIn("Traceback (most recent call last):",
+                             run_failure.stderr)
 
     def test_parameter_and_call_nodes_match_fixed_stage0(self):
         fixture_source = r'''fn describe(value, fallback=value + 1, *rest, required, option=fallback + 2, **extra):
@@ -1021,6 +1043,56 @@ say _lt_bootstrap_make_class_Point()
                 self.assertFalse(stage0_out.exists())
                 self.assertFalse(stage1_out.exists())
 
+    def test_scope_and_known_method_negative_diagnostics_match_fixed_stage0(self):
+        with tempfile.TemporaryDirectory(prefix="p15-negative-semantic-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+
+            fixtures = [
+                ROOT / "tests" / "err_exprstmt.lt",
+                ROOT / "tests" / "err_p6_nonlocal_duplicate.lt",
+                ROOT / "tests" / "err_p6_nonlocal_global.lt",
+                ROOT / "tests" / "err_p6_nonlocal_missing.lt",
+                ROOT / "tests" / "err_p6_nonlocal_parameter.lt",
+                ROOT / "tests" / "err_p6_nonlocal_top.lt",
+                ROOT / "tests" / "p8_negative" / "method_missing.lt",
+                ROOT / "tests" / "p8_negative" / "method_unknown.lt",
+                ROOT / "tests" / "p11_negative" / "method_missing.lt",
+            ]
+            for fixture in fixtures:
+                label = fixture.relative_to(ROOT / "tests").as_posix().replace(
+                    "/", "_").removesuffix(".lt")
+                stage0_out = root / f"negative-{label}-stage0"
+                stage1_out = root / f"negative-{label}-stage1"
+                stage0_error = subprocess.run(
+                    [sys.executable, str(stage0 / "latent.py"), str(fixture),
+                     "-t", "py", "-o", str(stage0_out)], cwd=root,
+                    env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                stage1_error = subprocess.run(
+                    [sys.executable, str(stage1_dir / "compiler.py"),
+                     str(fixture), "-o", str(stage1_out)], cwd=root,
+                    env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                self.assertEqual(stage0_error.returncode, 1,
+                                 stage0_error.stdout + stage0_error.stderr)
+                self.assertEqual(stage1_error.returncode, 1,
+                                 stage1_error.stdout + stage1_error.stderr)
+                self.assertEqual(stage1_error.stderr.splitlines()[0],
+                                 stage0_error.stderr.splitlines()[0], label)
+                self.assertFalse(stage0_out.exists())
+                self.assertFalse(stage1_out.exists())
+
     def test_function_scope_global_nonlocal_and_closures_match_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-function-scope-") as temporary:
             root = Path(temporary)
@@ -1066,25 +1138,71 @@ say _lt_bootstrap_make_class_Point()
                 self.assertEqual(stage0_result[0], 0,
                                  stage0_result[1] + stage0_result[2])
                 self.assertEqual(stage1_result, stage0_result,
-                                 stage1_result[2] or stage1_result[1])
+                                 f"{label}: {stage1_result[2] or stage1_result[1]}")
 
     def test_stage1_compiles_stage2_and_stage3_to_a_dual_root_fixed_point(self):
         with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:
             root = Path(temporary)
             clean_env = {**os.environ, "PYTHONPATH": "",
                          "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env.pop("P15_BOOTSTRAP_MANIFEST_REPORT", None)
+            no_javac = root / "no-javac"
+            no_javac.mkdir()
+            stage0_env = {**clean_env, "PATH": str(no_javac)}
             adapter = (ROOT / "bootstrap" / "latent_host.py").read_bytes()
             declared = ("compiler.py", "latent_host.py", "LtJavaDaemon.java",
                         "JReflect.java", "LtRt.java")
 
-            def manifest(stage: Path) -> tuple[tuple[str, str], ...]:
-                self.assertEqual(sorted(path.name for path in stage.iterdir()),
-                                 sorted(declared))
-                return tuple(
-                    (name, hashlib.sha256((stage / name).read_bytes()).hexdigest())
-                    for name in sorted(declared))
+            def snapshot(stage: Path) -> dict[str, object]:
+                files = {}
+                other_entries = []
+                for path in sorted(stage.iterdir(), key=lambda item: item.name):
+                    if path.is_file():
+                        files[path.name] = path.read_bytes()
+                    else:
+                        other_entries.append(path.name)
+                return {"files": files, "other_entries": other_entries}
 
-            def build_chain(label: str, source_root: Path) -> tuple[tuple[tuple[str, str], ...], ...]:
+            def source_tree_snapshot() -> dict[str, str]:
+                files = {}
+                ignored_directories = {".git", "node_modules", "__pycache__",
+                                       ".pytest_cache"}
+                for directory, child_directories, names in os.walk(ROOT):
+                    child_directories[:] = [
+                        name for name in child_directories
+                        if name not in ignored_directories
+                    ]
+                    for name in names:
+                        path = Path(directory) / name
+                        relative = path.relative_to(ROOT).as_posix()
+                        content = (os.readlink(path).encode("utf-8")
+                                   if path.is_symlink() else path.read_bytes())
+                        files[relative] = hashlib.sha256(content).hexdigest()
+                return files
+
+            def manifest(stage_snapshot: dict[str, object]) -> list[dict[str, str]]:
+                files = stage_snapshot["files"]
+                return [{"path": name,
+                         "sha256": hashlib.sha256(content).hexdigest()}
+                        for name, content in sorted(files.items())]
+
+            def manifest_diff(left: dict[str, object],
+                              right: dict[str, object]) -> list[dict[str, str | None]]:
+                left_files = left["files"]
+                right_files = right["files"]
+                differences = []
+                for name in sorted(set(left_files) | set(right_files)):
+                    left_hash = (hashlib.sha256(left_files[name]).hexdigest()
+                                 if name in left_files else None)
+                    right_hash = (hashlib.sha256(right_files[name]).hexdigest()
+                                  if name in right_files else None)
+                    if left_hash != right_hash:
+                        differences.append({"path": name,
+                                            "left_sha256": left_hash,
+                                            "right_sha256": right_hash})
+                return differences
+
+            def build_chain(label: str, source_root: Path) -> dict[str, object]:
                 stage0 = root / (label + "-stage0")
                 extract_stage0(stage0)
                 stage1 = root / (label + "-stage1")
@@ -1092,8 +1210,9 @@ say _lt_bootstrap_make_class_Point()
                 source = source_root / "bootstrap" / "compiler.lt"
                 checked([sys.executable, str(stage0 / "latent.py"),
                          str(source), "-t", "py", "-o", str(stage1)],
-                        cwd=root, env=clean_env)
+                        cwd=root, env=stage0_env)
                 (stage1 / "latent_host.py").write_bytes(adapter)
+                stage1_snapshot = snapshot(stage1)
 
                 # Stage1 must compile with no Stage0 files or Python compiler
                 # modules present in its environment.
@@ -1109,25 +1228,88 @@ say _lt_bootstrap_make_class_Point()
                         env=clean_env)
                 (stage3 / "latent_host.py").write_bytes(adapter)
 
-                stage2_manifest = manifest(stage2)
-                stage3_manifest = manifest(stage3)
-                self.assertEqual(stage2_manifest, stage3_manifest)
-                stage2_bytes = tuple((stage2 / name).read_bytes()
-                                     for name in declared)
-                stage3_bytes = tuple((stage3 / name).read_bytes()
-                                     for name in declared)
-                self.assertEqual(stage2_bytes, stage3_bytes)
-                return (stage2_manifest, stage3_manifest,
-                        stage2_bytes, stage3_bytes)
+                return {"stage1": stage1_snapshot,
+                        "stage2": snapshot(stage2),
+                        "stage3": snapshot(stage3)}
+
+            def write_report(first: dict[str, object],
+                             second: dict[str, object]) -> None:
+                report_name = os.environ.get("P15_BOOTSTRAP_MANIFEST_REPORT")
+                if not report_name:
+                    return
+                report_path = Path(report_name)
+                roots = {"checkout-a": first, "checkout-b": second}
+                serialized = {}
+                for root_name, chain in roots.items():
+                    serialized[root_name] = {}
+                    for stage_name in ("stage1", "stage2", "stage3"):
+                        stage = chain[stage_name]
+                        serialized[root_name][stage_name] = {
+                            "manifest": manifest(stage),
+                            "missing_declared": sorted(
+                                set(declared) - set(stage["files"])),
+                            "unexpected_files": sorted(
+                                set(stage["files"]) - set(declared)),
+                            "non_file_entries": stage["other_entries"]}
+                stage_comparisons = {}
+                for root_name, chain in roots.items():
+                    stage2 = chain["stage2"]
+                    stage3 = chain["stage3"]
+                    stage_comparisons[root_name] = {
+                        "stage2_stage3_bytes_equal":
+                            stage2["files"] == stage3["files"] and
+                            set(stage2["files"]) == set(declared) and
+                            set(stage3["files"]) == set(declared) and
+                            not stage2["other_entries"] and
+                            not stage3["other_entries"],
+                        "stage2_stage3_file_differences":
+                            manifest_diff(stage2, stage3)}
+                cross_root = {}
+                for stage_name in ("stage2", "stage3"):
+                    left = first[stage_name]
+                    right = second[stage_name]
+                    cross_root[stage_name] = {
+                        "bytes_equal": left["files"] == right["files"] and
+                            set(left["files"]) == set(declared) and
+                            set(right["files"]) == set(declared) and
+                            not left["other_entries"] and not right["other_entries"],
+                        "file_differences": manifest_diff(left, right)}
+                payload = {"stage0_commit": STAGE0_COMMIT,
+                           "declared_files": sorted(declared),
+                           "checkouts": serialized,
+                           "within_root_fixed_point": stage_comparisons,
+                           "cross_root_stage2_stage3": cross_root,
+                           "stage1_cross_root_note":
+                               "Stage1 is reported but may differ due to fixed Stage0 path behavior."}
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                report_path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
 
             source_a = ROOT
             source_b = root / "checkout-b"
             source_b.mkdir()
             shutil.copytree(ROOT / "bootstrap", source_b / "bootstrap",
                             ignore=shutil.ignore_patterns("__pycache__"))
+            source_before = source_tree_snapshot()
             first = build_chain("checkout-a", source_a)
             second = build_chain("checkout-b", source_b)
-            self.assertEqual(first, second)
+            write_report(first, second)
+            self.assertEqual(source_tree_snapshot(), source_before,
+                             "Stage0/1/2/3 build wrote into the source tree")
+
+            expected = set(declared)
+            for root_name, chain in (("checkout-a", first),
+                                     ("checkout-b", second)):
+                for stage_name, stage in chain.items():
+                    with self.subTest(root=root_name, stage=stage_name):
+                        self.assertEqual(set(stage["files"]), expected)
+                        self.assertEqual(stage["other_entries"], [])
+                self.assertEqual(chain["stage2"]["files"],
+                                 chain["stage3"]["files"])
+            for stage_name in ("stage2", "stage3"):
+                self.assertEqual(first[stage_name]["files"],
+                                 second[stage_name]["files"])
 
 
 if __name__ == "__main__":

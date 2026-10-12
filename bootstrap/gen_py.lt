@@ -102,6 +102,8 @@ fn emit_expression(node):
     if kind == "Name":
         if node["id"] == "__say":
             return result("_lt_bootstrap_say")
+        if node["id"] == "int":
+            return result("_lt_bootstrap_int")
         if node["id"] == "range":
             return result("_lt_bootstrap_range")
         if node["id"] == "len":
@@ -365,7 +367,7 @@ fn order_classes(statements):
         pending = remaining
     return {"ok": true, "classes": ordered, "error": ""}
 
-fn emit_statement(node, indent):
+fn emit_statement_body(node, indent):
     kind = node["type"]
     if kind == "GlobalStmt" or kind == "NonlocalStmt":
         return result("")
@@ -532,6 +534,23 @@ fn emit_statement(node, indent):
         return result(indent + "continue\n")
     return failure("unsupported statement node: " + kind)
 
+fn source_marker(node, indent):
+    source_value = "None"
+    if node["source_id"] != nil:
+        source_value = quote_string(node["source_id"])
+    return indent + "# __LT_SOURCE__ " + source_value + " " + str(node["line"]) + "\n"
+
+fn unmapped_source_marker(indent):
+    return indent + "# __LT_SOURCE__ None 0\n"
+
+fn emit_statement(node, indent):
+    emitted = emit_statement_body(node, indent)
+    if not emitted["ok"]:
+        return emitted
+    if emitted["code"] == "":
+        return emitted
+    return result(source_marker(node, indent) + emitted["code"])
+
 fn runtime_prelude():
     output = "def _lt_bootstrap_repr(value, quoted=False):\n"
     output = output + "    if value is None:\n        return 'nil'\n"
@@ -574,7 +593,7 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_supercall(receiver, owner, attr, *args):\n    if not isinstance(receiver, _LtBootstrapInstance) or not isinstance(owner, _LtBootstrapClass):\n        raise TypeError('super call requires a Latent instance and class')\n    current = receiver._lt_class\n    while current is not None and current is not owner:\n        current = current._parent\n    if current is None or owner._parent is None:\n        raise TypeError('super call owner is not in the instance inheritance chain')\n    method = owner._parent._find_method(attr)\n    if method is None:\n        raise AttributeError('no parent method %r on class %s' % (attr, owner._name))\n    return _lt_bootstrap_bound_method(method, receiver)(*args)\n\n"
     output = output + "def _lt_bootstrap_no_arg_constructor(name, args):\n    for argument in _lt_bootstrap_expand_args(args):\n        if isinstance(argument, _LtBootstrapNamedArg):\n            raise _LtBootstrapArgumentError('%s() got unexpected named argument %r' % (name, argument.name))\n        raise _LtBootstrapArgumentError('%s() takes 0 args, got 1' % name)\n\n"
     output = output + "_lt_bootstrap_missing = _LtBootstrapFunction.MISSING\n"
-    output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if not callable(function):\n        raise _LtBootstrapArgumentError('call on non-function value')\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
+    output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if not callable(function):\n        raise TypeError('call on non-function value')\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
     output = output + "def _lt_bootstrap_wgetattr(value, name):\n    if isinstance(value, _LtBootstrapInstance):\n        if name in value._lt_fields:\n            return value._lt_fields[name]\n        method = value._lt_class._find_method(name)\n        if method is not None:\n            display = '<bound method ' + value._lt_class._name + '.' + name + '>'\n            return _lt_bootstrap_bound_method(method, value, display=display)\n        raise AttributeError('no field %r' % name)\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('class %s has no fields' % value._name)\n    return getattr(value, name)\n\n"
     output = output + "def _lt_bootstrap_wcall(value, name, *args):\n    if isinstance(value, _LtBootstrapClass):\n        if name == 'new':\n            return value._new(*args)\n        raise AttributeError('no class-level method %r' % name)\n    if isinstance(value, _LtBootstrapInstance):\n        method = value._lt_class._find_method(name)\n        if method is None:\n            raise AttributeError('no method %r' % name)\n        return _lt_bootstrap_bound_method(method, value)(*args)\n    if any(isinstance(arg, (_LtBootstrapNamedArg, _LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments and unpacking are not yet supported for Python/Java interop calls')\n    return getattr(value, name)(*args)\n\n"
     output = output + "def _lt_bootstrap_wsetattr(value, name, item):\n    if isinstance(value, _LtBootstrapInstance):\n        value._lt_fields[name] = item\n        return None\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('cannot set attribute on a class')\n    if isinstance(value, _LtBootstrapModule):\n        raise AttributeError('cannot set attribute on a module')\n    raise AttributeError('attribute assignment on non-Latent objects is not supported')\n\n"
@@ -582,12 +601,12 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_str(value):\n    return _lt_bootstrap_repr(value)\n\n"
     output = output + "def _lt_bootstrap_index(value, key):\n"
     output = output + "    if isinstance(value, (list, str)):\n"
-    output = output + "        if isinstance(key, bool) or not isinstance(key, (int, float)) or int(key) != key:\n            raise TypeError('index must be an integer')\n"
+    output = output + "        if isinstance(key, bool) or not isinstance(key, float) or not key.is_integer():\n            raise TypeError('index must be an integer')\n"
     output = output + "        index = int(key)\n        if index < 0:\n            index += len(value)\n        if index < 0 or index >= len(value):\n            raise IndexError('index out of range: ' + str(int(key)))\n        return value[index]\n"
     output = output + "    if isinstance(value, dict):\n        if key not in value:\n            raise KeyError('key not found: ' + _lt_bootstrap_repr(key))\n        return value[key]\n"
     output = output + "    raise TypeError('cannot index ' + _lt_bootstrap_repr(value))\n\n"
     output = output + "def _lt_bootstrap_wsetindex(value, key, item):\n"
-    output = output + "    if isinstance(value, list):\n        if isinstance(key, bool) or not isinstance(key, (int, float)) or int(key) != key:\n            raise TypeError('index must be an integer')\n        index = int(key)\n        if index < 0:\n            index += len(value)\n        if index < 0 or index >= len(value):\n            raise IndexError('index out of range: ' + str(int(key)))\n        value[index] = item\n        return None\n"
+    output = output + "    if isinstance(value, list):\n        if isinstance(key, bool) or not isinstance(key, float) or not key.is_integer():\n            raise TypeError('index must be an integer')\n        index = int(key)\n        if index < 0:\n            index += len(value)\n        if index < 0 or index >= len(value):\n            raise IndexError('index out of range: ' + str(int(key)))\n        value[index] = item\n        return None\n"
     output = output + "    if isinstance(value, dict):\n        value[key] = item\n        return None\n"
     output = output + "    raise TypeError('cannot index-assign ' + _lt_bootstrap_repr(value))\n\n"
     output = output + "class _LtBootstrapModule:\n    def __init__(self, name):\n        self._name = name\n        self._module = None\n    def _load(self):\n        if self._module is None:\n            import importlib\n            self._module = importlib.import_module(self._name)\n        return self._module\n    def __getattr__(self, name):\n        if name.startswith('__'):\n            raise AttributeError(name)\n        return getattr(self._load(), name)\n\n"
@@ -598,6 +617,50 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_current_exception_message():\n    error = __import__('sys').exc_info()[1]\n    if error.args and isinstance(error.args[0], str):\n        return error.args[0]\n    return str(error)\n\n"
     output = output + "__say = _lt_bootstrap_say\n__index = _lt_bootstrap_index\n__wsetindex = _lt_bootstrap_wsetindex\n"
     output = output + java_runtime.emitted_prelude()
+    output = output + "def _lt_bootstrap_source_location(generated_file, target_line):\n"
+    output = output + "    marker = '# __LT_SOURCE__ '\n"
+    output = output + "    current = None\n"
+    output = output + "    with open(generated_file, encoding='utf-8') as stream:\n"
+    output = output + "        for line_number, line in enumerate(stream, 1):\n"
+    output = output + "            if line_number > target_line:\n                break\n"
+    output = output + "            candidate = line.lstrip()\n"
+    output = output + "            if not candidate.startswith(marker):\n                continue\n"
+    output = output + "            payload = candidate[len(marker):].strip()\n"
+    output = output + "            split_at = payload.rfind(' ')\n"
+    output = output + "            if split_at < 0:\n                current = None\n                continue\n"
+    output = output + "            try:\n"
+    output = output + "                source_id = __import__('ast').literal_eval(payload[:split_at])\n"
+    output = output + "                source_line = int(payload[split_at + 1:])\n"
+    output = output + "                current = None if source_id is None else (source_id, source_line)\n"
+    output = output + "            except Exception:\n                current = None\n"
+    output = output + "    return current\n\n"
+    output = output + "def _lt_bootstrap_report_uncaught(error, generated_file):\n"
+    output = output + "    def fallback():\n        __import__('traceback').print_exception(type(error), error, error.__traceback__, file=__import__('sys').stderr)\n"
+    output = output + "    try:\n"
+    output = output + "        generated_abs = __import__('os').path.abspath(generated_file)\n"
+    output = output + "        mapped = []\n        tb = error.__traceback__\n"
+    output = output + "        while tb is not None:\n"
+    output = output + "            frame = tb.tb_frame\n            filename = frame.f_code.co_filename\n"
+    output = output + "            if filename == generated_file or __import__('os').path.abspath(filename) == generated_abs:\n"
+    output = output + "                location = _lt_bootstrap_source_location(generated_file, tb.tb_lineno)\n"
+    output = output + "                if location is not None:\n"
+    output = output + "                    frame_name = frame.f_code.co_name\n                    if frame_name == '<module>':\n                        frame_name = 'main'\n"
+    output = output + "                    mapped.append((location[0], location[1], frame_name))\n"
+    output = output + "            tb = tb.tb_next\n"
+    output = output + "        if not mapped:\n            fallback()\n            return\n"
+    output = output + "        message = str(error)\n"
+    output = output + "        if isinstance(error, _LtBootstrapArgumentError):\n            error_type = 'ArgumentError'\n"
+    output = output + "        elif isinstance(error, _LtBootstrapJavaInteropError):\n            error_type = 'RuntimeException'\n"
+    output = output + "        else:\n            error_type = type(error).__name__\n"
+    output = output + "        detail = error_type + (': ' + message if message else '')\n"
+    output = output + "        stream = __import__('sys').stderr\n"
+    output = output + "        stream.write('Latent runtime error: ' + detail + '\\n')\n"
+    output = output + "        stream.write('Latent traceback (most recent call last):\\n')\n"
+    output = output + "        for source_file, source_line, frame_name in mapped:\n"
+    output = output + "            stream.write('  at ' + source_file + ':' + str(source_line) + ' in ' + frame_name + '\\n')\n"
+    output = output + "    except Exception:\n"
+    output = output + "        try:\n            fallback()\n"
+    output = output + "        except Exception:\n            __import__('sys').stderr.write('Latent runtime error (diagnostic formatting failed)\\n')\n\n"
     return output
 
 fn generate(tree):
@@ -624,14 +687,17 @@ fn generate(tree):
         emitted = emit_class(statement, "", allocated["name"])
         if not emitted["ok"]:
             return emitted
-        declarations = declarations + emitted["code"] + "\n"
+        declarations = declarations + source_marker(statement, "") + emitted["code"] + "\n"
     body_code = ""
+    execution = ""
     if len(body_statements) > 0:
-        body = emit_block(body_statements, "")
+        body = emit_block(body_statements, "        ")
         if not body["ok"]:
             return body
         body_code = body["code"]
-    return result(runtime_prelude() + declarations + body_code)
+        execution = "\n" + unmapped_source_marker("") + "if __name__ == \"__main__\":\n    try:\n" + body_code
+        execution = execution + "    except Exception as _lt_bootstrap_error:\n        _lt_bootstrap_report_uncaught(_lt_bootstrap_error, __file__)\n        raise SystemExit(1)\n"
+    return result(runtime_prelude() + declarations + execution)
 
 
 fn module_by_source_id(metadata, source_id):
@@ -670,8 +736,9 @@ fn generate_modules(tree, metadata, root_id):
                 return emitted
             output = output + "\n" + emitted["code"]
     for module in metadata:
-        output = output + "\n" + module["state_name"] + " = 0\n"
+        output = output + "\n" + unmapped_source_marker("") + module["state_name"] + " = 0\n"
         output = output + "def " + module["init_name"] + "():\n"
+        output = output + unmapped_source_marker("    ")
         global_names = [module["state_name"]]
         for name in module["globals"]:
             global_names = global_names + [name]
@@ -692,7 +759,7 @@ fn generate_modules(tree, metadata, root_id):
                 emitted_class = emit_class(class_node, "        ", allocated["name"])
                 if not emitted_class["ok"]:
                     return emitted_class
-                output = output + emitted_class["code"]
+                output = output + source_marker(class_node, "        ") + emitted_class["code"]
         body = []
         for statement in tree["stmts"]:
             if statement["source_id"] == module["source_id"] and statement["type"] != "FnDef" and statement["type"] != "ClassDef":
@@ -701,10 +768,13 @@ fn generate_modules(tree, metadata, root_id):
         if not emitted_body["ok"]:
             return emitted_body
         output = output + emitted_body["code"]
+        output = output + unmapped_source_marker("        ")
         output = output + "        " + module["state_name"] + " = 2\n"
+        output = output + unmapped_source_marker("    ")
         output = output + "    except Exception:\n        " + module["state_name"] + " = 0\n        raise\n"
     root_module = module_by_source_id(metadata, root_id)
     if root_module == nil:
         return failure("module linker did not provide root initializer")
-    output = output + "\nif __name__ == \"__main__\":\n    " + root_module["init_name"] + "()\n"
+    output = output + "\n" + unmapped_source_marker("") + "if __name__ == \"__main__\":\n    try:\n        " + root_module["init_name"] + "()\n"
+    output = output + "    except Exception as _lt_bootstrap_error:\n        _lt_bootstrap_report_uncaught(_lt_bootstrap_error, __file__)\n        raise SystemExit(1)\n"
     return result(output)

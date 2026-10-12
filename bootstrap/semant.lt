@@ -190,7 +190,7 @@ fn check_known_call(call, context):
         return checked_constructor
     function = call["func"]
     if function["type"] == "Name" and function["id"] == "__wcall" and call["direct_method"] != nil:
-        return success(nil)
+        return check_direct_method_call(call, context)
     if function["type"] != "Name":
         return success(nil)
     name = function["id"]
@@ -392,6 +392,95 @@ fn check_class_constructor_call(call, context):
         return check_arguments(synthetic_call, drop_first_parameter(inherited["method"]["param_specs"]), class_name + ".new")
     return check_arguments(synthetic_call, [], class_name + ".new")
 
+fn copy_class_types(class_types):
+    copied = {}
+    for name in keys(class_types):
+        copied[name] = class_types[name]
+    return copied
+
+fn class_types_without(class_types, names):
+    remaining = {}
+    for name in keys(class_types):
+        if not has(names, name):
+            remaining[name] = class_types[name]
+    return remaining
+
+fn store_class_type(context, name, class_node):
+    if class_node == nil:
+        context["class_types"] = class_types_without(context["class_types"], [name])
+    else:
+        context["class_types"][name] = class_node
+
+fn collect_class_type_writes(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "Assign":
+            if statement["target"]["type"] == "Name":
+                names = add_unique(names, statement["target"]["id"])
+        elif kind == "For":
+            names = add_unique(names, statement["var"])
+            names = collect_class_type_writes(statement["body"], names)
+        elif kind == "If":
+            names = collect_class_type_writes(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_class_type_writes(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_class_type_writes(statement["body"], names)
+        elif kind == "Try":
+            names = add_unique(names, statement["var"])
+            names = collect_class_type_writes(statement["body"], names)
+            names = collect_class_type_writes(statement["handler"], names)
+        elif kind == "FnDef":
+            names = add_unique(names, statement["name"])
+    return names
+
+fn forget_assigned_class_types(statements, context):
+    names = collect_class_type_writes(statements, [])
+    context["class_types"] = class_types_without(context["class_types"], names)
+
+fn class_of_expression(node, context):
+    if node["type"] == "Call" and map_has(node, "direct_method") and node["direct_method"] == "new" and len(node["args"]) > 0:
+        return class_of_expression(node["args"][0], context)
+    if node["type"] != "Name":
+        return nil
+    name = node["id"]
+    if context["top"]:
+        if map_has(context["class_types"], name) and context["class_types"][name] != nil:
+            return context["class_types"][name]
+        if map_has(context["classes"], name):
+            return context["classes"][name]
+        return nil
+    if has(context["locals"], name):
+        if map_has(context["class_types"], name):
+            return context["class_types"][name]
+        return nil
+    if has(context["outer"], name):
+        return nil
+    if has(context["globals"], name) or map_has(context["classes"], name):
+        if map_has(context["class_types"], name) and context["class_types"][name] != nil:
+            return context["class_types"][name]
+        if map_has(context["classes"], name):
+            return context["classes"][name]
+    return nil
+
+fn check_direct_method_call(call, context):
+    actuals = call["args"]
+    if len(actuals) < 2:
+        return success(nil)
+    class_node = class_of_expression(actuals[0], context)
+    if class_node == nil or call["direct_method"] == "new":
+        return success(nil)
+    target = find_class_method(class_node, call["direct_method"], context["classes"])
+    if target == nil:
+        return success(nil)
+    arguments = []
+    index = 2
+    while index < len(actuals):
+        arguments = arguments + [actuals[index]]
+        index = index + 1
+    synthetic_call = {"args": arguments, "line": call["line"], "col": call["col"], "source_id": call["source_id"]}
+    return check_arguments(synthetic_call, drop_first_parameter(target["method"]["param_specs"]), call["direct_method"])
+
 fn collect_module_names(statements, names):
     for statement in statements:
         kind = statement["type"]
@@ -462,6 +551,39 @@ fn collect_scope_names(statements, wanted, names):
             names = collect_scope_names(statement["body"], wanted, names)
             names = collect_scope_names(statement["handler"], wanted, names)
     return names
+
+fn collect_scope_declarations(statements, wanted, declarations):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == wanted:
+            declarations = declarations + [statement]
+        elif kind == "FnDef" or kind == "ClassDef":
+            continue
+        elif kind == "If":
+            declarations = collect_scope_declarations(statement["then_body"], wanted, declarations)
+            if statement["else_body"] != nil:
+                declarations = collect_scope_declarations(statement["else_body"], wanted, declarations)
+        elif kind == "For" or kind == "While":
+            declarations = collect_scope_declarations(statement["body"], wanted, declarations)
+        elif kind == "Try":
+            declarations = collect_scope_declarations(statement["body"], wanted, declarations)
+            declarations = collect_scope_declarations(statement["handler"], wanted, declarations)
+    return declarations
+
+fn duplicate_scope_name(statements, wanted):
+    seen = []
+    for declaration in collect_scope_declarations(statements, wanted, []):
+        for name in declaration["names"]:
+            if has(seen, name):
+                return {"node": declaration, "name": name}
+            seen = seen + [name]
+    return nil
+
+fn scope_declaration_for(statements, wanted, name):
+    for declaration in collect_scope_declarations(statements, wanted, []):
+        if has(declaration["names"], name):
+            return declaration
+    return nil
 
 fn parameter_name(parameter):
     kind = parameter["type"]
@@ -610,6 +732,8 @@ fn check_block(statements, context, in_loop):
 fn check_statement(node, context, in_loop):
     kind = node["type"]
     if kind == "ImportStmt" or kind == "GlobalStmt" or kind == "NonlocalStmt":
+        if kind == "NonlocalStmt" and context["top"]:
+            return failure_at(node, "nonlocal declaration is only valid inside a function")
         if context["top"] and kind == "ImportStmt":
             context["done"] = add_unique(context["done"], node["alias"])
         elif kind == "ImportStmt":
@@ -632,6 +756,10 @@ fn check_statement(node, context, in_loop):
                 context["done"] = add_unique(context["done"], target["id"])
             elif has(context["locals"], target["id"]):
                 context["done"] = add_unique(context["done"], target["id"])
+            if context["top"] or (not has(context["globals"], target["id"]) and not has(context["outer"], target["id"])):
+                store_class_type(context, target["id"], class_of_expression(node["value"], context))
+            else:
+                store_class_type(context, target["id"], nil)
         else:
             target_result = check_expression(target, context, false)
             if not target_result["ok"]:
@@ -641,40 +769,65 @@ fn check_statement(node, context, in_loop):
         condition_result = check_expression(node["cond"], context, false)
         if not condition_result["ok"]:
             return condition_result
+        class_types_before = copy_class_types(context["class_types"])
         then_result = check_block(node["then_body"], context, in_loop)
         if not then_result["ok"]:
             return then_result
+        context["class_types"] = copy_class_types(class_types_before)
         if node["else_body"] != nil:
-            return check_block(node["else_body"], context, in_loop)
+            else_result = check_block(node["else_body"], context, in_loop)
+            if not else_result["ok"]:
+                return else_result
+        context["class_types"] = copy_class_types(class_types_before)
+        forget_assigned_class_types([node], context)
         return success(nil)
     if kind == "While":
         condition_result = check_expression(node["cond"], context, false)
         if not condition_result["ok"]:
             return condition_result
-        return check_block(node["body"], context, in_loop + 1)
+        class_types_before = copy_class_types(context["class_types"])
+        body_result = check_block(node["body"], context, in_loop + 1)
+        if not body_result["ok"]:
+            return body_result
+        context["class_types"] = copy_class_types(class_types_before)
+        forget_assigned_class_types([node], context)
+        return success(nil)
     if kind == "For":
         iterable_result = check_expression(node["iter"], context, false)
         if not iterable_result["ok"]:
             return iterable_result
+        class_types_before = copy_class_types(context["class_types"])
         context["done"] = add_unique(context["done"], node["var"])
         if not context["top"]:
             context["locals"] = add_unique(context["locals"], node["var"])
-        return check_block(node["body"], context, in_loop + 1)
+        body_result = check_block(node["body"], context, in_loop + 1)
+        if not body_result["ok"]:
+            return body_result
+        context["class_types"] = copy_class_types(class_types_before)
+        forget_assigned_class_types([node], context)
+        return success(nil)
     if kind == "Try":
+        class_types_before = copy_class_types(context["class_types"])
         body_result = check_block(node["body"], context, in_loop)
         if not body_result["ok"]:
             return body_result
+        context["class_types"] = copy_class_types(class_types_before)
         context["done"] = add_unique(context["done"], node["var"])
         if not context["top"]:
             context["locals"] = add_unique(context["locals"], node["var"])
-        return check_block(node["handler"], context, in_loop)
+        handler_result = check_block(node["handler"], context, in_loop)
+        if not handler_result["ok"]:
+            return handler_result
+        context["class_types"] = copy_class_types(class_types_before)
+        forget_assigned_class_types([node], context)
+        return success(nil)
     if kind == "ExprStmt":
         expression_result = check_expression(node["expr"], context, false)
         if not expression_result["ok"]:
             return expression_result
         expression_kind = node["expr"]["type"]
         if expression_kind != "Call" and expression_kind != "SuperCall":
-            return failure_at(node, "expression statement does nothing; did you mean to call it or 'say' it?")
+            return failure_at(node["expr"], "expression statement does nothing; did you mean to call it or 'say' it?")
         return success(nil)
     if kind == "Say" or kind == "Throw":
         return check_expression(node["value"], context, false)
@@ -703,18 +856,27 @@ fn check_function(node, module_names, outer_names, function_map, class_map, clas
     locals = collect_locals(node["body"], [])
     global_names = collect_scope_names(node["body"], "GlobalStmt", [])
     nonlocal_names = collect_scope_names(node["body"], "NonlocalStmt", [])
+    duplicate = duplicate_scope_name(node["body"], "GlobalStmt")
+    if duplicate != nil:
+        return failure_at(node, "duplicate name in global declaration")
+    duplicate = duplicate_scope_name(node["body"], "NonlocalStmt")
+    if duplicate != nil:
+        return failure_at(node, "duplicate name in nonlocal declaration")
     for name in global_names:
         if has(parameter_names, name):
             return failure_at(node, "parameter '" + name + "' cannot be global")
     for name in nonlocal_names:
         if has(parameter_names, name):
             return failure_at(node, "parameter '" + name + "' cannot be nonlocal")
+    for name in nonlocal_names:
+        if has(global_names, name):
+            return failure_at(node, "name '" + name + "' cannot be both global and nonlocal")
     for name in global_names:
         if not has(module_names, name):
             return failure_at(node, "global name '" + name + "' is not declared at module scope")
     for name in nonlocal_names:
         if not has(outer_names, name):
-            return failure_at(node, "no binding for nonlocal '" + name + "' found in enclosing functions")
+            return failure_at(scope_declaration_for(node["body"], "NonlocalStmt", name), "no binding for nonlocal '" + name + "' found in enclosing functions")
     for name in global_names:
         locals = remove_names(locals, [name])
     for name in nonlocal_names:
@@ -722,7 +884,7 @@ fn check_function(node, module_names, outer_names, function_map, class_map, clas
     locals = locals + parameter_names
     nested_functions = collect_functions(node["body"], {})
     functions = copy_functions(function_map, nested_functions)
-    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "classes": class_map, "default_for": "", "default_unbound": [], "class_name": class_name, "current_parameters": parameters}
+    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "classes": class_map, "class_types": {}, "default_for": "", "default_unbound": [], "class_name": class_name, "current_parameters": parameters}
     bound = []
     parameter_index = 0
     for parameter in parameters:
@@ -782,7 +944,7 @@ fn check(tree):
     for node in tree["stmts"]:
         if node["type"] == "FnDef" or node["type"] == "ClassDef":
             visible = add_unique(visible, node["name"])
-    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map, "classes": class_map, "class_name": nil, "current_parameters": []}
+    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map, "classes": class_map, "class_types": {}, "class_name": nil, "current_parameters": []}
     checked = check_block(tree["stmts"], context, 0)
     if not checked["ok"]:
         return checked

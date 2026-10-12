@@ -51,46 +51,62 @@ fn join_ids(values, extra):
         return extra
     return output + " -> " + extra
 
-fn failure(kind, source_id, line, col, message):
-    return {"ok": false, "kind": kind, "source_id": source_id, "line": line, "col": col, "error": message, "unit": nil}
+fn failure(kind, source_id, line, col, message, source = nil, physical_path = ""):
+    return {"ok": false, "kind": kind, "source_id": source_id, "line": line, "col": col, "error": message, "unit": nil, "source": source, "physical_path": physical_path}
 
 fn success(unit):
     return {"ok": true, "kind": "", "source_id": "", "line": 0, "col": 0, "error": "", "unit": unit}
 
+fn context_unit_for_id(context, source_id):
+    for physical_path in keys(context["units"]):
+        unit = context["units"][physical_path]
+        if unit["source_id"] == source_id:
+            return unit
+    return nil
+
 fn nested_import_in_statement(statement):
     kind = statement["type"]
     if kind == "FnDef":
-        return contains_import(statement["body"])
+        return nested_import_in_statements(statement["body"])
     if kind == "ClassDef":
         for method in statement["methods"]:
-            if contains_import([method]):
-                return true
-        return false
+            nested = nested_import_in_statements([method])
+            if nested != nil:
+                return nested
+        return nil
     if kind == "If":
-        if contains_import(statement["then_body"]):
-            return true
-        if statement["else_body"] != nil and contains_import(statement["else_body"]):
-            return true
+        nested = nested_import_in_statements(statement["then_body"])
+        if nested != nil:
+            return nested
+        if statement["else_body"] != nil:
+            return nested_import_in_statements(statement["else_body"])
     elif kind == "While" or kind == "For":
-        return contains_import(statement["body"])
+        return nested_import_in_statements(statement["body"])
     elif kind == "Try":
-        if contains_import(statement["body"]):
-            return true
-        return contains_import(statement["handler"])
-    return false
+        nested = nested_import_in_statements(statement["body"])
+        if nested != nil:
+            return nested
+        return nested_import_in_statements(statement["handler"])
+    return nil
 
-fn contains_import(statements):
+fn nested_import_in_statements(statements):
     for statement in statements:
         if statement["type"] == "ImportStmt":
-            return true
-        if nested_import_in_statement(statement):
-            return true
-    return false
+            return statement
+        nested = nested_import_in_statement(statement)
+        if nested != nil:
+            return nested
+    return nil
+
+fn contains_import(statements):
+    return nested_import_in_statements(statements) != nil
 
 fn nested_import_in_module(statements):
     for statement in statements:
-        if statement["type"] != "ImportStmt" and nested_import_in_statement(statement):
-            return statement
+        if statement["type"] != "ImportStmt":
+            nested = nested_import_in_statement(statement)
+            if nested != nil:
+                return nested
     return nil
 
 fn module_is_absolute(path):
@@ -127,22 +143,34 @@ fn visit(context, physical_path, source_id, importer_id, import_node):
             location_id = importer_id
             line = import_node["line"]
             col = import_node["col"]
-            return failure("module", location_id, line, col, "module import cycle: " + join_ids(context["active"], source_id))
+            importer = context_unit_for_id(context, importer_id)
+            source = nil
+            importer_path = ""
+            if importer != nil:
+                source = importer["source"]
+                importer_path = importer["path"]
+            return failure("module", location_id, line, col, "module import cycle: " + join_ids(context["active"], source_id), source, importer_path)
         return success(context["units"][physical_path])
 
     read_result = host.read_utf8(physical_path)
     if not read_result["ok"]:
         if importer_id == nil:
-            return failure("input", source_id, 1, 1, read_result["error"])
-        return failure("module", importer_id, import_node["line"], import_node["col"], "cannot read module " + source_id + ": " + read_result["error"])
+            return failure("input", source_id, 1, 1, read_result["error"], nil, physical_path)
+        importer = context_unit_for_id(context, importer_id)
+        source = nil
+        importer_path = ""
+        if importer != nil:
+            source = importer["source"]
+            importer_path = importer["path"]
+        return failure("module", importer_id, import_node["line"], import_node["col"], "cannot read module " + source_id + ": " + read_result["error"], source, importer_path)
 
     parsed = parser.parse(read_result["value"], source_id)
     if not parsed["ok"]:
-        return failure("parse", source_id, parsed["line"], parsed["col"], parsed["error"])
+        return failure("parse", source_id, parsed["line"], parsed["col"], parsed["error"], read_result["value"], physical_path)
 
     nested = nested_import_in_module(parsed["tree"]["stmts"])
     if nested != nil:
-        return failure("module", source_id, nested["line"], nested["col"], "imports must be top-level module declarations")
+        return failure("module", source_id, nested["line"], nested["col"], "imports must be top-level module declarations", read_result["value"], physical_path)
 
     unit = {"path": physical_path, "source_id": source_id, "source": read_result["value"], "tree": parsed["tree"], "imports": [], "aliases": []}
     context["units"][physical_path] = unit
@@ -156,22 +184,22 @@ fn visit(context, physical_path, source_id, importer_id, import_node):
             seen_code = true
         else:
             if seen_code:
-                return failure("module", source_id, statement["line"], statement["col"], "imports must precede module code")
+                return failure("module", source_id, statement["line"], statement["col"], "imports must precede module code", unit["source"], unit["path"])
             module_path = statement["module_path"]
             if module_path_has_nul(module_path):
-                return failure("module", source_id, statement["line"], statement["col"], "module path contains NUL")
+                return failure("module", source_id, statement["line"], statement["col"], "module path contains NUL", unit["source"], unit["path"])
             if module_is_absolute(module_path):
-                return failure("module", source_id, statement["line"], statement["col"], "module path must be relative to the importing file")
+                return failure("module", source_id, statement["line"], statement["col"], "module path must be relative to the importing file", unit["source"], unit["path"])
             if not ends_with(module_path, ".lt"):
-                return failure("module", source_id, statement["line"], statement["col"], "module path must end in .lt")
+                return failure("module", source_id, statement["line"], statement["col"], "module path must end in .lt", unit["source"], unit["path"])
             if has(aliases, statement["alias"]):
-                return failure("module", source_id, statement["line"], statement["col"], "duplicate module alias '" + statement["alias"] + "'")
+                return failure("module", source_id, statement["line"], statement["col"], "duplicate module alias '" + statement["alias"] + "'", unit["source"], unit["path"])
             aliases = aliases + [statement["alias"]]
             context["import_count"] = context["import_count"] + 1
             candidate = host.path_realpath(host.path_join(host.path_dirname(physical_path), module_path))
             logical_path = source_id_for(candidate, context["root_dir"])
             if outside_root(logical_path):
-                return failure("module", source_id, statement["line"], statement["col"], "module path escapes the source root")
+                return failure("module", source_id, statement["line"], statement["col"], "module path escapes the source root", unit["source"], unit["path"])
             unit["imports"] = unit["imports"] + [logical_path]
             unit["aliases"] = unit["aliases"] + [statement["alias"]]
             imported = visit(context, candidate, logical_path, source_id, statement)
@@ -401,7 +429,7 @@ fn rewrite_linked_expression(expression, unit, locals):
         return rewrite_linked_expression(converted["value"], unit, locals)
     if kind == "Name":
         if map_has(unit["alias_targets"], expression["id"]):
-            return linked_failure("module", expression, "module namespace is not a value; use alias.name")
+            return linked_failure("semant", expression, "undefined name '" + expression["id"] + "'")
         if not has(locals, expression["id"]) and module_symbol(unit, expression["id"]) != nil:
             expression["id"] = module_symbol(unit, expression["id"])["name"]
         return linked_success(expression)
@@ -721,7 +749,7 @@ fn prepare(graph):
         for alias in keys(unit["alias_targets"]):
             import_node = import_node_for_alias(unit, alias)
             if map_has(unit["symbols"], alias):
-                return linked_failure("module", import_node, "module alias '" + alias + "' conflicts with a module binding")
+                return linked_failure("module", import_node, "module alias '" + alias + "' conflicts with a local binding")
             for statement in unit["tree"]["stmts"]:
                 functions_to_check = []
                 if statement["type"] == "FnDef":

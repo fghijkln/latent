@@ -58,6 +58,7 @@ jobs:
   bootstrap-smoke:
     name: P15 self-host bootstrap gates / Python 3.11 / JDK 17
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Check out repository and fixed Stage0 history
         uses: actions/checkout@v7
@@ -75,6 +76,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Install Python-target test dependency
+        run: python -m pip install "numpy>=1.26,<3"
+
       - name: Validate Python-target projection ledger
         run: |
           python tests/bootstrap/checker.py
@@ -85,12 +89,30 @@ jobs:
 
       - name: Test Stage0/1 differential and Stage1-to-3 fixed point / dual-root reproducibility
         run: python -m unittest tests.test_bootstrap_smoke -v
+        env:
+          P15_BOOTSTRAP_MANIFEST_REPORT: ${{ runner.temp }}/p15-bootstrap-fixed-point.json
 
       - name: Test Latent lexer through fixed Stage0
         run: python -m unittest tests.test_bootstrap_lexer -v
 
       - name: Test Latent parser through fixed Stage0
         run: python -m unittest tests.test_bootstrap_parser -v
+
+      - name: Project every included Python-target case from fixed Stage0 through Stage2
+        run: >-
+          python tests/bootstrap/project_stage0.py
+          --report "$RUNNER_TEMP/p15-stage0-stage2-projection.json"
+
+      - name: Upload normalized bootstrap validation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: p15-validation-reports-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/p15-bootstrap-fixed-point.json
+            ${{ runner.temp }}/p15-stage0-stage2-projection.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   vscode-extension:
     name: VS Code extension

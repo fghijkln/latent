@@ -17,6 +17,23 @@ SPEC.loader.exec_module(host)
 
 
 class HostContractTests(unittest.TestCase):
+    def test_public_api_matches_declared_allowlist(self):
+        expected = {
+            "API_VERSION", "argv", "stdout", "stderr", "exit_process",
+            "path_join", "path_dirname", "runtime_source_dir", "path_basename",
+            "path_abspath", "path_realpath", "path_relpath", "path_norm",
+            "path_exists", "path_is_file", "path_is_dir",
+            "read_utf8", "write_utf8", "make_dirs", "make_temp_dir",
+            "remove_temp_dir", "copy_explicit_files", "run_python",
+        }
+        self.assertEqual(set(host.__all__), expected)
+        public_functions = {
+            name for name, value in vars(host).items()
+            if callable(value) and getattr(value, "__module__", None) == host.__name__
+            and not name.startswith("_")
+        }
+        self.assertEqual(public_functions, expected - {"API_VERSION"})
+
     def test_version_and_path_primitives(self):
         self.assertEqual(host.API_VERSION, 1)
         with tempfile.TemporaryDirectory() as root:

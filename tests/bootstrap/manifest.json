@@ -1491,7 +1491,7 @@
     },
     "call_static_method": {
       "disposition": "exclude",
-      "reason": "Java daemon operation checks a stale Java static-method ref; explicitly Java-only protocol entry."
+      "reason": "Java-only P14 daemon stale static-method-reference protocol entry; excluded from Python-target projection per M14; the Python module-function protocol entry remains included."
     },
     "quit": {
       "disposition": "include",
@@ -1820,7 +1820,7 @@
     },
     "tests_lt/diagnostics_sample.lt": {
       "disposition": "exclude",
-      "reason": "AST/desugar CLI diagnostic sample only; excluded from Python-target generated-code execution."
+      "reason": "P15 M9 explicitly deferred the read-only AST/desugar diagnostic mode that consumes this sample; ordinary Python-target compile/runtime diagnostics remain projected."
     },
     "tests_lt/err_arity.lt": {
       "disposition": "include",
@@ -2908,20 +2908,20 @@
     },
     "cookbook_lt/variadic_arguments.lt": {
       "disposition": "include",
-      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
-    },
-    "java_fixture/P13InteropFixture.java": {
-      "disposition": "exclude",
-      "reason": "javac-only host fixture for P13 Java host-method behavior; Java-only source artifact."
-    },
-    "java_fixture/P14InteropFixture.java": {
-      "disposition": "exclude",
-      "reason": "javac-only host fixture for P14 Java static-method behavior; Java-only source artifact."
-    },
-    "java_fixture/Stage1Overloads.java": {
-      "disposition": "exclude",
-      "reason": "javac-only host fixture for Java overload dispatch tests; Java-only source artifact."
-    },
+    "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+  },
+  "java_fixture/P13InteropFixture.java": {
+    "disposition": "exclude",
+    "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it with javac for included Python-target P13 interop cases."
+  },
+  "java_fixture/P14InteropFixture.java": {
+    "disposition": "exclude",
+    "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it with javac for included Python-target P14 interop cases."
+  },
+  "java_fixture/Stage1Overloads.java": {
+    "disposition": "exclude",
+    "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it for included Python-target overload and fixed-seed property cases."
+  },
     "test_module/bootstrap/test_checker.py": {
       "disposition": "include",
       "reason": "Focused Python unit tests for ledger baseline acceptance and synthetic unclassified-case rejection."
@@ -2944,7 +2944,7 @@
     },
     "test_module/test_diagnostics.py": {
       "disposition": "exclude",
-      "reason": "Read-only AST/desugar CLI and diagnostic regressions; AST/editor diagnostics, not generated Python-target execution."
+      "reason": "P15 M9 explicitly deferred the read-only AST/desugar diagnostics mode; this module contains no ordinary generated Python-target execution case."
     },
     "test_module/test_differential_properties.py": {
       "disposition": "include",
@@ -2952,7 +2952,7 @@
     },
     "test_module/test_editor_metadata.py": {
       "disposition": "exclude",
-      "reason": "Parser-derived editor symbols/folding metadata and CLI contracts; editor metadata, not generated Python-target execution."
+      "reason": "P15 M9 explicitly deferred the editor-metadata interface; parser-derived symbols/folding contracts are not Python-target compilation or execution."
     },
     "test_module/test_p14_protocol.py": {
       "disposition": "include",
@@ -2970,7 +2970,7 @@
   "auxiliary_tests": {
     "test_bootstrap_host.py": {
       "disposition": "include",
-      "reason": "Python tests for the bootstrap host adapter used by the Python-target bootstrapping path; retain as in-scope Python-target support coverage."
+      "reason": "Python tests for the bootstrap host adapter's exact public API allowlist, path/file contracts, explicit-copy restrictions, temporary-directory safety, and generated-program execution."
     },
     "test_bootstrap_lexer.py": {
       "disposition": "include",
@@ -2990,11 +2990,11 @@
     },
     "test_diagnostics.py": {
       "disposition": "exclude",
-      "reason": "Read-only AST/desugar CLI and diagnostic regressions; AST/editor diagnostics, not generated Python-target execution."
+      "reason": "P15 M9 explicitly deferred the read-only AST/desugar diagnostics mode; ordinary generated Python-target compile/runtime diagnostics remain included."
     },
     "test_editor_metadata.py": {
       "disposition": "exclude",
-      "reason": "Parser-derived editor symbols/folding metadata and CLI contracts; editor metadata, not generated Python-target execution."
+      "reason": "P15 M9 explicitly deferred the editor-metadata interface; parser-derived symbols/folding contracts are not Python-target compilation or execution."
     },
     "python/p13_host.py": {
       "disposition": "include",
@@ -3006,7 +3006,11 @@
     },
     "bootstrap/latent_host.py": {
       "disposition": "include",
-      "reason": "Python-target bootstrap host adapter under contract tests in tests/test_bootstrap_host.py."
+      "reason": "Versioned thin Python-target host adapter with an explicit __all__ allowlist; reviewed under contract tests in tests/test_bootstrap_host.py."
+    },
+    "tests/bootstrap/project_stage0.py": {
+      "disposition": "include",
+      "reason": "Fixed-Stage0 Stage0/Stage1/Stage2 behavior projection for every included runner case and fixed-seed property; supplies stable logical roots, maps Stage1 initializer frames to Stage0 hashes using source identity, suppresses only eager javac class caches during Stage1 seed emission, and checks exact Stage1/2/3 manifests and the Stage2/3 fixed point."
     },
     "tests/bootstrap/test_checker.py": {
       "disposition": "include",
@@ -3014,7 +3018,7 @@
     },
     "test_bootstrap_smoke.py": {
       "disposition": "include",
-      "reason": "Fixed-Stage0 end-to-end checks for the limited bootstrap emitter, including single-file class basics, P8-P11 parameter/call runtime parity, fail-closed inheritance/interop boundaries and Stage1-to-Stage3 fixed point; limited bootstrap coverage, not full v0.13.5 projection."
+      "reason": "Fixed-Stage0 end-to-end checks for the bootstrap emitter, including compile/runtime source mapping, classes and interop, Stage1-to-Stage3 fixed point, dual-root reproducibility, exact artifact manifests, and a source-tree read-only snapshot around both builds; full ledger projection is enforced separately by project_stage0.py."
     }
   }
 }

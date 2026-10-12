@@ -14,6 +14,15 @@ import sys
 import tempfile
 
 API_VERSION = 1
+__all__ = (
+    "API_VERSION",
+    "argv", "stdout", "stderr", "exit_process",
+    "path_join", "path_dirname", "runtime_source_dir", "path_basename",
+    "path_abspath", "path_realpath", "path_relpath", "path_norm",
+    "path_exists", "path_is_file", "path_is_dir",
+    "read_utf8", "write_utf8", "make_dirs", "make_temp_dir",
+    "remove_temp_dir", "copy_explicit_files", "run_python",
+)
 # Temporary build directories created by this adapter use this fixed prefix;
 # remove_temp_dir rejects paths outside that explicit temp-root namespace.
 TEMP_DIR_PREFIX = "latent-build-"

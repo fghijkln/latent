@@ -3,6 +3,7 @@
 import "desugar.lt" as desugar
 import "semant.lt" as semant
 import "gen_py.lt" as gen_py
+import "lexer.lt" as lexer
 import "module_graph.lt" as module_graph
 host = py "latent_host"
 
@@ -23,42 +24,91 @@ fn source_stem(path):
         index = index + 1
     return stem
 
+fn has_key(values, wanted):
+    for key in values:
+        if key == wanted:
+            return true
+    return false
+
+fn repeat_spaces(count):
+    output = ""
+    index = 0
+    while index < count:
+        output = output + " "
+        index = index + 1
+    return output
+
+fn diagnostic_context(graph, diagnostic, default_path):
+    source = nil
+    path = ""
+    source_id = ""
+    if has_key(diagnostic, "source_id"):
+        source_id = diagnostic["source_id"]
+    if has_key(diagnostic, "source"):
+        source = diagnostic["source"]
+    if has_key(diagnostic, "physical_path"):
+        path = diagnostic["physical_path"]
+    if graph["ok"]:
+        for unit in graph["modules"]:
+            if unit["source_id"] == source_id:
+                if source == nil:
+                    source = unit["source"]
+                if path == "":
+                    path = unit["path"]
+                if source_id == graph["root_id"]:
+                    path = default_path
+    if path == "":
+        if graph["ok"] and source_id == graph["root_id"]:
+            path = default_path
+        else:
+            path = source_id
+    return {"source": source, "path": path}
+
+fn render_diagnostic(graph, diagnostic, default_path, kind):
+    context = diagnostic_context(graph, diagnostic, default_path)
+    line = diagnostic["line"]
+    col = diagnostic["col"]
+    header = context["path"] + ":" + str(line) + ":" + str(col) + ": " + kind + " error: " + diagnostic["error"]
+    source = context["source"]
+    if source == nil or line < 1:
+        return header
+    lines = lexer.source_lines(source)
+    if line > len(lines):
+        return header
+    text = lexer.trim_trailing_cr(lines[line - 1])
+    gutter = "    " + str(line) + " | "
+    caret_col = col
+    if caret_col < 1:
+        caret_col = 1
+    if caret_col > len(text) + 1:
+        caret_col = len(text) + 1
+    caret = repeat_spaces(len(gutter) + caret_col - 1) + "^"
+    return header + "\n" + gutter + text + "\n" + caret
+
 fn compile_one(source_path, output_dir, run_after, source_root):
     graph = module_graph.load(source_path, source_root)
     if not graph["ok"]:
         if graph["kind"] == "input":
             host.stderr(source_path + ": input error: " + graph["error"] + "\n")
             return 1
-        diagnostic_path = graph["source_id"]
-        if diagnostic_path == source_path or diagnostic_path == host.path_basename(source_path):
-            diagnostic_path = source_path
-        host.stderr(diagnostic_path + ":" + str(graph["line"]) + ":" + str(graph["col"]) + ": " + graph["kind"] + " error: " + graph["error"] + "\n")
+        host.stderr(render_diagnostic(graph, graph, source_path, graph["kind"]) + "\n")
         return 1
     program = graph["root"]["tree"]
     module_metadata = nil
     if graph["import_count"] > 0:
         linked = module_graph.prepare(graph)
         if not linked["ok"]:
-            diagnostic_path = linked["source_id"]
-            if diagnostic_path == graph["root_id"]:
-                diagnostic_path = source_path
-            host.stderr(diagnostic_path + ":" + str(linked["line"]) + ":" + str(linked["col"]) + ": " + linked["kind"] + " error: " + linked["error"] + "\n")
+            host.stderr(render_diagnostic(graph, linked, source_path, linked["kind"]) + "\n")
             return 1
         program = linked["value"]["program"]
         module_metadata = linked["value"]["modules"]
     lowered = desugar.run(program)
     if not lowered["ok"]:
-        message = graph["root_id"] + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
-        if lowered["source_id"] == graph["root_id"]:
-            message = source_path + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
-        host.stderr(message + ": desugar error: " + lowered["error"] + "\n")
+        host.stderr(render_diagnostic(graph, lowered, source_path, "desugar") + "\n")
         return 1
     checked = semant.check(lowered["value"])
     if not checked["ok"]:
-        message = graph["root_id"] + ":" + str(checked["line"]) + ":" + str(checked["col"])
-        if checked["source_id"] == graph["root_id"]:
-            message = source_path + ":" + str(checked["line"]) + ":" + str(checked["col"])
-        host.stderr(message + ": semant error: " + checked["error"] + "\n")
+        host.stderr(render_diagnostic(graph, checked, source_path, "semant") + "\n")
         return 1
     if module_metadata != nil:
         generated = gen_py.generate_modules(lowered["value"], module_metadata, graph["root_id"])
