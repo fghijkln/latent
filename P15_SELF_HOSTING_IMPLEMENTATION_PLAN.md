@@ -301,3 +301,10 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 ### 2026-10-13 追加审计：固定 GitHub Actions Ubuntu runner（复验通过）
 - Tests run `38296512999` emitted GitHub’s annotation that `ubuntu-latest` will move to Ubuntu 26 on 2026-10-19. Repository inspection found three declarations in `.github/workflows/tests.yml` and one in `.github/workflows/devskim.yml`. All four are now pinned to `ubuntu-24.04`; no explicit `ubuntu-latest` remains in `.github/workflows/`.
 - `actionlint` v1.7.12 passed `.github/workflows/tests.yml` 与 `.github/workflows/devskim.yml`；显式 runner 均固定到 `ubuntu-24.04`。Pinned-runner Tests/DevSkim/CodeQL 分别由 `38298754644` / `38298754485` / `38298754329` 验证成功，最终 HEAD 的 `38300079126` / `38300079163` / `38300078992` 也全部 success；无 `ubuntu-latest` 迁移 annotation。
+
+
+### 2026-10-13 追加复核：检测写入后恢复原内容与 mtime 的工作树变更（本机通过，远端 CI 待验收）
+
+- **审计发现：** 双根源码快照此前比较条目类型、权限、内容和 `mtime_ns`，但未记录 POSIX `ctime_ns`；构建若短暂改写文件、再还原字节和 mtime，最终快照可能与基线一致，不能证明构建期间没有持久可观察到的文件变更。
+- **修复：** 每根构建前后快照在 POSIX 上纳入 `ctime_ns`；独立 checkout 的跨根比较仍只比较内容和权限，以免将自然不同的 checkout 时间戳当作差异。新增回归探针先等待超过一秒，再写入不同内容、恢复原字节与原 mtime，并要求快照仍因 ctime 变化而不同。Windows 跳过此探针，因为其 `st_ctime` 语义为创建时间。
+- **本机验证：** 双完整 clean-clone fixed-point 专项 **1/1**（135.156 秒）；完整 bootstrap host/smoke/lexer/parser **28/28**（host 7、smoke 14、lexer 3、parser 4）；账本 checker **3/3**；完整 Stage0 双后端基线 **259/259**。`compileall` 与 `git diff --check` 通过。上述结果在 ctime 实现的本机工作树上取得；新的远端 CI 复验待推送后完成。

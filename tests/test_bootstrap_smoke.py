@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from pathlib import Path, PurePosixPath
 
@@ -1163,7 +1164,8 @@ say _lt_bootstrap_make_class_Point()
             ]
 
             def source_tree_snapshot(source_root: Path, *,
-                                     include_mtime: bool = True) -> dict[str, str]:
+                                     include_mtime: bool = True,
+                                     include_ctime: bool = True) -> dict[str, str]:
                 entries = {}
                 for path in (source_root, *source_root.rglob("*")):
                     relative = path.relative_to(source_root)
@@ -1187,6 +1189,10 @@ say _lt_bootstrap_make_class_Point()
                     parts = [entry_type, mode]
                     if include_mtime:
                         parts.append(str(metadata.st_mtime_ns).encode("ascii"))
+                    # On POSIX, ctime is inode change time; unlike mtime it
+                    # still exposes a write whose original bytes/mtime return.
+                    if include_ctime and os.name != "nt":
+                        parts.append(str(metadata.st_ctime_ns).encode("ascii"))
                     parts.append(content)
                     payload = b"\0".join(parts)
                     entries[relative.as_posix()] = hashlib.sha256(payload).hexdigest()
@@ -1205,6 +1211,28 @@ say _lt_bootstrap_make_class_Point()
             touched_snapshot = source_tree_snapshot(snapshot_probe)
             self.assertNotEqual(file_snapshot, touched_snapshot,
                                 "source snapshots must detect persistent touches")
+
+            # A transient write can restore both bytes and mtime. POSIX ctime
+            # must still make that source-tree mutation observable.
+            if os.name != "nt":
+                restored_baseline = source_tree_snapshot(snapshot_probe)
+                original_metadata = probe_entry.lstat()
+                original_bytes = probe_entry.read_bytes()
+                time.sleep(1.1)
+                probe_entry.write_bytes(b"temporarily modified")
+                probe_entry.write_bytes(original_bytes)
+                os.utime(probe_entry, ns=(original_metadata.st_atime_ns,
+                                          original_metadata.st_mtime_ns))
+                after_restore = probe_entry.lstat()
+                self.assertEqual(after_restore.st_mtime_ns,
+                                 original_metadata.st_mtime_ns)
+                self.assertNotEqual(after_restore.st_ctime_ns,
+                                    original_metadata.st_ctime_ns)
+                self.assertEqual(probe_entry.read_bytes(), original_bytes)
+                self.assertNotEqual(
+                    restored_baseline, source_tree_snapshot(snapshot_probe),
+                    "source snapshots must detect writes after bytes/mtime restore")
+
             probe_entry.unlink()
             probe_entry.mkdir()
             directory_snapshot = source_tree_snapshot(snapshot_probe)
@@ -1319,13 +1347,13 @@ say _lt_bootstrap_make_class_Point()
             self.assertEqual(commit_a, source_commit)
             self.assertEqual(commit_b, source_commit)
             source_content_mode_a = source_tree_snapshot(
-                source_a, include_mtime=False)
+                source_a, include_mtime=False, include_ctime=False)
             source_content_mode_b = source_tree_snapshot(
-                source_b, include_mtime=False)
+                source_b, include_mtime=False, include_ctime=False)
             self.assertEqual(source_content_mode_a, source_content_mode_b,
                              "the full checkout content/modes differ before builds")
-            # Git checkout mtimes naturally differ; retain a separate baseline
-            # for each root and require it to remain unchanged during building.
+            # Git checkout mtimes/ctimes naturally differ; retain a separate
+            # timestamp baseline per root and require it to remain unchanged.
             source_before_a = source_tree_snapshot(source_a)
             source_before_b = source_tree_snapshot(source_b)
             source_tree_digest = hashlib.sha256(
