@@ -50,8 +50,12 @@ fn main():
     result = parser.parse("fn full(a, b=3, *rest, flag, retry=2, **extra):\n  return a\n")
     if not result["ok"]:
         throw "full parameter forms did not parse: " + result["error"]
-    params = result["tree"]["stmts"][0]["params"]
+    function_node = result["tree"]["stmts"][0]
+    params = function_node["params"]
     assert_equal(params[0], "a", "required positional parameter keeps legacy shape")
+    specs = function_node["param_specs"]
+    assert_equal(specs[0]["type"], "PositionalParam", "normalized required parameter kind")
+    assert_equal(specs[0]["name"], "a", "normalized required parameter name")
     assert_equal(params[1]["type"], "DefaultParam", "default positional node")
     assert_equal(params[1]["name"], "b", "default positional name")
     assert_equal(params[1]["default"]["value"], 3, "default positional expression")

@@ -1,4 +1,5 @@
-# P15 first Python emitter slice. It covers only the current M4 parser/AST subset.
+# P15 limited Python emitter slice. P8-P11 function parameters/calls are supported;
+# py/java/super remain fail-closed until their target runtimes exist.
 # All traversal, ordering, target spelling, and literal escaping stay in Latent.
 fn result(code):
     return {"ok": true, "code": code, "error": ""}
@@ -30,6 +31,37 @@ fn emit_expressions(expressions):
     first = true
     for expression in expressions:
         emitted = emit_expression(expression)
+        if not emitted["ok"]:
+            return emitted
+        if first:
+            first = false
+        else:
+            output = output + ", "
+        output = output + emitted["code"]
+    return result(output)
+
+fn emit_call_arguments(arguments):
+    output = ""
+    first = true
+    for argument in arguments:
+        kind = argument["type"]
+        if kind == "NamedArg":
+            value = emit_expression(argument["value"])
+            if not value["ok"]:
+                return value
+            emitted = result("_lt_bootstrap_named(" + quote_string(argument["name"]) + ", " + value["code"] + ")")
+        elif kind == "StarArg":
+            value = emit_expression(argument["value"])
+            if not value["ok"]:
+                return value
+            emitted = result("_lt_bootstrap_star(" + value["code"] + ")")
+        elif kind == "StarStarArg":
+            value = emit_expression(argument["value"])
+            if not value["ok"]:
+                return value
+            emitted = result("_lt_bootstrap_starstar(" + value["code"] + ")")
+        else:
+            emitted = emit_expression(argument)
         if not emitted["ok"]:
             return emitted
         if first:
@@ -86,10 +118,13 @@ fn emit_expression(node):
         function = emit_expression(node["func"])
         if not function["ok"]:
             return function
-        arguments = emit_expressions(node["args"])
+        arguments = emit_call_arguments(node["args"])
         if not arguments["ok"]:
             return arguments
-        return result(function["code"] + "(" + arguments["code"] + ")")
+        suffix = ""
+        if arguments["code"] != "":
+            suffix = ", " + arguments["code"]
+        return result("_lt_bootstrap_call(" + function["code"] + suffix + ")")
     if kind == "Dot":
         object = emit_expression(node["obj"])
         if not object["ok"]:
@@ -113,6 +148,12 @@ fn emit_expression(node):
         if not pairs["ok"]:
             return pairs
         return result("{" + pairs["code"] + "}")
+    if kind == "PyImport":
+        return failure("Python interop requires the unavailable target runtime")
+    if kind == "JavaImport":
+        return failure("Java interop requires the unavailable target runtime")
+    if kind == "Super":
+        return failure("super requires the unavailable class runtime")
     return failure("unsupported expression node: " + kind)
 
 fn emit_block(statements, indent):
@@ -129,18 +170,76 @@ fn emit_block(statements, indent):
 fn emit_statement(node, indent):
     kind = node["type"]
     if kind == "FnDef":
+        specs = node["param_specs"]
+        fixed_names = []
+        collectors = []
+        required_keyword_only = []
+        positional_count = 0
+        required_count = 0
+        saw_default = false
+        rest_name = "None"
+        extra_name = "None"
+        for parameter in specs:
+            parameter_kind = parameter["type"]
+            if parameter_kind == "RestParam":
+                rest_name = quote_string(parameter["name"])
+                collectors = collectors + [parameter["name"]]
+            elif parameter_kind == "ExtraParam":
+                extra_name = quote_string(parameter["name"])
+                collectors = collectors + [parameter["name"]]
+            else:
+                fixed_names = fixed_names + [parameter["name"]]
+                if parameter_kind == "PositionalParam" or parameter_kind == "DefaultParam":
+                    positional_count = positional_count + 1
+                    if parameter_kind == "DefaultParam":
+                        saw_default = true
+                    elif not saw_default:
+                        required_count = required_count + 1
+                elif parameter_kind == "KeywordOnlyParam" and parameter["default"] == nil:
+                    required_keyword_only = required_keyword_only + [parameter["name"]]
+        python_names = fixed_names + collectors
         parameters = ""
         first = true
-        for parameter in node["params"]:
+        for parameter in python_names:
             if first:
                 first = false
             else:
                 parameters = parameters + ", "
             parameters = parameters + parameter
+        initializers = ""
+        for parameter in specs:
+            parameter_kind = parameter["type"]
+            if parameter_kind == "DefaultParam" or (parameter_kind == "KeywordOnlyParam" and parameter["default"] != nil):
+                default = emit_expression(parameter["default"])
+                if not default["ok"]:
+                    return default
+                initializers = initializers + indent + "    if " + parameter["name"] + " is _lt_bootstrap_missing:\n"
+                initializers = initializers + indent + "        " + parameter["name"] + " = " + default["code"] + "\n"
         body = emit_block(node["body"], indent + "    ")
         if not body["ok"]:
             return body
-        return result(indent + "def " + node["name"] + "(" + parameters + "):\n" + body["code"])
+        names_code = "["
+        first = true
+        for parameter in fixed_names:
+            if first:
+                first = false
+            else:
+                names_code = names_code + ", "
+            names_code = names_code + quote_string(parameter)
+        names_code = names_code + "]"
+        keyword_code = "["
+        first = true
+        for parameter in required_keyword_only:
+            if first:
+                first = false
+            else:
+                keyword_code = keyword_code + ", "
+            keyword_code = keyword_code + quote_string(parameter)
+        keyword_code = keyword_code + "]"
+        wrapper = indent + node["name"] + " = _LtBootstrapFunction(" + node["name"] + ", " + names_code + ", " + quote_string(node["name"])
+        wrapper = wrapper + ", required_count=" + str(required_count) + ", positional_count=" + str(positional_count)
+        wrapper = wrapper + ", required_keyword_only=" + keyword_code + ", rest_name=" + rest_name + ", extra_name=" + extra_name + ")\n"
+        return result(indent + "def " + node["name"] + "(" + parameters + "):\n" + initializers + body["code"] + wrapper)
     if kind == "Assign":
         target = emit_expression(node["target"])
         if not target["ok"]:
@@ -215,7 +314,20 @@ fn runtime_prelude():
     output = output + "        return '\"' + text + '\"'\n"
     output = output + "    if isinstance(value, list):\n        return '[' + ', '.join(_lt_bootstrap_repr(item, True) for item in value) + ']'\n"
     output = output + "    if isinstance(value, dict):\n        return '{' + ', '.join(_lt_bootstrap_repr(key, True) + ': ' + _lt_bootstrap_repr(item, True) for key, item in value.items()) + '}'\n"
+    output = output + "    if isinstance(value, _LtBootstrapFunction):\n        return '<function ' + value._name + '>'\n"
     output = output + "    return str(value)\n"
+    output = output + "class _LtBootstrapArgumentError(RuntimeError):\n    pass\n\n"
+    output = output + "class _LtBootstrapNamedArg:\n    def __init__(self, name, value):\n        self.name = name\n        self.value = value\n\n"
+    output = output + "class _LtBootstrapStarArg:\n    def __init__(self, values):\n        self.values = tuple(values)\n\n"
+    output = output + "class _LtBootstrapStarStarArg:\n    def __init__(self, items):\n        self.items = tuple(items)\n\n"
+    output = output + "def _lt_bootstrap_named(name, value):\n    return _LtBootstrapNamedArg(name, value)\n\n"
+    output = output + "def _lt_bootstrap_star(value):\n    if not isinstance(value, list):\n        raise _LtBootstrapArgumentError('* unpacking requires a Latent list')\n    return _LtBootstrapStarArg(value)\n\n"
+    output = output + "def _lt_bootstrap_starstar(value):\n    if not isinstance(value, dict):\n        raise _LtBootstrapArgumentError('** unpacking requires a Latent map')\n    items = list(value.items())\n    for key, _ in items:\n        if not isinstance(key, str):\n            raise _LtBootstrapArgumentError('** unpacking requires string keys')\n    return _LtBootstrapStarStarArg(items)\n\n"
+    output = output + "def _lt_bootstrap_expand_args(args):\n    expanded = []\n    for arg in args:\n        if isinstance(arg, _LtBootstrapStarArg):\n            expanded.extend(arg.values)\n        elif isinstance(arg, _LtBootstrapStarStarArg):\n            expanded.extend(_LtBootstrapNamedArg(key, value) for key, value in arg.items)\n        else:\n            expanded.append(arg)\n    return expanded\n\n"
+    output = output + "def _lt_bootstrap_bind_args(function, args):\n    params = function._params\n    positional_count = function._positional_count\n    args = _lt_bootstrap_expand_args(args)\n    has_named = any(isinstance(arg, _LtBootstrapNamedArg) for arg in args)\n    if not has_named:\n        if len(args) > positional_count and function._rest_name is None:\n            raise _LtBootstrapArgumentError('%s() takes %d args, got %d' % (function._name, positional_count, len(args)))\n        if len(args) < function._required_count:\n            if function._required_count == positional_count:\n                raise _LtBootstrapArgumentError('%s() takes %d args, got %d' % (function._name, positional_count, len(args)))\n            raise _LtBootstrapArgumentError('%s() missing required argument %r' % (function._name, params[len(args)]))\n        values = [function.MISSING] * len(params)\n        for index, value in enumerate(args[:positional_count]):\n            values[index] = value\n        for parameter in function._required_keyword_only:\n            raise _LtBootstrapArgumentError('%s() missing required keyword-only argument %r' % (function._name, parameter))\n        if function._rest_name is not None:\n            values.append(list(args[positional_count:]))\n        if function._extra_name is not None:\n            values.append({})\n        return values\n    values = [function.MISSING] * len(params)\n    supplied = [False] * len(params)\n    rest_values = []\n    extra_values = {}\n    pos = 0\n    seen_names = set()\n    for arg in args:\n        if isinstance(arg, _LtBootstrapNamedArg):\n            if arg.name in seen_names:\n                raise _LtBootstrapArgumentError('%s() got duplicate named argument %r' % (function._name, arg.name))\n            seen_names.add(arg.name)\n            if arg.name not in params:\n                if function._extra_name is None:\n                    raise _LtBootstrapArgumentError('%s() got unexpected named argument %r' % (function._name, arg.name))\n                extra_values[arg.name] = arg.value\n            else:\n                index = params.index(arg.name)\n                if supplied[index]:\n                    raise _LtBootstrapArgumentError('%s() got multiple values for argument %r' % (function._name, arg.name))\n                values[index] = arg.value\n                supplied[index] = True\n        else:\n            if pos >= positional_count:\n                if function._rest_name is None:\n                    raise _LtBootstrapArgumentError('%s() takes %d args, got %d' % (function._name, positional_count, pos + 1))\n                rest_values.append(arg)\n            else:\n                values[pos] = arg\n                supplied[pos] = True\n            pos = pos + 1\n    for index in range(function._required_count):\n        if not supplied[index]:\n            raise _LtBootstrapArgumentError('%s() missing required argument %r' % (function._name, params[index]))\n    for parameter in function._required_keyword_only:\n        index = params.index(parameter)\n        if not supplied[index]:\n            raise _LtBootstrapArgumentError('%s() missing required keyword-only argument %r' % (function._name, parameter))\n    if function._rest_name is not None:\n        values.append(rest_values)\n    if function._extra_name is not None:\n        values.append(extra_values)\n    return values\n\n"
+    output = output + "class _LtBootstrapFunction:\n    MISSING = object()\n    def __init__(self, fn, params, name, required_count, positional_count, required_keyword_only, rest_name, extra_name):\n        self._fn = fn\n        self._params = tuple(params)\n        self._name = name\n        self._required_count = required_count\n        self._positional_count = positional_count\n        self._required_keyword_only = tuple(required_keyword_only)\n        self._rest_name = rest_name\n        self._extra_name = extra_name\n    def __call__(self, *args):\n        return self._fn(*_lt_bootstrap_bind_args(self, args))\n\n"
+    output = output + "_lt_bootstrap_missing = _LtBootstrapFunction.MISSING\n"
+    output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
     output = output + "def _lt_bootstrap_say(value):\n    print(_lt_bootstrap_repr(value))\n\n"
     return output
 

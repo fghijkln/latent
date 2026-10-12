@@ -3014,7 +3014,7 @@
     },
     "test_bootstrap_smoke.py": {
       "disposition": "include",
-      "reason": "M2 end-to-end test compiles and runs the fixed-seed self-hosting slice with target=py; classify as limited bootstrap smoke coverage, not full v0.13.5 projection."
+      "reason": "Fixed-Stage0 end-to-end checks for the limited bootstrap emitter, including P8-P11 parameter/call runtime parity and fail-closed interop boundaries; limited bootstrap smoke coverage, not full v0.13.5 projection."
     }
   }
 }

@@ -123,7 +123,16 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 
 - `bootstrap/parser.lt` 现以 Latent 解析 P8–P11 形参形式：必需位置形参保留原字符串 AST 形状；默认位置参数为 `DefaultParam`；`*rest`、`**extra`、裸 `*` 和必需/默认仅限关键字形参分别生成 `RestParam`、`ExtraParam`、`KeywordOnlyParam` 等带行列位置的映射节点。位置区“必需在默认之前”、裸 `*` 后必须有仅限关键字形参、收集器顺序/重复等解析规则和 Stage0 诊断均已覆盖。
 - 调用实参支持位置、`name=value`、`*items`、`**mapping`，保持位置展开必须先于首个命名实参、命名实参可出现在映射展开前后、映射展开可多次出现。简单位置参数 AST 仍保留旧表达式节点；命名与展开实参分别使用 `NamedArg`、`StarArg`、`StarStarArg` 节点。
-- 表达式 primary 现解析 `super`、`py <primary>`、`java <primary>` 为 `Super`、`PyImport`、`JavaImport` AST；这只是语法树构造，不包含 super 语义、互操作检查或 emitter 支持。
+- 表达式 primary 现解析 `super`、`py <primary>`、`java <primary>` 为 `Super`、`PyImport`、`JavaImport` AST；这些仍只是语法树构造，不包含 super 语义或互操作检查。其 emitter 当前以明确 codegen 错误拒绝，避免生成缺少目标运行时的代码。
 - `tests/bootstrap_parser.lt` 断言新增 AST 字段与旧简单形状；`tests/test_bootstrap_parser.py` 使用固定 Stage0 动态生成的期望，对 15 个输入（6 个接受、9 个拒绝）逐项比较接受结果，并对拒绝输入精确比较行、列、诊断消息。覆盖签名组合、错误签名、位置/命名/展开实参、顺序错误、尾逗号边界和 `py`/`java`/`super` 前缀。该增量复用已在 M0 ledger 分类的 parser 测试/fixture 路径，未新增清单路径；ledger checker 本步通过。
-- **当前仍不支持的 M4 语法/AST要求：**`import "..." as name`、`global`、`nonlocal`、`class`/继承主体、`try`/`catch`、`throw` 语句以及字符串插值语法；AST 仍只有行列、没有 M4 要求的逻辑文件 ID。`super` 当前只是通用 `Super` receiver/dot/call 形状；`py`/`java`/新增参数与实参节点尚未由现有 emitter 支持。除既有结构块/函数/简单赋值与表达式子集外，不据此宣称接受完整 v0.13.5 grammar。M4、M5–M15 与最终 DoD 均未完成。
+- **当前仍不支持的 M4 语法/AST要求：**`import "..." as name`、`global`、`nonlocal`、`class`/继承主体、`try`/`catch`、`throw` 语句以及字符串插值语法；AST 仍只有行列、没有 M4 要求的逻辑文件 ID。`super` 当前只是通用 `Super` receiver/dot/call 形状；`py`/`java` 尚无对应目标运行时。P8–P11 新参数/实参节点的 emitter 支持与语义分析边界记录在下一步。本计划不据此宣称接受完整 v0.13.5 grammar；M4、M5–M15 与最终 DoD 均未完成。
 - 本步最终验证：`python3 -m compileall -q bootstrap tests` 通过；bootstrap host 6 项、smoke 1 项、lexer/parser 5 项、ledger checker 3 项均通过；Stage0 全量 `python3 tests/run_tests.py` 为 **259 passed, 0 failed**。本机环境 Python 3.12.3 / OpenJDK 25.0.4.1；未在本步重跑 CI 规划的 Python 3.11/JDK 17、21 矩阵。Stage0 全量结果不替代 M4 完整语法或自举门禁。
+
+### 本步记录：P8–P11 参数与调用实参 emitter 增量（未完成 M8）
+
+- `parser.lt` 保留 `FnDef.params` 中简单必需位置形参的旧字符串形状，并增加同序 `param_specs` 描述供 emitter 使用；parser fixture 覆盖新描述，不改旧字段的简单 AST 断言。
+- `gen_py.lt` 现发射默认位置参数、`*rest`、必需/默认仅限关键字参数、`**extra`，并生成调用时默认求值、Latent list/map 校验、位置/命名绑定、收集器与函数包装运行时；调用端支持 `NamedArg`、`StarArg`、`StarStarArg`，包括映射展开后继续给出命名实参。固定 v0.13.5 Stage0 与 Stage1 对同一函数/调用 fixture 的 stdout、stderr、退出状态逐项相同，覆盖默认值依赖较早形参、函数值间接调用，以及动态调用缺少必需实参时两端均失败并报告相同的绑定错误内容。
+- `PyImport`、`JavaImport`、`Super` 目前返回明确 codegen error，且不写输出文件。固定 Stage0 接受的 py/java 互操作表达式因此仍属已知不支持；`super` 的类/继承运行时亦未实现。本步不将这些表达式发射成裸 Python 名称或假定互操作语义。
+- Bootstrap 尚无 M6 静态语义层：参数绑定运行时可检查缺失、重复/未知命名及容量错误，但某些 Stage0 编译期拒绝可能仍在 Stage1 编译成功、执行时才失败；内建函数和 interop 的静态参数/值语义也尚不对齐。该差距必须由后续语义分析与运行时实现消除，不能视为 v0.13.5 兼容。
+- 新增/扩展 smoke 使用固定 Stage0 核对支持用例输出，并核实 py/java/super 不支持路径 fail closed；测试文件沿用既有账本路径，账本说明已同步。完整 Stage0 与 Bootstrap 聚焦回归结果见本步最终验证。
+- 本步最终验证：`python3 -m compileall -q bootstrap tests` 通过；Bootstrap 聚焦套件 **14 passed**，ledger 单测 **3 passed**，`tests/bootstrap/checker.py` 报告 **243 included / 0 excluded / 291 inventoried paths**；完整 Stage0 `python3 tests/run_tests.py` 为 **259 passed, 0 failed**。Stage0 环境为 Python 3.12.3 / OpenJDK 25.0.4.1；未重跑 CI 规划的 Python 3.11/JDK 17、21 矩阵。以上 Stage0 结果不代表自举投影通过，也不代表 M4/M6/M8 或 P15 DoD 完成。

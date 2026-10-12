@@ -161,6 +161,124 @@ class BootstrapEmitterTests(unittest.TestCase):
                 rejected.stderr)
             self.assertFalse(malformed_out.exists())
 
+    def test_parameter_and_call_nodes_match_fixed_stage0(self):
+        fixture_source = r'''fn describe(value, fallback=value + 1, *rest, required, option=fallback + 2, **extra):
+    return [value, fallback, rest, required, option, extra]
+
+fn invoke(target, named):
+    return target(**named)
+
+say describe
+say describe(10, required=40)
+say describe(10, 20, *[30, 31], required=41, **{"tag": 50})
+say describe(**{"value": 60, "required": 61}, option=62, tag=63)
+say invoke(describe, {"value": 70, "required": 71})
+'''
+        expected = (
+            "<function describe>\n"
+            "[10, 11, [], 40, 13, {}]\n"
+            '[10, 20, [30, 31], 41, 22, {"tag": 50}]\n'
+            '[60, 61, [], 61, 62, {"tag": 63}]\n'
+            "[70, 71, [], 71, 73, {}]\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="p15-emitter-params-") as temporary:
+            root = Path(temporary)
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            compiler = stage1_dir / "compiler.py"
+
+            fixture = root / "parameters.lt"
+            fixture.write_text(fixture_source, encoding="utf-8", newline="\n")
+            stage0_out = root / "stage0-out"
+            stage1_out = root / "stage1-out"
+            stage0_out.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"), str(fixture),
+                     "-t", "py", "-o", str(stage0_out)], cwd=root)
+            checked([sys.executable, str(compiler), str(fixture),
+                     "-o", str(stage1_out)], cwd=root,
+                    env={**os.environ, "PYTHONPATH": ""})
+
+            stage0_result = run_stage_program(stage0_out / "parameters.py", root)
+            stage1_result = run_stage_program(stage1_out / "parameters.py", root)
+            self.assertEqual(stage0_result, (0, expected, ""))
+            self.assertEqual(stage1_result, stage0_result)
+
+            invalid_fixture = root / "missing-required.lt"
+            invalid_fixture.write_text(
+                "fn target(value, *, flag):\n    return value\n\n"
+                "fn invoke(function):\n    return function(flag=1)\n\n"
+                "say invoke(target)\n",
+                encoding="utf-8", newline="\n")
+            invalid_stage0_out = root / "invalid-stage0-out"
+            invalid_stage1_out = root / "invalid-stage1-out"
+            invalid_stage0_out.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(invalid_fixture), "-t", "py", "-o",
+                     str(invalid_stage0_out)], cwd=root)
+            checked([sys.executable, str(compiler), str(invalid_fixture),
+                     "-o", str(invalid_stage1_out)], cwd=root,
+                    env={**os.environ, "PYTHONPATH": ""})
+            invalid_stage0_result = run_stage_program(
+                invalid_stage0_out / "missing-required.py", root)
+            invalid_stage1_result = run_stage_program(
+                invalid_stage1_out / "missing-required.py", root)
+            self.assertNotEqual(invalid_stage0_result[0], 0)
+            self.assertEqual(invalid_stage1_result[0], invalid_stage0_result[0])
+            self.assertIn("target() missing required argument 'value'",
+                          invalid_stage0_result[2])
+            self.assertIn("target() missing required argument 'value'",
+                          invalid_stage1_result[2])
+
+    def test_unimplemented_interop_and_super_nodes_fail_closed(self):
+        cases = (
+            ('say py "math".sqrt(4)\n', True,
+             "Python interop requires the unavailable target runtime"),
+            ('say java "java.lang.String"\n', True,
+             "Java interop requires the unavailable target runtime"),
+            ("say super.method(self)\n", False,
+             "super requires the unavailable class runtime"),
+        )
+        with tempfile.TemporaryDirectory(prefix="p15-emitter-boundary-") as temporary:
+            root = Path(temporary)
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            compiler = stage1_dir / "compiler.py"
+            for index, (source, stage0_accepts, expected_error) in enumerate(cases):
+                fixture = root / f"unsupported-{index}.lt"
+                fixture.write_text(source, encoding="utf-8", newline="\n")
+                stage0_out = root / f"stage0-{index}"
+                stage1_out = root / f"stage1-{index}"
+                stage0_out.mkdir()
+                stage0_result = subprocess.run(
+                    [sys.executable, str(stage0 / "latent.py"), str(fixture),
+                     "-t", "py", "-o", str(stage0_out)], cwd=root,
+                    text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                self.assertEqual(stage0_result.returncode == 0, stage0_accepts,
+                                 stage0_result.stdout + stage0_result.stderr)
+                stage1_result = subprocess.run(
+                    [sys.executable, str(compiler), str(fixture),
+                     "-o", str(stage1_out)], cwd=root,
+                    env={**os.environ, "PYTHONPATH": ""}, text=True,
+                    encoding="utf-8", capture_output=True, check=False)
+                self.assertNotEqual(stage1_result.returncode, 0)
+                self.assertIn(expected_error, stage1_result.stderr)
+                self.assertFalse(stage1_out.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
