@@ -329,3 +329,5 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **诊断覆盖追加：** Host contract 新增 invalid UTF-8 → `invalid-utf8` 与 POSIX 文件作为父路径 → `not-a-directory` 回归；运行结果 **16/16**。这是仅补测试/文档的后续小提交，不改生产逻辑或重新运行 bootstrap/dual-root gate。
 
 - **CLI 诊断覆盖追加：** Stage1 focused smoke 现在锁定无参数 usage、`-o`/`-t` 缺值、额外位置参数和不支持的 `--show-ast` 的 exit code 2 与精确 stderr；已有用例仍覆盖 `--source-root` 缺值、help 和 unsupported target。focused emitter smoke **1/1** 通过，仅添加回归断言与说明。
+
+- **CLI 输出链接覆盖追加：** emitter focused smoke 将目标 `.py` 预置为指向输出目录外部文件的 symlink，确认 Stage1 通过原子替换移除链接、不改外部文件内容，生成程序仍与预期一致；focused smoke **1/1** 通过。仅增加测试与文档。

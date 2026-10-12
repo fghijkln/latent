@@ -223,6 +223,19 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertEqual((outside_output_dir / "keep.txt").read_text(),
                              "preserve\n")
 
+            linked_main_out = root / "linked-main-output"
+            linked_main_out.mkdir()
+            outside_main = root / "outside-main.py"
+            outside_main.write_text("preserve main\n", encoding="utf-8")
+            linked_main = linked_main_out / "fixture.py"
+            linked_main.symlink_to(outside_main)
+            checked([sys.executable, str(compiler_a), str(fixture),
+                     "-o", str(linked_main_out)], cwd=root, env=clean_env)
+            self.assertFalse(linked_main.is_symlink())
+            self.assertEqual(outside_main.read_text(), "preserve main\n")
+            self.assertEqual(run_stage_program(linked_main, root),
+                             (0, EXPECTED_STDOUT, ""))
+
             stage0_target = root / "stage0-target"
             stage1_target = root / "stage1-target"
             stage1_target_repeat = root / "stage1-target-repeat"

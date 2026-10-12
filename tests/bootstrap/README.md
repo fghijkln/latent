@@ -106,3 +106,4 @@ Host contract tests also isolate their own runner environment because `latent_ho
 The Stage1 emitter smoke also invokes `--run` for `java_basic.lt` from a cwd outside the output directory, checks automatic `javac` sidecar compilation there, and compares its stdout/stderr with directly running the emitted Python file from the same cwd.
 Host contract tests also lock `read_utf8` errors for invalid UTF-8 and, on POSIX, a non-directory parent path (`not-a-directory`).
 The Stage1 CLI smoke asserts exact exit code 2 and stderr for no arguments, missing `-o`/`-t` values, an unexpected extra argument, and unsupported `--show-ast`; existing assertions cover help, missing `--source-root`, and unsupported targets.
+The Stage1 CLI smoke seeds the main `.py` output path as a symlink to an external file; compilation replaces the link, preserves the external target bytes, and the generated program still produces the expected output.
