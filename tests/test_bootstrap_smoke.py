@@ -388,6 +388,68 @@ say invoke(describe, {"value": 70, "required": 71})
                 self.assertIn(expected_error, stage1_result.stderr)
                 self.assertFalse(stage1_out.exists())
 
+    def test_stage1_compiler_uses_module_graph_before_fail_closed_codegen(self):
+        with tempfile.TemporaryDirectory(prefix="p15-module-compiler-") as temporary:
+            root = Path(temporary)
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            compiler = stage1_dir / "compiler.py"
+            clean_env = {**os.environ, "PYTHONPATH": ""}
+
+            module_project = root / "module-project"
+            (module_project / "sub").mkdir(parents=True)
+            (module_project / "main.lt").write_text(
+                'import "sub/lib.lt" as lib\nsay "main"\n',
+                encoding="utf-8", newline="\n")
+            (module_project / "sub" / "lib.lt").write_text(
+                'import "missing.lt" as missing\n',
+                encoding="utf-8", newline="\n")
+            output = root / "module-output"
+            rejected = subprocess.run(
+                [sys.executable, str(compiler), str(module_project / "main.lt"),
+                 "-o", str(output)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True, check=False)
+            self.assertEqual(rejected.returncode, 1,
+                             rejected.stdout + rejected.stderr)
+            self.assertIn(
+                "sub/lib.lt:1:1: module error: cannot read module sub/missing.lt: not-found",
+                rejected.stderr)
+            self.assertFalse(output.exists())
+
+            (module_project / "sub" / "lib.lt").write_text(
+                'say "library"\n', encoding="utf-8", newline="\n")
+            unsupported = subprocess.run(
+                [sys.executable, str(compiler), str(module_project / "main.lt"),
+                 "-o", str(output)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True, check=False)
+            self.assertEqual(unsupported.returncode, 1,
+                             unsupported.stdout + unsupported.stderr)
+            self.assertIn(
+                "multi-module Python emission is not yet supported",
+                unsupported.stderr)
+            self.assertFalse(output.exists())
+
+            generated = []
+            for label in ("checkout-a", "checkout-b"):
+                project = root / label
+                project.mkdir()
+                source = project / "portable.lt"
+                source.write_text('say "portable"\n',
+                                  encoding="utf-8", newline="\n")
+                out_dir = root / (label + "-out")
+                checked([sys.executable, str(compiler), str(source),
+                         "-o", str(out_dir)], cwd=root, env=clean_env)
+                generated.append((out_dir / "portable.py").read_bytes())
+            self.assertEqual(generated[0], generated[1])
+            self.assertNotIn(str(root).encode("utf-8"), generated[0])
+
 
 if __name__ == "__main__":
     unittest.main()

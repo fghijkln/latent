@@ -1,9 +1,9 @@
 # P15 first Python emitter slice. The parser and emitter remain Latent modules;
 # this entry point only coordinates their results with the thin OS adapter.
-import "parser.lt" as parser
 import "desugar.lt" as desugar
 import "semant.lt" as semant
 import "gen_py.lt" as gen_py
+import "module_graph.lt" as module_graph
 host = py "latent_host"
 
 fn source_stem(path):
@@ -24,23 +24,32 @@ fn source_stem(path):
     return stem
 
 fn compile_one(source_path, output_dir, run_after):
-    read_result = host.read_utf8(source_path)
-    if not read_result["ok"]:
-        host.stderr(source_path + ": input error: " + read_result["error"] + "\n")
+    graph = module_graph.load(source_path)
+    if not graph["ok"]:
+        if graph["kind"] == "input":
+            host.stderr(source_path + ": input error: " + graph["error"] + "\n")
+            return 1
+        diagnostic_path = graph["source_id"]
+        if diagnostic_path == source_path or diagnostic_path == host.path_basename(source_path):
+            diagnostic_path = source_path
+        host.stderr(diagnostic_path + ":" + str(graph["line"]) + ":" + str(graph["col"]) + ": " + graph["kind"] + " error: " + graph["error"] + "\n")
         return 1
-    parsed = parser.parse(read_result["value"], source_path)
-    if not parsed["ok"]:
-        message = source_path + ":" + str(parsed["line"]) + ":" + str(parsed["col"])
-        host.stderr(message + ": parse error: " + parsed["error"] + "\n")
+    if graph["import_count"] > 0:
+        host.stderr(source_path + ": codegen error: multi-module Python emission is not yet supported by the bootstrap compiler\n")
         return 1
+    parsed = {"ok": true, "tree": graph["root"]["tree"]}
     lowered = desugar.run(parsed["tree"])
     if not lowered["ok"]:
-        message = source_path + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
+        message = graph["root_id"] + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
+        if lowered["source_id"] == graph["root_id"]:
+            message = source_path + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
         host.stderr(message + ": desugar error: " + lowered["error"] + "\n")
         return 1
     checked = semant.check(lowered["value"])
     if not checked["ok"]:
-        message = source_path + ":" + str(checked["line"]) + ":" + str(checked["col"])
+        message = graph["root_id"] + ":" + str(checked["line"]) + ":" + str(checked["col"])
+        if checked["source_id"] == graph["root_id"]:
+            message = source_path + ":" + str(checked["line"]) + ":" + str(checked["col"])
         host.stderr(message + ": semant error: " + checked["error"] + "\n")
         return 1
     generated = gen_py.generate(lowered["value"])

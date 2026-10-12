@@ -136,6 +136,8 @@ class BootstrapParserTests(unittest.TestCase):
                 check=False)
             self.assertEqual(compiled.returncode, 0,
                              compiled.stdout + compiled.stderr)
+            (output / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
             generated = output / "bootstrap_parser.py"
             executed = subprocess.run(
                 [sys.executable, str(generated)], cwd=ROOT,
@@ -152,6 +154,119 @@ class BootstrapParserTests(unittest.TestCase):
                               if not line.startswith("M5SIG|")],
                              ["bootstrap parser ok"])
             self.assertEqual(executed.stderr, "")
+
+    def test_module_graph_deduplicates_and_keeps_logical_ids_stable(self):
+        with tempfile.TemporaryDirectory(prefix="p15-module-graph-") as temporary:
+            temporary = Path(temporary)
+            stage0 = temporary / "stage0"
+            extract_stage0(stage0)
+            output = temporary / "output"
+            output.mkdir()
+            compiled = subprocess.run(
+                [sys.executable, str(stage0 / "latent.py"), str(FIXTURE),
+                 "-t", "py", "-o", str(output)],
+                cwd=ROOT, text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(compiled.returncode, 0,
+                             compiled.stdout + compiled.stderr)
+            (output / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            generated = output / "bootstrap_parser.py"
+
+            def run_probe(project: Path) -> list[str]:
+                result = subprocess.run(
+                    [sys.executable, str(generated), str(project / "main.lt")],
+                    cwd=ROOT, env={"PYTHONPATH": str(output)}, text=True,
+                    encoding="utf-8", capture_output=True, check=False)
+                self.assertEqual(result.returncode, 0,
+                                 result.stdout + result.stderr)
+                self.assertEqual(result.stderr, "")
+                return [line for line in result.stdout.splitlines()
+                        if line.startswith("GRAPH_")]
+
+            outputs = []
+            for suffix in ("checkout-one", "checkout-two"):
+                project = temporary / suffix
+                (project / "dir").mkdir(parents=True)
+                (project / "nested").mkdir()
+                (project / "main.lt").write_text(
+                    'import "dir/../lib.lt" as first\n'
+                    'import "lib.lt" as second\n'
+                    'say "root"\n', encoding="utf-8", newline="\n")
+                (project / "lib.lt").write_text(
+                    'import "nested/dep.lt" as dep\n'
+                    'say "library"\n', encoding="utf-8", newline="\n")
+                (project / "nested" / "dep.lt").write_text(
+                    'say "dependency"\n', encoding="utf-8", newline="\n")
+                outputs.append(run_probe(project))
+                self.assertNotIn(str(project), "\n".join(outputs[-1]))
+            self.assertEqual(outputs[0], outputs[1])
+            self.assertEqual(outputs[0], [
+                "GRAPH_OK|main.lt|3|3",
+                "GRAPH_UNIT|nested/dep.lt|nested/dep.lt",
+                "GRAPH_UNIT|lib.lt|lib.lt",
+                "GRAPH_UNIT|main.lt|main.lt",
+            ])
+
+            def run_error(name: str, source: str,
+                          imported: dict[str, str] | None = None,
+                          main_relative: str = "main.lt") -> str:
+                project = temporary / name
+                project.mkdir()
+                if "/" in main_relative:
+                    (project / main_relative).parent.mkdir(parents=True,
+                                                           exist_ok=True)
+                main = project / main_relative
+                main.write_text(source, encoding="utf-8", newline="\n")
+                for relative, text in (imported or {}).items():
+                    target = project / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(text, encoding="utf-8", newline="\n")
+                return "\n".join(run_probe(main.parent))
+
+            errors = (
+                ("missing", 'import "absent.lt" as lib\n', None,
+                 "GRAPH_ERROR|module|main.lt|1|1|cannot read module absent.lt: not-found"),
+                ("extension", 'import "lib.txt" as lib\n', None,
+                 "module path must end in .lt"),
+                ("absolute", 'import "/outside.lt" as lib\n', None,
+                 "module path must be relative to the importing file"),
+                ("nul-path", 'import "bad\\0.lt" as lib\n', None,
+                 "module path contains NUL"),
+                ("duplicate-alias",
+                 'import "lib.lt" as lib\nimport "lib.lt" as lib\n',
+                 {"lib.lt": 'say "library"\n'},
+                 "duplicate module alias 'lib'"),
+                ("late", 'say 1\nimport "lib.lt" as lib\n', None,
+                 "imports must precede module code"),
+                ("nested", 'fn f():\n  import "lib.lt" as lib\n', None,
+                 "imports must be top-level module declarations"),
+                ("bad-import-location", 'import "lib.lt" as lib\n',
+                 {"lib.lt": "say 1 +\n"},
+                 "GRAPH_ERROR|parse|lib.lt|1|8|unexpected NEWLINE in expression"),
+                ("cycle", 'import "b.lt" as b\n',
+                 {"b.lt": 'import "main.lt" as root\n'},
+                 "GRAPH_ERROR|module|b.lt|1|1|module import cycle: main.lt -> b.lt -> main.lt"),
+                ("escape", 'import "../outside.lt" as out\n',
+                 {"../outside.lt": 'say "outside"\n'},
+                 "module path escapes the source root"),
+            )
+            for name, source, imported, marker in errors:
+                with self.subTest(name=name):
+                    graph_output = run_error(name, source, imported)
+                    self.assertIn(marker, graph_output)
+
+            symlink_project = temporary / "symlink-escape"
+            symlink_project.mkdir()
+            outside_file = temporary / "outside-symlink.lt"
+            outside_file.write_text('say "outside"\n',
+                                    encoding="utf-8", newline="\n")
+            (symlink_project / "link.lt").symlink_to(outside_file)
+            (symlink_project / "main.lt").write_text(
+                'import "link.lt" as linked\n',
+                encoding="utf-8", newline="\n")
+            symlink_error = "\n".join(run_probe(symlink_project))
+            self.assertIn("module path escapes the source root", symlink_error)
 
     def _stage0_m5_signatures(self, stage0: Path) -> list[str]:
         module_names = ("nodes", "lex", "parse", "desugar")

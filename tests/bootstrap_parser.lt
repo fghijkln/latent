@@ -1,5 +1,7 @@
 import "../bootstrap/parser.lt" as parser
 import "../bootstrap/desugar.lt" as desugar
+import "../bootstrap/module_graph.lt" as module_graph
+host = py "latent_host"
 
 fn assert_equal(actual, expected, message):
     if actual != expected:
@@ -181,6 +183,16 @@ fn run_desugar_checks():
     assert_equal(unterminated_result["col"], 5, "unterminated interpolation column")
     assert_equal(unterminated_result["source_id"], "bootstrap/m5-unclosed.lt", "unterminated interpolation source id")
 
+fn run_module_graph_probe(path):
+    result = module_graph.load(path)
+    if not result["ok"]:
+        say "GRAPH_ERROR|" + result["kind"] + "|" + result["source_id"] + "|" + str(result["line"]) + "|" + str(result["col"]) + "|" + result["error"]
+        return nil
+    say "GRAPH_OK|" + result["root_id"] + "|" + str(len(result["modules"])) + "|" + str(result["import_count"])
+    for module in result["modules"]:
+        say "GRAPH_UNIT|" + module["source_id"] + "|" + module["tree"]["source_id"]
+    return nil
+
 fn contains(text, fragment):
     if len(fragment) > len(text):
         return false
@@ -355,5 +367,8 @@ fn main():
 
     run_desugar_checks()
     say "bootstrap parser ok"
+    args = host.argv()
+    if len(args) > 0:
+        run_module_graph_probe(args[0])
 
 main()

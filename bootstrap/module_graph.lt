@@ -1,0 +1,198 @@
+# P15 M7 module discovery slice. All traversal and import policy lives in Latent;
+# the host adapter supplies only explicit path and UTF-8 file primitives.
+import "parser.lt" as parser
+host = py "latent_host"
+
+fn map_has(values, wanted):
+    for key in values:
+        if key == wanted:
+            return true
+    return false
+
+fn has(items, wanted):
+    for item in items:
+        if item == wanted:
+            return true
+    return false
+
+fn starts_with(value, prefix):
+    if len(value) < len(prefix):
+        return false
+    index = 0
+    while index < len(prefix):
+        if value[index] != prefix[index]:
+            return false
+        index = index + 1
+    return true
+
+fn ends_with(value, suffix):
+    if len(value) < len(suffix):
+        return false
+    offset = len(value) - len(suffix)
+    index = 0
+    while index < len(suffix):
+        if value[offset + index] != suffix[index]:
+            return false
+        index = index + 1
+    return true
+
+fn join_ids(values, extra):
+    output = ""
+    first = true
+    for value in values:
+        if first:
+            first = false
+        else:
+            output = output + " -> "
+        output = output + value
+    if first:
+        return extra
+    return output + " -> " + extra
+
+fn failure(kind, source_id, line, col, message):
+    return {"ok": false, "kind": kind, "source_id": source_id, "line": line, "col": col, "error": message, "unit": nil}
+
+fn success(unit):
+    return {"ok": true, "kind": "", "source_id": "", "line": 0, "col": 0, "error": "", "unit": unit}
+
+fn nested_import_in_statement(statement):
+    kind = statement["type"]
+    if kind == "FnDef":
+        return contains_import(statement["body"])
+    if kind == "ClassDef":
+        for method in statement["methods"]:
+            if contains_import([method]):
+                return true
+        return false
+    if kind == "If":
+        if contains_import(statement["then_body"]):
+            return true
+        if statement["else_body"] != nil and contains_import(statement["else_body"]):
+            return true
+    elif kind == "While" or kind == "For":
+        return contains_import(statement["body"])
+    elif kind == "Try":
+        if contains_import(statement["body"]):
+            return true
+        return contains_import(statement["handler"])
+    return false
+
+fn contains_import(statements):
+    for statement in statements:
+        if statement["type"] == "ImportStmt":
+            return true
+        if nested_import_in_statement(statement):
+            return true
+    return false
+
+fn nested_import_in_module(statements):
+    for statement in statements:
+        if statement["type"] != "ImportStmt" and nested_import_in_statement(statement):
+            return statement
+    return nil
+
+fn module_is_absolute(path):
+    if len(path) == 0:
+        return false
+    if path[0] == "/" or path[0] == "\\":
+        return true
+    if len(path) >= 2 and path[1] == ":":
+        return true
+    for ch in path:
+        if ch == "\\":
+            return true
+    return false
+
+fn module_path_has_nul(path):
+    for ch in path:
+        if ch == "\0":
+            return true
+    return false
+
+fn source_id_for(path, root_dir):
+    return host.path_norm(host.path_relpath(path, root_dir))
+
+fn outside_root(relative_path):
+    if relative_path == ".." or starts_with(relative_path, "../"):
+        return true
+    if starts_with(relative_path, "/"):
+        return true
+    return false
+
+fn visit(context, physical_path, source_id, importer_id, import_node):
+    if map_has(context["states"], physical_path):
+        if context["states"][physical_path] == "loading":
+            location_id = importer_id
+            line = import_node["line"]
+            col = import_node["col"]
+            return failure("module", location_id, line, col, "module import cycle: " + join_ids(context["active"], source_id))
+        return success(context["units"][physical_path])
+
+    read_result = host.read_utf8(physical_path)
+    if not read_result["ok"]:
+        if importer_id == nil:
+            return failure("input", source_id, 1, 1, read_result["error"])
+        return failure("module", importer_id, import_node["line"], import_node["col"], "cannot read module " + source_id + ": " + read_result["error"])
+
+    parsed = parser.parse(read_result["value"], source_id)
+    if not parsed["ok"]:
+        return failure("parse", source_id, parsed["line"], parsed["col"], parsed["error"])
+
+    nested = nested_import_in_module(parsed["tree"]["stmts"])
+    if nested != nil:
+        return failure("module", source_id, nested["line"], nested["col"], "imports must be top-level module declarations")
+
+    unit = {"path": physical_path, "source_id": source_id, "tree": parsed["tree"], "imports": [], "aliases": []}
+    context["units"][physical_path] = unit
+    context["states"][physical_path] = "loading"
+    context["active"] = context["active"] + [source_id]
+
+    seen_code = false
+    aliases = []
+    for statement in parsed["tree"]["stmts"]:
+        if statement["type"] != "ImportStmt":
+            seen_code = true
+        else:
+            if seen_code:
+                return failure("module", source_id, statement["line"], statement["col"], "imports must precede module code")
+            module_path = statement["module_path"]
+            if module_path_has_nul(module_path):
+                return failure("module", source_id, statement["line"], statement["col"], "module path contains NUL")
+            if module_is_absolute(module_path):
+                return failure("module", source_id, statement["line"], statement["col"], "module path must be relative to the importing file")
+            if not ends_with(module_path, ".lt"):
+                return failure("module", source_id, statement["line"], statement["col"], "module path must end in .lt")
+            if has(aliases, statement["alias"]):
+                return failure("module", source_id, statement["line"], statement["col"], "duplicate module alias '" + statement["alias"] + "'")
+            aliases = aliases + [statement["alias"]]
+            context["import_count"] = context["import_count"] + 1
+            candidate = host.path_realpath(host.path_join(host.path_dirname(physical_path), module_path))
+            logical_path = source_id_for(candidate, context["root_dir"])
+            if outside_root(logical_path):
+                return failure("module", source_id, statement["line"], statement["col"], "module path escapes the source root")
+            unit["imports"] = unit["imports"] + [logical_path]
+            unit["aliases"] = unit["aliases"] + [statement["alias"]]
+            imported = visit(context, candidate, logical_path, source_id, statement)
+            if not imported["ok"]:
+                return imported
+
+    remaining_active = []
+    active_index = 0
+    while active_index < len(context["active"]) - 1:
+        remaining_active = remaining_active + [context["active"][active_index]]
+        active_index = active_index + 1
+    context["active"] = remaining_active
+    context["states"][physical_path] = "loaded"
+    context["order"] = context["order"] + [unit]
+    return success(unit)
+
+fn load(entry_path):
+    entry_absolute = host.path_abspath(entry_path)
+    entry_real = host.path_realpath(entry_absolute)
+    root_dir = host.path_realpath(host.path_dirname(entry_real))
+    root_id = source_id_for(entry_real, root_dir)
+    context = {"root_dir": root_dir, "states": {}, "units": {}, "active": [], "order": [], "import_count": 0}
+    loaded = visit(context, entry_real, root_id, nil, nil)
+    if not loaded["ok"]:
+        return loaded
+    return {"ok": true, "kind": "", "source_id": "", "line": 0, "col": 0, "error": "", "root_id": root_id, "root": loaded["unit"], "modules": context["order"], "import_count": context["import_count"]}
