@@ -13,7 +13,9 @@ fn advance(p):
     return token
 
 fn fail(p, message):
-    token = current(p)
+    return fail_at(p, message, current(p))
+
+fn fail_at(p, message, token):
     p["error"] = message
     p["line"] = token["line"]
     p["col"] = token["col"]
@@ -82,18 +84,78 @@ fn parse_if(p):
     result["else_body"] = else_body
     return result
 
+fn parameter_node(kind, token, name):
+    result = node(kind, token)
+    result["name"] = name
+    return result
+
+fn parse_formal_parameters(p):
+    params = []
+    saw_default = false
+    saw_star = false
+    saw_extra = false
+    bare_star = false
+    bare_star_token = nil
+    keyword_only_count = 0
+    if current(p)["kind"] != ")":
+        while true:
+            token = current(p)
+            if token["kind"] == "**":
+                marker = advance(p)
+                if saw_extra:
+                    fail_at(p, "multiple **extra parameters", marker)
+                name = expect(p, "NAME")
+                params = params + [parameter_node("ExtraParam", marker, name["value"])]
+                saw_extra = true
+            elif token["kind"] == "*":
+                marker = advance(p)
+                if saw_star or saw_extra:
+                    fail_at(p, "*rest must precede **extra and appear once", marker)
+                saw_star = true
+                if current(p)["kind"] == "NAME":
+                    name = advance(p)
+                    params = params + [parameter_node("RestParam", marker, name["value"])]
+                else:
+                    bare_star = true
+                    bare_star_token = marker
+            else:
+                if saw_extra:
+                    fail_at(p, "positional parameter follows variadic parameter", token)
+                name = expect(p, "NAME")
+                if match(p, "=") != nil:
+                    default = parse_expression(p)
+                    if saw_star:
+                        entry = parameter_node("KeywordOnlyParam", name, name["value"])
+                        entry["default"] = default
+                        params = params + [entry]
+                        keyword_only_count = keyword_only_count + 1
+                    else:
+                        saw_default = true
+                        entry = parameter_node("DefaultParam", name, name["value"])
+                        entry["default"] = default
+                        params = params + [entry]
+                else:
+                    if saw_star:
+                        entry = parameter_node("KeywordOnlyParam", name, name["value"])
+                        entry["default"] = nil
+                        params = params + [entry]
+                        keyword_only_count = keyword_only_count + 1
+                    elif saw_default:
+                        fail_at(p, "required parameter follows defaulted parameter", name)
+                    else:
+                        params = params + [name["value"]]
+            if match(p, ",") == nil:
+                break
+    if bare_star and keyword_only_count == 0:
+        fail_at(p, "bare * must be followed by at least one keyword-only parameter", bare_star_token)
+    expect(p, ")")
+    return params
+
 fn parse_function(p):
     token = expect(p, "FN")
     name = expect(p, "NAME")
     expect(p, "(")
-    params = []
-    if current(p)["kind"] != ")":
-        params = [expect(p, "NAME")["value"]]
-        while match(p, ",") != nil:
-            if current(p)["kind"] == ")":
-                break
-            params = params + [expect(p, "NAME")["value"]]
-    expect(p, ")")
+    params = parse_formal_parameters(p)
     result = node("FnDef", token)
     result["name"] = name["value"]
     result["params"] = params
@@ -270,18 +332,48 @@ fn parse_power(p):
         return result
     return left
 
+fn parse_call_arguments(p):
+    args = []
+    saw_keyword = false
+    if current(p)["kind"] == ")":
+        return args
+    while true:
+        token = current(p)
+        if token["kind"] == "**":
+            marker = advance(p)
+            argument = node("StarStarArg", marker)
+            argument["value"] = parse_expression(p)
+            args = args + [argument]
+            saw_keyword = true
+        elif token["kind"] == "*":
+            marker = advance(p)
+            if saw_keyword:
+                fail_at(p, "positional unpacking follows named argument", marker)
+            argument = node("StarArg", marker)
+            argument["value"] = parse_expression(p)
+            args = args + [argument]
+        elif token["kind"] == "NAME" and p["tokens"][p["pos"] + 1]["kind"] == "=":
+            name = advance(p)
+            advance(p)
+            argument = node("NamedArg", name)
+            argument["name"] = name["value"]
+            argument["value"] = parse_expression(p)
+            args = args + [argument]
+            saw_keyword = true
+        else:
+            if saw_keyword:
+                fail_at(p, "positional argument follows named argument", token)
+            args = args + [parse_expression(p)]
+        if match(p, ",") == nil:
+            break
+    return args
+
 fn parse_postfix(p):
     expression = parse_primary(p)
     while true:
         if current(p)["kind"] == "(":
             token = advance(p)
-            args = []
-            if current(p)["kind"] != ")":
-                args = [parse_expression(p)]
-                while match(p, ",") != nil:
-                    if current(p)["kind"] == ")":
-                        break
-                    args = args + [parse_expression(p)]
+            args = parse_call_arguments(p)
             expect(p, ")")
             result = node("Call", token)
             result["func"] = expression
@@ -331,6 +423,19 @@ fn parse_primary(p):
         advance(p)
         result = node("Name", token)
         result["id"] = token["value"]
+        return result
+    if kind == "SUPER":
+        advance(p)
+        return node("Super", token)
+    if kind == "PY":
+        advance(p)
+        result = node("PyImport", token)
+        result["module_expr"] = parse_primary(p)
+        return result
+    if kind == "JAVA":
+        advance(p)
+        result = node("JavaImport", token)
+        result["class_expr"] = parse_primary(p)
         return result
     if kind == "(":
         advance(p)

@@ -17,6 +17,10 @@
 
 The checked-in data modules are pinned to Unicode 14.0.0 and 15.0.0. The Latent classifier selects the matching static table using only `unicodedata.unidata_version` metadata; range lookup and all character classification remain Latent code. The boundary suite runs against both planned Python 3.11/UCD 14 and local Python 3.12/UCD 15. Error text is compared exactly for numeric errors and mapped control/whitespace characters; other non-printable characters still require exact rejection and line/column checks, but their repr spelling is not treated as a category-classification result.
 
+## M4 parser parameter and call coverage
+
+`test_bootstrap_parser.py` probes the fixed Stage0 parser and generates a temporary Latent differential fixture for 15 parameter/call/interop-prefix cases. It compares accepted versus rejected inputs and, for syntax errors, exact line, column, and diagnostic text. The corpus covers default, variadic, and keyword-only parameters; named and unpacked actual arguments and their ordering; invalid signatures/call ordering; trailing-comma boundaries; and `py`, `java`, and `super` primaries. The checked-in `bootstrap_parser.lt` separately asserts the added mapping-AST shapes while verifying simple positional parameters/arguments retain their legacy shapes. This is a parser-only slice: it does not assert emitter, semantic, module-resolution, or full-v0.13.5 support.
+
 ## Guard behavior
 
 The checker fails for an added or removed static runner case/category reference, an added fixture path or test module absent from the inventory, a missing disposition, or an unreasoned exclusion. It also compares runner-invoked auxiliary test paths and AST-extracted P14 wire operation names, so changes to those protocols need explicit ledger updates.

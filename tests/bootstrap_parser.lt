@@ -47,6 +47,52 @@ fn main():
     assert_equal(call["args"][0]["type"], "Dot", "dot/subscript chain")
     assert_equal(call["args"][1]["type"], "Map", "map node")
 
+    result = parser.parse("fn full(a, b=3, *rest, flag, retry=2, **extra):\n  return a\n")
+    if not result["ok"]:
+        throw "full parameter forms did not parse: " + result["error"]
+    params = result["tree"]["stmts"][0]["params"]
+    assert_equal(params[0], "a", "required positional parameter keeps legacy shape")
+    assert_equal(params[1]["type"], "DefaultParam", "default positional node")
+    assert_equal(params[1]["name"], "b", "default positional name")
+    assert_equal(params[1]["default"]["value"], 3, "default positional expression")
+    assert_equal(params[1]["line"], 1, "default positional source line")
+    assert_equal(params[1]["col"], 12, "default positional name column")
+    assert_equal(params[2]["type"], "RestParam", "rest parameter node")
+    assert_equal(params[2]["col"], 17, "rest marker column")
+    assert_equal(params[3]["type"], "KeywordOnlyParam", "required keyword-only node")
+    assert_equal(params[3]["default"], nil, "required keyword-only marker")
+    assert_equal(params[3]["col"], 24, "required keyword-only name column")
+    assert_equal(params[4]["type"], "KeywordOnlyParam", "default keyword-only node")
+    assert_equal(params[4]["default"]["value"], 2, "keyword-only default expression")
+    assert_equal(params[4]["col"], 30, "default keyword-only name column")
+    assert_equal(params[5]["type"], "ExtraParam", "extra keyword parameter node")
+    assert_equal(params[5]["col"], 39, "extra parameter marker column")
+
+    result = parser.parse("say invoke(1, *items, flag=true, **options, extra=2)\n")
+    if not result["ok"]:
+        throw "full call argument forms did not parse: " + result["error"]
+    args = result["tree"]["stmts"][0]["value"]["args"]
+    assert_equal(args[0]["type"], "Num", "positional call argument keeps legacy shape")
+    assert_equal(args[1]["type"], "StarArg", "positional unpack node")
+    assert_equal(args[1]["col"], 15, "positional unpack marker column")
+    assert_equal(args[2]["type"], "NamedArg", "named argument node")
+    assert_equal(args[2]["name"], "flag", "named argument name")
+    assert_equal(args[2]["col"], 23, "named argument name column")
+    assert_equal(args[3]["type"], "StarStarArg", "named unpack node")
+    assert_equal(args[3]["col"], 34, "named unpack marker column")
+    assert_equal(args[4]["type"], "NamedArg", "named argument can follow mapping unpack")
+    assert_equal(args[4]["col"], 45, "post-unpack named argument column")
+
+    result = parser.parse("say py \"math\".sqrt(4)\nsay java \"java.lang.String\"\nsay super.method(self, 1)\n")
+    if not result["ok"]:
+        throw "interop and super prefixes did not parse: " + result["error"]
+    interop = result["tree"]["stmts"]
+    assert_equal(interop[0]["value"]["func"]["obj"]["type"], "PyImport", "py import prefix")
+    assert_equal(interop[0]["value"]["func"]["obj"]["module_expr"]["value"], "math", "py module expression")
+    assert_equal(interop[1]["value"]["type"], "JavaImport", "java import prefix")
+    assert_equal(interop[1]["value"]["class_expr"]["value"], "java.lang.String", "java class expression")
+    assert_equal(interop[2]["value"]["func"]["obj"]["type"], "Super", "super receiver")
+
     result = parser.parse("say 1 +\n")
     if result["ok"]:
         throw "incomplete expression should fail"

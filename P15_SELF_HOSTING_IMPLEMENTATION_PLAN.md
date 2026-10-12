@@ -118,3 +118,12 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - 端到端 smoke 已改为固定仓库 `bootstrap/` 源根下的 Stage0→Stage1 对拍；Stage1 对小型 fixture 的输出/退出状态匹配 Stage0，Stage1 生成物在同一源码根下重复生成字节一致。由于当前 parser 不支持 `import`/模块图，Stage1→Stage2→Stage3 暂不由本步覆盖；当前模块符号/source map 仍含规范化绝对路径，跨根复现明确延后。
 - 实现过程中回归测试发现 M3 lexer 在 `dedent` 后重新开启 sibling 缩进块时保留了旧栈槽位，导致后续 AST 块归属错误；已通过重用弹栈后的槽位修复，并增加固定 Stage0 token 差分案例。
 - 后续仍需完成完整 parser/AST、脱糖、静态语义、模块图/逻辑源 ID、完整 Python emitter 与 target runtime、CLI/`--run` 集成、Stage1→3 闭环、双根复现、Python-target 全量对拍及 CI 门禁。当前切片不代表 M4/M8 或 P15 DoD 完成。
+
+### 本步记录：M4 形参、调用实参与 interop 前缀语法增量（未完成 M4）
+
+- `bootstrap/parser.lt` 现以 Latent 解析 P8–P11 形参形式：必需位置形参保留原字符串 AST 形状；默认位置参数为 `DefaultParam`；`*rest`、`**extra`、裸 `*` 和必需/默认仅限关键字形参分别生成 `RestParam`、`ExtraParam`、`KeywordOnlyParam` 等带行列位置的映射节点。位置区“必需在默认之前”、裸 `*` 后必须有仅限关键字形参、收集器顺序/重复等解析规则和 Stage0 诊断均已覆盖。
+- 调用实参支持位置、`name=value`、`*items`、`**mapping`，保持位置展开必须先于首个命名实参、命名实参可出现在映射展开前后、映射展开可多次出现。简单位置参数 AST 仍保留旧表达式节点；命名与展开实参分别使用 `NamedArg`、`StarArg`、`StarStarArg` 节点。
+- 表达式 primary 现解析 `super`、`py <primary>`、`java <primary>` 为 `Super`、`PyImport`、`JavaImport` AST；这只是语法树构造，不包含 super 语义、互操作检查或 emitter 支持。
+- `tests/bootstrap_parser.lt` 断言新增 AST 字段与旧简单形状；`tests/test_bootstrap_parser.py` 使用固定 Stage0 动态生成的期望，对 15 个输入（6 个接受、9 个拒绝）逐项比较接受结果，并对拒绝输入精确比较行、列、诊断消息。覆盖签名组合、错误签名、位置/命名/展开实参、顺序错误、尾逗号边界和 `py`/`java`/`super` 前缀。该增量复用已在 M0 ledger 分类的 parser 测试/fixture 路径，未新增清单路径；ledger checker 本步通过。
+- **当前仍不支持的 M4 语法/AST要求：**`import "..." as name`、`global`、`nonlocal`、`class`/继承主体、`try`/`catch`、`throw` 语句以及字符串插值语法；AST 仍只有行列、没有 M4 要求的逻辑文件 ID。`super` 当前只是通用 `Super` receiver/dot/call 形状；`py`/`java`/新增参数与实参节点尚未由现有 emitter 支持。除既有结构块/函数/简单赋值与表达式子集外，不据此宣称接受完整 v0.13.5 grammar。M4、M5–M15 与最终 DoD 均未完成。
+- 本步最终验证：`python3 -m compileall -q bootstrap tests` 通过；bootstrap host 6 项、smoke 1 项、lexer/parser 5 项、ledger checker 3 项均通过；Stage0 全量 `python3 tests/run_tests.py` 为 **259 passed, 0 failed**。本机环境 Python 3.12.3 / OpenJDK 25.0.4.1；未在本步重跑 CI 规划的 Python 3.11/JDK 17、21 矩阵。Stage0 全量结果不替代 M4 完整语法或自举门禁。
