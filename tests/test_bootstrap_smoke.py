@@ -100,10 +100,14 @@ def extract_stage0(destination: Path) -> None:
                 raise RuntimeError(f"unexpected link in Stage0 archive: {member.name}")
 
 
-def run_stage_program(script: Path, cwd: Path) -> tuple[int, str, str]:
+def run_stage_program(script: Path, cwd: Path,
+                      env: dict[str, str] | None = None) -> tuple[int, str, str]:
+    execution_env = {**os.environ, "PYTHONPATH": ""}
+    if env is not None:
+        execution_env.update(env)
     result = subprocess.run(
         [sys.executable, str(script)], cwd=cwd,
-        env={**os.environ, "PYTHONPATH": ""}, text=True, encoding="utf-8",
+        env=execution_env, text=True, encoding="utf-8",
         capture_output=True, check=False)
     return result.returncode, result.stdout, result.stderr
 
@@ -350,10 +354,10 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertIn("target() missing required argument 'value'",
                           invalid_stage1_result[2])
 
-    def test_unimplemented_interop_and_invalid_super_fail_closed(self):
+    def test_java_class_repr_matches_fixed_stage0_and_invalid_super_fails_closed(self):
         cases = (
             ('say java "java.lang.String"\n', True,
-             "Java interop requires the unavailable target runtime"),
+             ""),
             ("class Plain:\n    fn method(self):\n        return super.method(self)\n",
              False, "class 'Plain' has no parent for super"),
         )
@@ -387,9 +391,93 @@ say invoke(describe, {"value": 70, "required": 71})
                      "-o", str(stage1_out)], cwd=root,
                     env={**os.environ, "PYTHONPATH": ""}, text=True,
                     encoding="utf-8", capture_output=True, check=False)
-                self.assertNotEqual(stage1_result.returncode, 0)
-                self.assertIn(expected_error, stage1_result.stderr)
-                self.assertFalse(stage1_out.exists())
+                if stage0_accepts:
+                    self.assertEqual(stage1_result.returncode, 0,
+                                     stage1_result.stdout + stage1_result.stderr)
+                    stage0_program = run_stage_program(
+                        stage0_out / f"unsupported-{index}.py", root)
+                    stage1_program = run_stage_program(
+                        stage1_out / f"unsupported-{index}.py", root)
+                    self.assertEqual(stage1_program, stage0_program,
+                                     stage1_program[2] or stage1_program[1])
+                    for runtime_name in ("LtJavaDaemon.java", "JReflect.java",
+                                         "LtRt.java"):
+                        self.assertTrue((stage1_out / runtime_name).is_file())
+                else:
+                    self.assertNotEqual(stage1_result.returncode, 0)
+                    self.assertIn(expected_error, stage1_result.stderr)
+                    self.assertFalse(stage1_out.exists())
+
+    def test_java_interop_runtime_and_numeric_helpers_match_fixed_stage0(self):
+        java_dir = ROOT / "tests" / "java"
+        tests_dir = ROOT / "tests"
+        cookbook_dir = ROOT / "cookbook"
+        cases = (
+            (tests_dir / "loop.lt", None, False),
+            (tests_dir / "phase1_semantics.lt",
+             java_dir / "Stage1Overloads.java", False),
+            (tests_dir / "java_basic.lt", None, False),
+            (tests_dir / "java_lazy.lt", None, False),
+            (tests_dir / "mixed.lt", None, False),
+            (tests_dir / "try_basic.lt", None, False),
+            (tests_dir / "p13_interop_bound_methods.lt",
+             java_dir / "P13InteropFixture.java", True),
+            (tests_dir / "p14_module_and_static_values.lt",
+             java_dir / "P14InteropFixture.java", True),
+            (tests_dir / "p14_static_method_extraction.lt",
+             java_dir / "P14InteropFixture.java", True),
+            (cookbook_dir / "java_strings.lt", None, False),
+            (cookbook_dir / "java_collections.lt", None, False),
+            (cookbook_dir / "java_time.lt", None, False),
+            (cookbook_dir / "java_nio.lt", None, False),
+            (cookbook_dir / "java_bigdecimal.lt", None, False),
+            (cookbook_dir / "mixed_io.lt", None, False),
+            (cookbook_dir / "pipeline.lt", None, False),
+            (cookbook_dir / "interop_bound_methods.lt", None, False),
+            (cookbook_dir / "interop_function_values.lt", None, False),
+        )
+        with tempfile.TemporaryDirectory(prefix="p15-java-runtime-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env.pop("LATENT_JAVAD", None)
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            shutil.copy2(ROOT / "bootstrap" / "latent_host.py",
+                         stage1_dir / "latent_host.py")
+            compiler = stage1_dir / "compiler.py"
+
+            for index, (source, java_fixture, needs_python_fixture) in enumerate(cases):
+                with self.subTest(case=source.stem):
+                    stage0_out = root / f"stage0-{index}"
+                    stage1_out = root / f"stage1-{index}"
+                    stage0_out.mkdir()
+                    checked([sys.executable, str(stage0 / "latent.py"),
+                             str(source), "-t", "py", "-o", str(stage0_out)],
+                            cwd=root, env=clean_env)
+                    checked([sys.executable, str(compiler), str(source),
+                             "-o", str(stage1_out)], cwd=root, env=clean_env)
+                    if java_fixture is not None:
+                        for output in (stage0_out, stage1_out):
+                            checked(["javac", "-cp", str(output), "-d",
+                                     str(output), str(java_fixture)],
+                                    cwd=root, env=clean_env)
+                    runtime_env = dict(clean_env)
+                    if needs_python_fixture:
+                        runtime_env["PYTHONPATH"] = str(ROOT / "tests" / "python")
+                    stage0_result = run_stage_program(
+                        stage0_out / f"{source.stem}.py", root, runtime_env)
+                    stage1_result = run_stage_program(
+                        stage1_out / f"{source.stem}.py", root, runtime_env)
+                    self.assertEqual(
+                        stage1_result, stage0_result,
+                        f"{source.name} differs from fixed Stage0\\n"
+                        f"Stage0: {stage0_result!r}\\nStage1: {stage1_result!r}")
 
     def test_host_attribute_write_fails_closed_at_runtime(self):
         source = ('types = py "types"\n'
@@ -986,7 +1074,8 @@ say _lt_bootstrap_make_class_Point()
             clean_env = {**os.environ, "PYTHONPATH": "",
                          "PYTHONDONTWRITEBYTECODE": "1"}
             adapter = (ROOT / "bootstrap" / "latent_host.py").read_bytes()
-            declared = ("compiler.py", "latent_host.py")
+            declared = ("compiler.py", "latent_host.py", "LtJavaDaemon.java",
+                        "JReflect.java", "LtRt.java")
 
             def manifest(stage: Path) -> tuple[tuple[str, str], ...]:
                 self.assertEqual(sorted(path.name for path in stage.iterdir()),

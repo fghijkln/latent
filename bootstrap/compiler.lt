@@ -76,6 +76,11 @@ fn compile_one(source_path, output_dir, run_after, source_root):
     if not write_result["ok"]:
         host.stderr(output_path + ": output error: " + write_result["error"] + "\n")
         return 1
+    runtime_files = ["LtJavaDaemon.java", "JReflect.java", "LtRt.java"]
+    copied_runtime = host.copy_explicit_files(host.runtime_source_dir(), output_dir, runtime_files)
+    if not copied_runtime["ok"]:
+        host.stderr(output_dir + ": runtime output error: " + copied_runtime["error"] + "\n")
+        return 1
     host.stdout("wrote " + output_path + "\n")
     if run_after:
         execution = host.run_python(output_path)

@@ -28,6 +28,8 @@ class HostContractTests(unittest.TestCase):
             self.assertEqual(host.path_norm("a" + os.sep + "b"), "a/b")
             self.assertTrue(host.path_is_dir(root))
             self.assertFalse(host.path_is_file(root))
+        self.assertEqual(Path(host.runtime_source_dir()),
+                         (ROOT / "bootstrap").resolve())
 
     def test_utf8_round_trip_and_stable_errors(self):
         with tempfile.TemporaryDirectory() as root:

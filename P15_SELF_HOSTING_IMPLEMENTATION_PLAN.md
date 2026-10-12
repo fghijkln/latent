@@ -256,3 +256,14 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - `tests/test_bootstrap_smoke.py` 增加八个多模块 Stage0/Stage1 fixture（class/inheritance/bound method/default/keyword-only/functions/closures/nonlocal）、cookbook module interpolation 回归，并将 `py_numpy` 加入单文件 scope/runtime differential。
 - 当前验证：bootstrap host/smoke/lexer/parser 共 **25 tests passed**，含 Stage1→Stage2→Stage3 fixed-point 与双根逐字节门；Stage0 `tests/run_tests.py` **259 passed / 0 failed**（505 个固定种子性质案例）；`compileall`、`git diff --check`、ledger checker 与单测通过，ledger 为 **243 included / 0 excluded / 291 inventoried paths**（ledger 单测 3 passed）。固定 Stage0 seed 下 71 个 success/cookbook 正例最新扫描为 **54 matched / 17 mismatched**；17 个差异全部是 Java interop case 的 Stage1 codegen 拒绝，没有其余正例差异。
 - **下一阻塞与未完成项：** 17 个 Java interop 正例仍需在 Latent emitter/runtime 中实现 Java JSON-RPC wrappers，并通过 fixed Java runtime source packaging 让 Stage1 输出可运行；host adapter 已有显式文件复制 primitive，Stage0 构建的 Stage1 目录含三份 daemon/runtime `.java` source。后续还须完成 243-case Stage0/Stage1 编译诊断/运行错误/输出投影、完整 interop 回调、全量 source map/CLI 和 M10–M15 门禁。P15 仍未完成，不得声称“所有自举准备工作已完成”。
+
+
+### 本轮增量：Java/Python runtime 与数值语义 parity（M8 仍部分完成，P15 未完成）
+
+> 本节更新此前“Python/Java interop 尚未实现”的历史状态：Stage1 Python target 现在包含一条经过固定 Stage0 对拍的有界互操作运行时切片；这不等价于完整 Python-target 语义，也不代表全量自举 DoD 已完成。
+
+- `bootstrap/java_runtime.lt` 以 Latent 字符串发射 Java/Python bridge：惰性启动既有 Java daemon、Java class/instance/method handles、构造与方法/字段访问、抽取 bound/static method、Java collections 迭代/索引及 Latent/host 值编解码。`bootstrap/compiler.lt` 继续仅通过既有显式 host-copy API 将固定 `LtJavaDaemon.java`、`JReflect.java`、`LtRt.java` sidecars 随 Python target 输出；没有扩大 OS API 或将编译器逻辑移入 adapter。
+- `bootstrap/gen_py.lt` 将 Latent 数值词面统一发射为 float64，并新增与 Stage0 一致的 `range`（截断数值参数并返回 Latent 数字列表）、`len`（返回 Latent float64）与幂运算（负底数的有限非整数指数返回 `nan`）helper。它们修复了 loop、`phase1_semantics` 和 cookbook pipeline 上此前的运行差异。
+- `tests/test_bootstrap_smoke.py` 增加一个固定 Stage0 differential 测试，包含 **18 个**重点程序：`loop`、`phase1_semantics`、Java basics/lazy、mixed/try、P13/P14 bound/static fixture、Java strings/collections/time/NIO/BigDecimal、mixed I/O、pipeline 与 interop bound/function values；逐项比较 stdout、stderr、退出码。另按 Stage0 runner 的 javac 流程做 71 个成功 Python-target positive/cookbook case 普查，结果 **71/71 匹配**；该普查不替代正式的全账本 243-case 投影。
+- 验证（本机 Python 3.12 / OpenJDK 25）：完整 bootstrap host/smoke/lexer/parser **26 passed / 0 failed**（434.608 秒，包含 Stage1→Stage2→Stage3 fixed point 与双根 bytes 门）；固定 Stage0 `python3 tests/run_tests.py` **259 passed / 0 failed**（含 505 个固定种子性质案例）；`compileall`、`git diff --check` 通过；projection ledger 为 **243 included / 0 excluded / 291 inventoried paths**，checker 单测 **3 passed**。本机结果不替代 CI Python 3.11/JDK 17、21 矩阵。
+- **下一阻塞与未完成项：** ledger 的 243 项 Stage0/Stage1 成功/编译拒绝/运行期错误全量差分仍未完成；完整 Python/Java interop（特别是 callback、负例诊断与 source location）、全部诊断/source map、全 CLI 兼容及 M10/M14/M15 CI 硬门仍未通过。必须继续按 ledger 找出并消除下一个差异；不得宣称“所有自举准备”或 P15 已完成。

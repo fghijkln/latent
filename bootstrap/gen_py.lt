@@ -1,6 +1,8 @@
 # P15 limited Python emitter slice. P8-P11 function parameters/calls are supported;
-# py/java interop and linked multi-module classes remain fail-closed.
+# Java interop runtime helpers are emitted from a separate Latent module.
 # All traversal, ordering, target spelling, and literal escaping stay in Latent.
+import "java_runtime.lt" as java_runtime
+
 fn result(code):
     return {"ok": true, "code": code, "error": ""}
 
@@ -88,7 +90,7 @@ fn emit_map_pairs(pairs):
 fn emit_expression(node):
     kind = node["type"]
     if kind == "Num":
-        return result(str(node["value"]))
+        return result("float(" + str(node["value"]) + ")")
     if kind == "Str":
         return result(quote_string(node["value"]))
     if kind == "Bool":
@@ -102,6 +104,8 @@ fn emit_expression(node):
             return result("_lt_bootstrap_say")
         if node["id"] == "range":
             return result("_lt_bootstrap_range")
+        if node["id"] == "len":
+            return result("_lt_bootstrap_len")
         if node["id"] == "str":
             return result("_lt_bootstrap_str")
         if node["id"] == "__wgetattr":
@@ -130,6 +134,8 @@ fn emit_expression(node):
             return result("_lt_bootstrap_eq(" + left["code"] + ", " + right["code"] + ")")
         if node["op"] == "!=":
             return result("(not _lt_bootstrap_eq(" + left["code"] + ", " + right["code"] + "))")
+        if node["op"] == "**":
+            return result("_lt_bootstrap_pow(" + left["code"] + ", " + right["code"] + ")")
         return result("(" + left["code"] + " " + node["op"] + " " + right["code"] + ")")
     if kind == "UnOp":
         operand = emit_expression(node["operand"])
@@ -180,7 +186,10 @@ fn emit_expression(node):
             return module
         return result("_lt_bootstrap_py_import(" + module["code"] + ")")
     if kind == "JavaImport":
-        return failure("Java interop requires the unavailable target runtime")
+        class_expr = emit_expression(node["class_expr"])
+        if not class_expr["ok"]:
+            return class_expr
+        return result("_lt_bootstrap_jclass(" + class_expr["code"] + ")")
     if kind == "Super":
         return failure("super requires the unavailable class runtime")
     if kind == "SuperCall":
@@ -499,7 +508,7 @@ fn emit_statement(node, indent):
         body = emit_block(node["body"], indent + "    ")
         if not body["ok"]:
             return body
-        return result(indent + "for " + node["var"] + " in " + iterable["code"] + ":\n" + body["code"])
+        return result(indent + "for " + node["var"] + " in _lt_bootstrap_iter(" + iterable["code"] + "):\n" + body["code"])
     if kind == "Try":
         body = emit_block(node["body"], indent + "    ")
         if not body["ok"]:
@@ -588,6 +597,7 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_range(*args):\n    return list(range(*args))\n\n"
     output = output + "def _lt_bootstrap_current_exception_message():\n    error = __import__('sys').exc_info()[1]\n    if error.args and isinstance(error.args[0], str):\n        return error.args[0]\n    return str(error)\n\n"
     output = output + "__say = _lt_bootstrap_say\n__index = _lt_bootstrap_index\n__wsetindex = _lt_bootstrap_wsetindex\n"
+    output = output + java_runtime.emitted_prelude()
     return output
 
 fn generate(tree):

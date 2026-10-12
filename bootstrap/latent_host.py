@@ -59,6 +59,11 @@ def path_dirname(path: str) -> str:
     return os.path.dirname(path)
 
 
+def runtime_source_dir() -> str:
+    """Return this installed adapter's directory for explicitly bundled files."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def path_basename(path: str) -> str:
     return os.path.basename(path)
 
