@@ -388,7 +388,7 @@ say invoke(describe, {"value": 70, "required": 71})
                 self.assertIn(expected_error, stage1_result.stderr)
                 self.assertFalse(stage1_out.exists())
 
-    def test_stage1_compiler_uses_module_graph_before_fail_closed_codegen(self):
+    def test_stage1_compiler_links_simple_module_graph_like_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-module-compiler-") as temporary:
             root = Path(temporary)
             stage0 = root / "stage0"
@@ -406,7 +406,20 @@ say invoke(describe, {"value": 70, "required": 71})
             module_project = root / "module-project"
             (module_project / "sub").mkdir(parents=True)
             (module_project / "main.lt").write_text(
-                'import "sub/lib.lt" as lib\nsay "main"\n',
+                'import "sub/lib.lt" as lib\n'
+                'import "core.lt" as core\n'
+                'fn _ltm_m0_label():\n    return "user symbol"\n'
+                'say "root init"\n'
+                'say lib.label()\n'
+                'say core.label()\n'
+                'say core.shadow()\n'
+                'say _ltm_m0_label()\n',
+                encoding="utf-8", newline="\n")
+            (module_project / "core.lt").write_text(
+                'PREFIX = "core"\n'
+                'say "core init"\n'
+                'fn label():\n    return PREFIX + "-label"\n'
+                'fn shadow():\n    PREFIX = "local"\n    return PREFIX\n',
                 encoding="utf-8", newline="\n")
             (module_project / "sub" / "lib.lt").write_text(
                 'import "missing.lt" as missing\n',
@@ -424,17 +437,73 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertFalse(output.exists())
 
             (module_project / "sub" / "lib.lt").write_text(
-                'say "library"\n', encoding="utf-8", newline="\n")
-            unsupported = subprocess.run(
-                [sys.executable, str(compiler), str(module_project / "main.lt"),
-                 "-o", str(output)], cwd=root, env=clean_env,
+                'import "../core.lt" as core\n'
+                'say "lib init"\n'
+                'fn label():\n    return core.label() + "-lib"\n',
+                encoding="utf-8", newline="\n")
+            stage0_output = root / "module-stage0-output"
+            stage1_output = root / "module-stage1-output"
+            stage1_repeat = root / "module-stage1-repeat"
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(module_project / "main.lt"), "-t", "py", "-o",
+                     str(stage0_output)], cwd=root, env=clean_env)
+            checked([sys.executable, str(compiler),
+                     str(module_project / "main.lt"), "-o",
+                     str(stage1_output)], cwd=root, env=clean_env)
+            checked([sys.executable, str(compiler),
+                     str(module_project / "main.lt"), "-o",
+                     str(stage1_repeat)], cwd=root, env=clean_env)
+            stage0_result = run_stage_program(
+                stage0_output / "main.py", root)
+            stage1_result = run_stage_program(
+                stage1_output / "main.py", root)
+            self.assertEqual(stage0_result[0], 0,
+                             stage0_result[1] + stage0_result[2])
+            self.assertEqual(stage1_result, stage0_result)
+            self.assertEqual(stage1_result[1],
+                             "core init\nlib init\nroot init\n"
+                             "core-label-lib\ncore-label\nlocal\n"
+                             "user symbol\n")
+            generated = (stage1_output / "main.py").read_bytes()
+            self.assertEqual(generated,
+                             (stage1_repeat / "main.py").read_bytes())
+            self.assertNotIn(str(module_project).encode("utf-8"), generated)
+
+            private = module_project / "private.lt"
+            private.write_text('import "core.lt" as core\nsay core._hidden\n',
+                               encoding="utf-8", newline="\n")
+            private_out = root / "private-out"
+            private_result = subprocess.run(
+                [sys.executable, str(compiler), str(private), "-o",
+                 str(private_out)], cwd=root, env=clean_env,
                 text=True, encoding="utf-8", capture_output=True, check=False)
-            self.assertEqual(unsupported.returncode, 1,
-                             unsupported.stdout + unsupported.stderr)
+            self.assertEqual(private_result.returncode, 1,
+                             private_result.stdout + private_result.stderr)
+            self.assertIn("module member '_hidden' is private",
+                          private_result.stderr)
+            self.assertFalse(private_out.exists())
+
+            try_module = module_project / "try-module.lt"
+            try_module.write_text(
+                'import "core.lt" as core\n'
+                'fn guarded():\n'
+                '    try:\n'
+                '        return core.label()\n'
+                '    catch error:\n'
+                '        return "fallback"\n'
+                'say guarded()\n',
+                encoding="utf-8", newline="\n")
+            try_out = root / "try-module-out"
+            try_result = subprocess.run(
+                [sys.executable, str(compiler), str(try_module), "-o",
+                 str(try_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True, check=False)
+            self.assertEqual(try_result.returncode, 1,
+                             try_result.stdout + try_result.stderr)
             self.assertIn(
-                "multi-module Python emission is not yet supported",
-                unsupported.stderr)
-            self.assertFalse(output.exists())
+                "try/catch statements are not yet supported by bootstrap module linking",
+                try_result.stderr)
+            self.assertFalse(try_out.exists())
 
             generated = []
             for label in ("checkout-a", "checkout-b"):

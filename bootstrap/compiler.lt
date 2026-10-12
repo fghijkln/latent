@@ -34,11 +34,19 @@ fn compile_one(source_path, output_dir, run_after):
             diagnostic_path = source_path
         host.stderr(diagnostic_path + ":" + str(graph["line"]) + ":" + str(graph["col"]) + ": " + graph["kind"] + " error: " + graph["error"] + "\n")
         return 1
+    program = graph["root"]["tree"]
+    module_metadata = nil
     if graph["import_count"] > 0:
-        host.stderr(source_path + ": codegen error: multi-module Python emission is not yet supported by the bootstrap compiler\n")
-        return 1
-    parsed = {"ok": true, "tree": graph["root"]["tree"]}
-    lowered = desugar.run(parsed["tree"])
+        linked = module_graph.prepare(graph)
+        if not linked["ok"]:
+            diagnostic_path = linked["source_id"]
+            if diagnostic_path == graph["root_id"]:
+                diagnostic_path = source_path
+            host.stderr(diagnostic_path + ":" + str(linked["line"]) + ":" + str(linked["col"]) + ": " + linked["kind"] + " error: " + linked["error"] + "\n")
+            return 1
+        program = linked["value"]["program"]
+        module_metadata = linked["value"]["modules"]
+    lowered = desugar.run(program)
     if not lowered["ok"]:
         message = graph["root_id"] + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
         if lowered["source_id"] == graph["root_id"]:
@@ -52,7 +60,10 @@ fn compile_one(source_path, output_dir, run_after):
             message = source_path + ":" + str(checked["line"]) + ":" + str(checked["col"])
         host.stderr(message + ": semant error: " + checked["error"] + "\n")
         return 1
-    generated = gen_py.generate(lowered["value"])
+    if module_metadata != nil:
+        generated = gen_py.generate_modules(lowered["value"], module_metadata, graph["root_id"])
+    else:
+        generated = gen_py.generate(lowered["value"])
     if not generated["ok"]:
         host.stderr(source_path + ": codegen error: " + generated["error"] + "\n")
         return 1

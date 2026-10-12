@@ -1,6 +1,7 @@
 # P15 M7 module discovery slice. All traversal and import policy lives in Latent;
 # the host adapter supplies only explicit path and UTF-8 file primitives.
 import "parser.lt" as parser
+import "lexer.lt" as lexer
 host = py "latent_host"
 
 fn map_has(values, wanted):
@@ -142,7 +143,7 @@ fn visit(context, physical_path, source_id, importer_id, import_node):
     if nested != nil:
         return failure("module", source_id, nested["line"], nested["col"], "imports must be top-level module declarations")
 
-    unit = {"path": physical_path, "source_id": source_id, "tree": parsed["tree"], "imports": [], "aliases": []}
+    unit = {"path": physical_path, "source_id": source_id, "source": read_result["value"], "tree": parsed["tree"], "imports": [], "aliases": []}
     context["units"][physical_path] = unit
     context["states"][physical_path] = "loading"
     context["active"] = context["active"] + [source_id]
@@ -196,3 +197,413 @@ fn load(entry_path):
     if not loaded["ok"]:
         return loaded
     return {"ok": true, "kind": "", "source_id": "", "line": 0, "col": 0, "error": "", "root_id": root_id, "root": loaded["unit"], "modules": context["order"], "import_count": context["import_count"]}
+
+
+# M7/M8 first linking slice: lower a supported module graph into one
+# collision-free Latent Program plus stable per-module initialization metadata.
+fn linked_success(value):
+    return {"ok": true, "value": value, "kind": "", "source_id": "", "line": 0, "col": 0, "error": ""}
+
+fn linked_failure(kind, node, message):
+    return {"ok": false, "value": nil, "kind": kind, "source_id": node["source_id"], "line": node["line"], "col": node["col"], "error": message}
+
+fn linked_failure_at(kind, source_id, line, col, message):
+    return {"ok": false, "value": nil, "kind": kind, "source_id": source_id, "line": line, "col": col, "error": message}
+
+fn add_unique(items, value):
+    if has(items, value):
+        return items
+    return items + [value]
+
+fn module_unit_by_id(units, source_id):
+    for unit in units:
+        if unit["source_id"] == source_id:
+            return unit
+    return nil
+
+fn collect_module_variables(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "Assign" and statement["target"]["type"] == "Name":
+            names = add_unique(names, statement["target"]["id"])
+        elif kind == "For":
+            names = add_unique(names, statement["var"])
+            names = collect_module_variables(statement["body"], names)
+        elif kind == "If":
+            names = collect_module_variables(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_module_variables(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_module_variables(statement["body"], names)
+        elif kind == "Try":
+            names = add_unique(names, statement["var"])
+            names = collect_module_variables(statement["body"], names)
+            names = collect_module_variables(statement["handler"], names)
+    return names
+
+fn collect_function_locals(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "Assign" and statement["target"]["type"] == "Name":
+            names = add_unique(names, statement["target"]["id"])
+        elif kind == "For":
+            names = add_unique(names, statement["var"])
+            names = collect_function_locals(statement["body"], names)
+        elif kind == "If":
+            names = collect_function_locals(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_function_locals(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_function_locals(statement["body"], names)
+        elif kind == "Try":
+            names = add_unique(names, statement["var"])
+            names = collect_function_locals(statement["body"], names)
+            names = collect_function_locals(statement["handler"], names)
+        elif kind == "FnDef":
+            names = add_unique(names, statement["name"])
+    return names
+
+fn validate_linked_statement(statement, module_top):
+    kind = statement["type"]
+    if kind == "ClassDef":
+        return linked_failure("module", statement, "class declarations are not yet supported by bootstrap module emission")
+    if kind == "GlobalStmt" or kind == "NonlocalStmt":
+        return linked_failure("module", statement, "global/nonlocal declarations are not yet supported by bootstrap module linking")
+    if kind == "FnDef":
+        if not module_top:
+            return linked_failure("module", statement, "nested functions are not yet supported by bootstrap module linking")
+        for child in statement["body"]:
+            checked = validate_linked_statement(child, false)
+            if not checked["ok"]:
+                return checked
+    elif kind == "If":
+        for child in statement["then_body"]:
+            checked = validate_linked_statement(child, false)
+            if not checked["ok"]:
+                return checked
+        if statement["else_body"] != nil:
+            for child in statement["else_body"]:
+                checked = validate_linked_statement(child, false)
+                if not checked["ok"]:
+                    return checked
+    elif kind == "While" or kind == "For":
+        for child in statement["body"]:
+            checked = validate_linked_statement(child, false)
+            if not checked["ok"]:
+                return checked
+    elif kind == "Try":
+        return linked_failure("module", statement, "try/catch statements are not yet supported by bootstrap module linking")
+    return linked_success(nil)
+
+fn make_symbol_name(module_index, name, reserved):
+    candidate = "_ltm_m" + str(module_index) + "_" + name
+    while has(reserved, candidate):
+        candidate = "_" + candidate
+    return {"name": candidate, "reserved": reserved + [candidate]}
+
+fn module_symbol(unit, name):
+    if map_has(unit["symbols"], name):
+        return unit["symbols"][name]
+    return nil
+
+fn import_node_for_alias(unit, wanted_alias):
+    for statement in unit["tree"]["stmts"]:
+        if statement["type"] == "ImportStmt" and statement["alias"] == wanted_alias:
+            return statement
+    return nil
+
+fn resolve_export(unit, alias, member, node):
+    if not map_has(unit["alias_targets"], alias):
+        return linked_failure("semant", node, "unknown module alias '" + alias + "'")
+    target = unit["alias_targets"][alias]
+    symbol = module_symbol(target, member)
+    if starts_with(member, "_"):
+        return linked_failure("module", node, "module member '" + member + "' is private")
+    if symbol == nil:
+        return linked_failure("module", node, "module has no exported name '" + member + "'")
+    return linked_success(symbol)
+
+fn make_linked_name(node, identifier):
+    return {"type": "Name", "line": node["line"], "col": node["col"], "source_id": node["source_id"], "id": identifier}
+
+fn rewrite_linked_expression(expression, unit, locals):
+    if expression == nil:
+        return linked_success(nil)
+    kind = expression["type"]
+    if kind == "Name":
+        if map_has(unit["alias_targets"], expression["id"]):
+            return linked_failure("module", expression, "module namespace is not a value; use alias.name")
+        if not has(locals, expression["id"]) and module_symbol(unit, expression["id"]) != nil:
+            expression["id"] = module_symbol(unit, expression["id"])["name"]
+        return linked_success(expression)
+    if kind == "Dot":
+        object = expression["obj"]
+        if object["type"] == "Name" and map_has(unit["alias_targets"], object["id"]):
+            exported = resolve_export(unit, object["id"], expression["attr"], expression)
+            if not exported["ok"]:
+                return exported
+            return linked_success(make_linked_name(expression, exported["value"]["name"]))
+        converted_object = rewrite_linked_expression(object, unit, locals)
+        if not converted_object["ok"]:
+            return converted_object
+        expression["obj"] = converted_object["value"]
+        return linked_success(expression)
+    if kind == "Call":
+        function = expression["func"]
+        if function["type"] == "Dot" and function["obj"]["type"] == "Name" and map_has(unit["alias_targets"], function["obj"]["id"]):
+            exported = resolve_export(unit, function["obj"]["id"], function["attr"], function)
+            if not exported["ok"]:
+                return exported
+            if exported["value"]["kind"] != "function":
+                return linked_failure("semant", function, "imported value is not a function; use .new() for classes")
+            expression["func"] = make_linked_name(function, exported["value"]["name"])
+        else:
+            converted_function = rewrite_linked_expression(function, unit, locals)
+            if not converted_function["ok"]:
+                return converted_function
+            expression["func"] = converted_function["value"]
+        converted_args = []
+        for argument in expression["args"]:
+            if argument["type"] == "NamedArg" or argument["type"] == "StarArg" or argument["type"] == "StarStarArg":
+                converted_value = rewrite_linked_expression(argument["value"], unit, locals)
+                if not converted_value["ok"]:
+                    return converted_value
+                argument["value"] = converted_value["value"]
+                converted_args = converted_args + [argument]
+            else:
+                converted_argument = rewrite_linked_expression(argument, unit, locals)
+                if not converted_argument["ok"]:
+                    return converted_argument
+                converted_args = converted_args + [converted_argument["value"]]
+        expression["args"] = converted_args
+        return linked_success(expression)
+    if kind == "BinOp":
+        left = rewrite_linked_expression(expression["left"], unit, locals)
+        if not left["ok"]:
+            return left
+        right = rewrite_linked_expression(expression["right"], unit, locals)
+        if not right["ok"]:
+            return right
+        expression["left"] = left["value"]
+        expression["right"] = right["value"]
+    elif kind == "UnOp":
+        operand = rewrite_linked_expression(expression["operand"], unit, locals)
+        if not operand["ok"]:
+            return operand
+        expression["operand"] = operand["value"]
+    elif kind == "List":
+        converted = []
+        for item in expression["elts"]:
+            result = rewrite_linked_expression(item, unit, locals)
+            if not result["ok"]:
+                return result
+            converted = converted + [result["value"]]
+        expression["elts"] = converted
+    elif kind == "Map":
+        for pair in expression["pairs"]:
+            result = rewrite_linked_expression(pair["value"], unit, locals)
+            if not result["ok"]:
+                return result
+            pair["value"] = result["value"]
+    elif kind == "Subscript":
+        object = rewrite_linked_expression(expression["obj"], unit, locals)
+        if not object["ok"]:
+            return object
+        index = rewrite_linked_expression(expression["index"], unit, locals)
+        if not index["ok"]:
+            return index
+        expression["obj"] = object["value"]
+        expression["index"] = index["value"]
+    elif kind == "PyImport":
+        converted = rewrite_linked_expression(expression["module_expr"], unit, locals)
+        if not converted["ok"]:
+            return converted
+        expression["module_expr"] = converted["value"]
+    elif kind == "JavaImport":
+        converted = rewrite_linked_expression(expression["class_expr"], unit, locals)
+        if not converted["ok"]:
+            return converted
+        expression["class_expr"] = converted["value"]
+    return linked_success(expression)
+
+fn rewrite_linked_statement(statement, unit, locals, module_top):
+    kind = statement["type"]
+    if kind == "ImportStmt":
+        return linked_success(nil)
+    if kind == "FnDef":
+        function_locals = []
+        for parameter in statement["param_specs"]:
+            function_locals = add_unique(function_locals, parameter["name"])
+        function_locals = collect_function_locals(statement["body"], function_locals)
+        for parameter in statement["param_specs"]:
+            if parameter["type"] == "DefaultParam" or (parameter["type"] == "KeywordOnlyParam" and parameter["default"] != nil):
+                default_value = rewrite_linked_expression(parameter["default"], unit, function_locals)
+                if not default_value["ok"]:
+                    return default_value
+                parameter["default"] = default_value["value"]
+        rewritten_body = []
+        for child in statement["body"]:
+            result = rewrite_linked_statement(child, unit, function_locals, false)
+            if not result["ok"]:
+                return result
+            rewritten_body = rewritten_body + [result["value"]]
+        statement["body"] = rewritten_body
+        if module_top:
+            symbol = module_symbol(unit, statement["name"])
+            if symbol == nil:
+                return linked_failure("module", statement, "missing linked symbol for function '" + statement["name"] + "'")
+            statement["name"] = symbol["name"]
+        return linked_success(statement)
+    if kind == "ClassDef" or kind == "GlobalStmt" or kind == "NonlocalStmt":
+        return validate_linked_statement(statement, module_top)
+    if kind == "Assign":
+        target = statement["target"]
+        if target["type"] == "Dot" and target["obj"]["type"] == "Name" and map_has(unit["alias_targets"], target["obj"]["id"]):
+            return linked_failure("module", target, "imported module exports are read-only")
+        converted_target = rewrite_linked_expression(target, unit, locals)
+        if not converted_target["ok"]:
+            return converted_target
+        value = rewrite_linked_expression(statement["value"], unit, locals)
+        if not value["ok"]:
+            return value
+        statement["target"] = converted_target["value"]
+        statement["value"] = value["value"]
+    elif kind == "If":
+        condition = rewrite_linked_expression(statement["cond"], unit, locals)
+        if not condition["ok"]:
+            return condition
+        statement["cond"] = condition["value"]
+        then_body = []
+        for child in statement["then_body"]:
+            result = rewrite_linked_statement(child, unit, locals, false)
+            if not result["ok"]:
+                return result
+            then_body = then_body + [result["value"]]
+        statement["then_body"] = then_body
+        if statement["else_body"] != nil:
+            else_body = []
+            for child in statement["else_body"]:
+                result = rewrite_linked_statement(child, unit, locals, false)
+                if not result["ok"]:
+                    return result
+                else_body = else_body + [result["value"]]
+            statement["else_body"] = else_body
+    elif kind == "While":
+        condition = rewrite_linked_expression(statement["cond"], unit, locals)
+        if not condition["ok"]:
+            return condition
+        statement["cond"] = condition["value"]
+        body = []
+        for child in statement["body"]:
+            result = rewrite_linked_statement(child, unit, locals, false)
+            if not result["ok"]:
+                return result
+            body = body + [result["value"]]
+        statement["body"] = body
+    elif kind == "For":
+        iterable = rewrite_linked_expression(statement["iter"], unit, locals)
+        if not iterable["ok"]:
+            return iterable
+        statement["iter"] = iterable["value"]
+        if not has(locals, statement["var"]) and module_symbol(unit, statement["var"]) != nil:
+            statement["var"] = module_symbol(unit, statement["var"])["name"]
+        body = []
+        for child in statement["body"]:
+            result = rewrite_linked_statement(child, unit, locals, false)
+            if not result["ok"]:
+                return result
+            body = body + [result["value"]]
+        statement["body"] = body
+    elif kind == "Try":
+        return validate_linked_statement(statement, false)
+    elif kind == "Say" or kind == "Throw" or kind == "Return":
+        value = rewrite_linked_expression(statement["value"], unit, locals)
+        if not value["ok"]:
+            return value
+        statement["value"] = value["value"]
+    elif kind == "ExprStmt":
+        expression = rewrite_linked_expression(statement["expr"], unit, locals)
+        if not expression["ok"]:
+            return expression
+        statement["expr"] = expression["value"]
+    return linked_success(statement)
+
+fn prepare(graph):
+    units = graph["modules"]
+    reserved = []
+    for unit in units:
+        tokens = lexer.lex(unit["source"])
+        if not tokens["ok"]:
+            return linked_failure_at("lex", unit["source_id"], tokens["line"], tokens["col"], tokens["error"])
+        for token in tokens["tokens"]:
+            if token["kind"] == "NAME":
+                reserved = add_unique(reserved, token["value"])
+        for statement in unit["tree"]["stmts"]:
+            checked = validate_linked_statement(statement, true)
+            if not checked["ok"]:
+                return checked
+    module_index = 0
+    for unit in units:
+        unit["symbols"] = {}
+        unit["alias_targets"] = {}
+        functions = []
+        for statement in unit["tree"]["stmts"]:
+            if statement["type"] == "FnDef":
+                functions = add_unique(functions, statement["name"])
+        for name in functions:
+            allocated = make_symbol_name(module_index, name, reserved)
+            reserved = allocated["reserved"]
+            unit["symbols"][name] = {"kind": "function", "name": allocated["name"]}
+        variables = collect_module_variables(unit["tree"]["stmts"], [])
+        for name in variables:
+            if not map_has(unit["symbols"], name):
+                allocated = make_symbol_name(module_index, name, reserved)
+                reserved = allocated["reserved"]
+                unit["symbols"][name] = {"kind": "variable", "name": allocated["name"]}
+        unit["globals"] = []
+        for name in variables:
+            symbol = module_symbol(unit, name)
+            if symbol != nil and symbol["kind"] == "variable":
+                unit["globals"] = add_unique(unit["globals"], symbol["name"])
+        unit["init_name"] = "_ltm_init_m" + str(module_index)
+        while has(reserved, unit["init_name"]):
+            unit["init_name"] = "_" + unit["init_name"]
+        reserved = reserved + [unit["init_name"]]
+        unit["state_name"] = "_ltm_state_m" + str(module_index)
+        while has(reserved, unit["state_name"]):
+            unit["state_name"] = "_" + unit["state_name"]
+        reserved = reserved + [unit["state_name"]]
+        module_index = module_index + 1
+    for unit in units:
+        import_index = 0
+        for imported_id in unit["imports"]:
+            alias = unit["aliases"][import_index]
+            target = module_unit_by_id(units, imported_id)
+            if target == nil:
+                return linked_failure_at("module", unit["source_id"], 1, 1, "module graph contains an unresolved import")
+            unit["alias_targets"][alias] = target
+            import_index = import_index + 1
+        for alias in keys(unit["alias_targets"]):
+            import_node = import_node_for_alias(unit, alias)
+            if map_has(unit["symbols"], alias):
+                return linked_failure("module", import_node, "module alias '" + alias + "' conflicts with a module binding")
+            for statement in unit["tree"]["stmts"]:
+                if statement["type"] == "FnDef":
+                    locals = []
+                    for parameter in statement["param_specs"]:
+                        locals = add_unique(locals, parameter["name"])
+                    locals = collect_function_locals(statement["body"], locals)
+                    if has(locals, alias):
+                        return linked_failure("module", import_node, "module alias '" + alias + "' conflicts with a local binding")
+    linked_statements = []
+    metadata = []
+    for unit in units:
+        for statement in unit["tree"]["stmts"]:
+            result = rewrite_linked_statement(statement, unit, [], true)
+            if not result["ok"]:
+                return result
+            if result["value"] != nil:
+                linked_statements = linked_statements + [result["value"]]
+        metadata = metadata + [{"source_id": unit["source_id"], "imports": unit["imports"], "globals": unit["globals"], "init_name": unit["init_name"], "state_name": unit["state_name"]}]
+    program = {"type": "Program", "line": 1, "col": 1, "source_id": graph["root_id"], "stmts": linked_statements}
+    return linked_success({"program": program, "modules": metadata, "root_id": graph["root_id"]})

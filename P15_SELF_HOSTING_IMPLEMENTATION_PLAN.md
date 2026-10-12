@@ -179,7 +179,17 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 
 - 新增 `bootstrap/module_graph.lt`，由 Latent 执行 DFS 加载、导入规则检查、依赖顺序和诊断构造；`latent_host.py` 未新增源代码扫描或解释能力，沿用已有显式 realpath/dirname/join/relpath/norm/UTF-8 read 原语。导入路径相对当前 importer 解析，入口实际父目录为本次 source root；realpath 目标必须留在该 root 内（包含符号链接逃逸检查），只接受显式 `.lt`、拒绝绝对/反斜线/NUL 路径。
 - 每个 AST 从调用点获得根相对 POSIX logical `source_id`，如 `main.lt`、`sub/lib.lt`；物理 realpath 仅保存在图记录供 I/O 和真实文件去重，不传给 parser 当源身份。依赖以源码 import 顺序 DFS postorder 产生稳定序列；canonical realpath 去重；正在访问状态用于拒绝环；重复别名、导入不在模块 prologue、嵌套导入、扩展名和 root escape 都由 Latent 返回带 source_id/行列的结构错误。
-- `bootstrap/compiler.lt` 现在先调用 `module_graph.load`，保留原单文件 parse→desugar→semant→emitter 路径；root/imported parse 与模块错误都在输出目录创建前报告。图中有任何 import 时，当前 Stage1 compiler 明确以 `multi-module Python emission is not yet supported` fail closed；这表示 loader 已在产品编译入口工作，不表示已实现命名空间/导出/模块初始化语义。
-- Stage0 固定种子差分覆盖依赖嵌套顺序、`dir/../lib.lt` 与 `lib.lt` 指向同一实体的去重、不同绝对根的 logical IDs/order 相同且输出中无 checkout 路径、缺失/错误扩展名/绝对/NUL/越根/符号链接逃逸、迟到/嵌套导入、导入模块 parse 行列、重复 alias 与循环位置。新增 Stage1 集成检查确认缺失深层依赖显示逻辑位置、有效图在 codegen 缺口处明确拒绝且不创建输出；跨根单文件 Stage1 产物字节相同且不含物理项目根。
-- 当前完整 M7 尚缺：导入别名与本地 binding 冲突分析、namespace alias 使用规则、公开/私有导出检查、成员存在性/非类继承诊断、跨模块符号碰撞避免和确定性符号改写、跨模块语义分析、依赖模块初始化/惰性缓存及 multi-module Python emission。故 M7 仍为进行中，M8 模块/运行时生成不能视为已完成。固定 Stage0 生成的 Stage1 compiler 文件仍含 Stage0 绝对 source-map metadata（已有 smoke 测试明确观察到此项）；本切片只保证逻辑身份及 Stage1 生成用户单文件产物不泄漏物理 root，M13 对 Stage2/3 双根零泄漏的硬门仍未执行。
+- **上一轮 M7 基线（现已部分由下节更新）**：`bootstrap/compiler.lt` 已先调用 `module_graph.load`，保留单文件路径；当时含 import 的图仍以 `multi-module Python emission is not yet supported` fail closed。Stage0 图加载差分覆盖依赖顺序、路径安全/去重、诊断位置及循环；Stage1 集成覆盖缺失深层依赖，并确认当时有效图在 codegen 缺口处拒绝。
+- **本轮后仍未完成的 M7/M8**：多模块 class/继承与完整 interop、完整跨模块语义和所有错误边界、try/catch 与 global/nonlocal/nested function 的一致支持，及全量 Python-target 兼容都尚未证明。固定 Stage0 生成的 Stage1 compiler 文件仍含 Stage0 绝对 source-map metadata；本轮只验证 Stage1 生成的用户多模块产物不泄漏物理项目根，M13 对 Stage2/3 双根零泄漏的硬门仍未执行。
 - 本步最终验证：`python3 -m compileall -q bootstrap tests`、`git diff --check` 通过；最终 bootstrap 专项 **17 passed**，账本 checker 单测 **3 passed**，账本报告 **243 included / 0 excluded / 291 inventoried paths**；全量 Stage0 `python3 tests/run_tests.py` **259 passed / 0 failed**，含 **505** 个固定种子性质案例。未重跑 Python 3.11/JDK 17、21 CI 矩阵。未通过/未执行的仍包括完整 M4–M9、M10–M15、stage fixed-point、双根复现及完整 Python-target 投影；不得据本切片宣称 M7/P15 完成。
+
+
+### 本轮：Latent 多模块链接与 Python 初始化器首个切片（M7/M8 仍未完成）
+
+- `bootstrap/module_graph.lt` 新增 `prepare(graph)`：全部模块绑定收集、符号分配、别名解析、私有成员拒绝与 AST 名称改写均由 Latent 完成。符号按图的确定性 DFS postorder 编号，并用 Latent lexer 收集所有用户标识符以避免生成名冲突；逻辑 `source_id` 保持根相对，不参与物理路径拼接。没有扩充 `latent_host.py`。
+- `bootstrap/compiler.lt` 将图链接结果接入既有 Latent desugar→semant→emitter 流程。`bootstrap/gen_py.lt` 新增 `generate_modules`：按模块产生缓存状态与 init 函数，依赖先初始化、模块顶层语句只在其 init 中运行，所有模块函数/全局变量改名后放在一个 Python compilation unit。公开函数/变量经 `alias.member` 读取或调用；别名成员只读。
+- 固定 Stage0 差分 fixture 覆盖三模块依赖顺序、同一 realpath 的重复导入与别名、跨模块同名函数、本地变量遮蔽模块全局、顶层模块全局、生成名与用户名冲突、private 拒绝、深层缺失依赖、初始化顺序、输出确定性与不泄漏项目根。成功程序 stdout/退出状态与固定 Stage0 一致。
+- 明确保守拒绝：当前多模块 emitter 尚不支持 class/继承、嵌套函数、try/catch、global/nonlocal 和未实现的 interop/runtime；这些不应被视为模块兼容已完成。测试确认 try/catch 是结构化编译拒绝，不再传出空 AST 节点。
+- 实际 Stage0→Stage1 构建成功；尝试 Stage1 编译自身完整 `bootstrap/compiler.lt` 到 Stage2 时，当前首个明确阻塞为 `parser.lt:652:5: module error: try/catch statements are not yet supported by bootstrap module linking`。即使补齐该处，bootstrap 源码中的 `py "latent_host"` 仍需要 emitter 的 Python host interop 支持；因此本轮没有 Stage2/Stage3、fixed-point 或双根复现证据。
+- 最终验证（本机 Python 3.12 / JDK 25）：`python3 -m compileall -q bootstrap tests`、`git diff --check` 通过；bootstrap 专项 **17 passed**；ledger checker **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**；固定 Stage0 全量双后端回归 **259 passed / 0 failed**（含 505 个固定种子性质案例）。未重跑 CI 规划的 Python 3.11/JDK 17、21 矩阵。
+- 本轮只完成可用的早期多模块切片，未完成 M7/M8，也未通过 M10–M15、Stage1→2→3 或 P15 最终 DoD；下一步的直接阻塞是模块内 `try/catch` 脱糖/语义/emitter 一致性及 `py "latent_host"` 的 Latent emitter/runtime 支持，之后还需持续做 Stage0 对拍、Stage2/3 fixed-point 与双根复现。
