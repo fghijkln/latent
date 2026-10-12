@@ -59,6 +59,8 @@ jobs:
     name: P15 self-host bootstrap gates / Python 3.11 / JDK 17
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      enable_mcp: "false"
     steps:
       - name: Check out repository and fixed Stage0 history
         uses: actions/checkout@v7

@@ -11,6 +11,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -1144,41 +1145,120 @@ say _lt_bootstrap_make_class_Point()
         with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:
             root = Path(temporary)
             clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+                         "PYTHONDONTWRITEBYTECODE": "1",
+                         "enable_mcp": "false"}
             clean_env.pop("P15_BOOTSTRAP_MANIFEST_REPORT", None)
             no_javac = root / "no-javac"
             no_javac.mkdir()
             stage0_env = {**clean_env, "PATH": str(no_javac)}
-            adapter = (ROOT / "bootstrap" / "latent_host.py").read_bytes()
             declared = ("compiler.py", "latent_host.py", "LtJavaDaemon.java",
                         "JReflect.java", "LtRt.java")
+            source_commit = checked(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                cwd=ROOT).stdout.strip()
+            tracked_paths = [
+                path for path in checked(
+                    ["git", "-C", str(ROOT), "ls-files", "-z"],
+                    cwd=ROOT).stdout.split("\0") if path
+            ]
+
+            def source_tree_snapshot(source_root: Path, *,
+                                     include_mtime: bool = True) -> dict[str, str]:
+                entries = {}
+                for path in (source_root, *source_root.rglob("*")):
+                    relative = path.relative_to(source_root)
+                    if ".git" in relative.parts:
+                        continue
+                    metadata = path.lstat()
+                    if stat.S_ISLNK(metadata.st_mode):
+                        entry_type = b"symlink"
+                        content = os.readlink(path).encode("utf-8")
+                    elif stat.S_ISREG(metadata.st_mode):
+                        entry_type = b"file"
+                        content = path.read_bytes()
+                    elif stat.S_ISDIR(metadata.st_mode):
+                        entry_type = b"directory"
+                        content = b""
+                    else:
+                        entry_type = (
+                            f"special-{stat.S_IFMT(metadata.st_mode)}".encode("ascii"))
+                        content = b""
+                    mode = f"{stat.S_IMODE(metadata.st_mode):o}".encode("ascii")
+                    parts = [entry_type, mode]
+                    if include_mtime:
+                        parts.append(str(metadata.st_mtime_ns).encode("ascii"))
+                    parts.append(content)
+                    payload = b"\0".join(parts)
+                    entries[relative.as_posix()] = hashlib.sha256(payload).hexdigest()
+                return entries
+
+            # Prove the snapshot distinguishes an ordinary file from a directory
+            # even when the file bytes equal the old directory marker.
+            snapshot_probe = root / "snapshot-probe"
+            snapshot_probe.mkdir()
+            probe_entry = snapshot_probe / "entry"
+            probe_entry.write_bytes(b"<directory>")
+            file_snapshot = source_tree_snapshot(snapshot_probe)
+            metadata = probe_entry.lstat()
+            os.utime(probe_entry, ns=(metadata.st_atime_ns,
+                                      metadata.st_mtime_ns + 1_000_000_000))
+            touched_snapshot = source_tree_snapshot(snapshot_probe)
+            self.assertNotEqual(file_snapshot, touched_snapshot,
+                                "source snapshots must detect persistent touches")
+            probe_entry.unlink()
+            probe_entry.mkdir()
+            directory_snapshot = source_tree_snapshot(snapshot_probe)
+            self.assertNotEqual(file_snapshot, directory_snapshot,
+                                "source snapshots must preserve entry type")
+            shutil.rmtree(snapshot_probe)
+
+            def create_full_checkout(name: str) -> tuple[Path, str]:
+                checkout = root / name
+                # Start from a complete repository clone, not a copied bootstrap/
+                # subtree, so repository-wide relative dependencies are present.
+                checked(["git", "clone", "--quiet", "--no-hardlinks",
+                         str(ROOT), str(checkout)], cwd=ROOT)
+                commit = checked(
+                    ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                    cwd=ROOT).stdout.strip()
+                status = checked(
+                    ["git", "-C", str(checkout), "status", "--porcelain=v1",
+                     "--untracked-files=all"], cwd=ROOT).stdout
+                if status:
+                    raise AssertionError(
+                        f"{name} is not a clean checkout: {status[:1000]}")
+                required_paths = (
+                    ".github/workflows/tests.yml", "README.md", "latent.py",
+                    "bootstrap/compiler.lt", "bootstrap/latent_host.py",
+                    "tests/test_bootstrap_smoke.py", "tests/bootstrap/manifest.json",
+                    "cookbook/pipeline.lt", ".gitignore")
+                missing = [path for path in required_paths
+                           if not (checkout / path).is_file()]
+                if missing:
+                    raise AssertionError(
+                        f"{name} is not a complete repository checkout; "
+                        f"missing {missing}")
+                missing_tracked = [
+                    path for path in tracked_paths
+                    if not os.path.lexists(checkout / path)
+                ]
+                if missing_tracked:
+                    raise AssertionError(
+                        f"{name} is missing tracked repository paths: "
+                        f"{missing_tracked[:20]}")
+                return checkout, commit
 
             def snapshot(stage: Path) -> dict[str, object]:
                 files = {}
                 other_entries = []
-                for path in sorted(stage.iterdir(), key=lambda item: item.name):
-                    if path.is_file():
-                        files[path.name] = path.read_bytes()
+                for path in sorted(stage.rglob("*"),
+                                   key=lambda item: item.relative_to(stage).as_posix()):
+                    relative = path.relative_to(stage).as_posix()
+                    if path.is_symlink() or not path.is_file():
+                        other_entries.append(relative)
                     else:
-                        other_entries.append(path.name)
+                        files[relative] = path.read_bytes()
                 return {"files": files, "other_entries": other_entries}
-
-            def source_tree_snapshot() -> dict[str, str]:
-                files = {}
-                ignored_directories = {".git", "node_modules", "__pycache__",
-                                       ".pytest_cache"}
-                for directory, child_directories, names in os.walk(ROOT):
-                    child_directories[:] = [
-                        name for name in child_directories
-                        if name not in ignored_directories
-                    ]
-                    for name in names:
-                        path = Path(directory) / name
-                        relative = path.relative_to(ROOT).as_posix()
-                        content = (os.readlink(path).encode("utf-8")
-                                   if path.is_symlink() else path.read_bytes())
-                        files[relative] = hashlib.sha256(content).hexdigest()
-                return files
 
             def manifest(stage_snapshot: dict[str, object]) -> list[dict[str, str]]:
                 files = stage_snapshot["files"]
@@ -1202,12 +1282,14 @@ say _lt_bootstrap_make_class_Point()
                                             "right_sha256": right_hash})
                 return differences
 
-            def build_chain(label: str, source_root: Path) -> dict[str, object]:
+            def build_chain(label: str,
+                            source_root: Path) -> dict[str, object]:
                 stage0 = root / (label + "-stage0")
                 extract_stage0(stage0)
                 stage1 = root / (label + "-stage1")
                 stage1.mkdir()
                 source = source_root / "bootstrap" / "compiler.lt"
+                adapter = (source_root / "bootstrap" / "latent_host.py").read_bytes()
                 checked([sys.executable, str(stage0 / "latent.py"),
                          str(source), "-t", "py", "-o", str(stage1)],
                         cwd=root, env=stage0_env)
@@ -1232,15 +1314,39 @@ say _lt_bootstrap_make_class_Point()
                         "stage2": snapshot(stage2),
                         "stage3": snapshot(stage3)}
 
-            def write_report(first: dict[str, object],
-                             second: dict[str, object]) -> None:
+            source_a, commit_a = create_full_checkout("checkout-a")
+            source_b, commit_b = create_full_checkout("checkout-b")
+            self.assertEqual(commit_a, source_commit)
+            self.assertEqual(commit_b, source_commit)
+            source_content_mode_a = source_tree_snapshot(
+                source_a, include_mtime=False)
+            source_content_mode_b = source_tree_snapshot(
+                source_b, include_mtime=False)
+            self.assertEqual(source_content_mode_a, source_content_mode_b,
+                             "the full checkout content/modes differ before builds")
+            # Git checkout mtimes naturally differ; retain a separate baseline
+            # for each root and require it to remain unchanged during building.
+            source_before_a = source_tree_snapshot(source_a)
+            source_before_b = source_tree_snapshot(source_b)
+            source_tree_digest = hashlib.sha256(
+                json.dumps(source_content_mode_a, sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")).hexdigest()
+
+            first = build_chain("checkout-a", source_a)
+            second = build_chain("checkout-b", source_b)
+            self.assertEqual(source_tree_snapshot(source_a), source_before_a,
+                             "Stage0/1/2/3 build wrote into checkout-a")
+            self.assertEqual(source_tree_snapshot(source_b), source_before_b,
+                             "Stage0/1/2/3 build wrote into checkout-b")
+
+            def write_report() -> None:
                 report_name = os.environ.get("P15_BOOTSTRAP_MANIFEST_REPORT")
                 if not report_name:
                     return
                 report_path = Path(report_name)
-                roots = {"checkout-a": first, "checkout-b": second}
+                chains = {"checkout-a": first, "checkout-b": second}
                 serialized = {}
-                for root_name, chain in roots.items():
+                for root_name, chain in chains.items():
                     serialized[root_name] = {}
                     for stage_name in ("stage1", "stage2", "stage3"):
                         stage = chain[stage_name]
@@ -1252,10 +1358,12 @@ say _lt_bootstrap_make_class_Point()
                                 set(stage["files"]) - set(declared)),
                             "non_file_entries": stage["other_entries"]}
                 stage_comparisons = {}
-                for root_name, chain in roots.items():
+                for root_name, chain in chains.items():
                     stage2 = chain["stage2"]
                     stage3 = chain["stage3"]
                     stage_comparisons[root_name] = {
+                        "stage2_stage3_manifest_equal":
+                            manifest(stage2) == manifest(stage3),
                         "stage2_stage3_bytes_equal":
                             stage2["files"] == stage3["files"] and
                             set(stage2["files"]) == set(declared) and
@@ -1269,34 +1377,38 @@ say _lt_bootstrap_make_class_Point()
                     left = first[stage_name]
                     right = second[stage_name]
                     cross_root[stage_name] = {
+                        "manifest_equal": manifest(left) == manifest(right),
                         "bytes_equal": left["files"] == right["files"] and
                             set(left["files"]) == set(declared) and
                             set(right["files"]) == set(declared) and
                             not left["other_entries"] and not right["other_entries"],
                         "file_differences": manifest_diff(left, right)}
-                payload = {"stage0_commit": STAGE0_COMMIT,
-                           "declared_files": sorted(declared),
-                           "checkouts": serialized,
-                           "within_root_fixed_point": stage_comparisons,
-                           "cross_root_stage2_stage3": cross_root,
-                           "stage1_cross_root_note":
-                               "Stage1 is reported but may differ due to fixed Stage0 path behavior."}
+                payload = {
+                    "source_commit": source_commit,
+                    "source_checkout_manifest": {
+                        "checkout_head_commits": {
+                            "checkout-a": commit_a,
+                            "checkout-b": commit_b},
+                        "tracked_file_count": len(tracked_paths),
+                        "entry_count": len(source_before_a),
+                        "sha256": source_tree_digest,
+                        "both_checkouts_content_mode_identical":
+                            source_content_mode_a == source_content_mode_b,
+                        "both_git_worktrees_clean": True,
+                        "working_tree_write_free": True},
+                    "stage0_commit": STAGE0_COMMIT,
+                    "declared_files": sorted(declared),
+                    "checkouts": serialized,
+                    "within_root_fixed_point": stage_comparisons,
+                    "cross_root_stage2_stage3": cross_root,
+                    "stage1_cross_root_note":
+                        "Stage1 is reported but may differ due to fixed Stage0 path behavior."}
                 report_path.parent.mkdir(parents=True, exist_ok=True)
                 report_path.write_text(
                     json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8")
 
-            source_a = ROOT
-            source_b = root / "checkout-b"
-            source_b.mkdir()
-            shutil.copytree(ROOT / "bootstrap", source_b / "bootstrap",
-                            ignore=shutil.ignore_patterns("__pycache__"))
-            source_before = source_tree_snapshot()
-            first = build_chain("checkout-a", source_a)
-            second = build_chain("checkout-b", source_b)
-            write_report(first, second)
-            self.assertEqual(source_tree_snapshot(), source_before,
-                             "Stage0/1/2/3 build wrote into the source tree")
+            write_report()
 
             expected = set(declared)
             for root_name, chain in (("checkout-a", first),
@@ -1305,9 +1417,13 @@ say _lt_bootstrap_make_class_Point()
                     with self.subTest(root=root_name, stage=stage_name):
                         self.assertEqual(set(stage["files"]), expected)
                         self.assertEqual(stage["other_entries"], [])
+                self.assertEqual(manifest(chain["stage2"]),
+                                 manifest(chain["stage3"]))
                 self.assertEqual(chain["stage2"]["files"],
                                  chain["stage3"]["files"])
             for stage_name in ("stage2", "stage3"):
+                self.assertEqual(manifest(first[stage_name]),
+                                 manifest(second[stage_name]))
                 self.assertEqual(first[stage_name]["files"],
                                  second[stage_name]["files"])
 
