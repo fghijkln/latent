@@ -88,3 +88,6 @@ The POSIX ctime snapshot hardening was pushed in commit `4fa00c817442f212425b7c9
 
 
 The snapshot exception applies only to the checkout-root `.git` administrative directory. Nested paths named `.git` are included as ordinary source-tree entries; a regression probe verifies both behaviors.
+
+
+The root-only `.git` snapshot exclusion fix was pushed in commit `352ab4531e61afdf76d7fe907c193ae44e5de46c`. `Tests` run [38310147544](https://github.com/fghijkln/latent/actions/runs/38310147544) passed all four jobs; DevSkim [38310147779](https://github.com/fghijkln/latent/actions/runs/38310147779) and CodeQL [38310147288](https://github.com/fghijkln/latent/actions/runs/38310147288) also passed. The uploaded manifest confirms both full-clone HEADs match, 372 tracked paths / 432 snapshot entries, no source writes, and per-root/cross-root Stage2/3 equality; the projector recorded 243 case IDs, 244 fixtures, 505 properties, and zero mismatches.

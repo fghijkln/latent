@@ -311,7 +311,8 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **远端验收：** GitHub `Tests` run [38306152000](https://github.com/fghijkln/latent/actions/runs/38306152000) 对提交 `4fa00c817442f212425b7c9a05b166d64b855836` 返回 **success**，四个 job 全部通过；DevSkim [38306151327](https://github.com/fghijkln/latent/actions/runs/38306151327) 和 CodeQL [38306151076](https://github.com/fghijkln/latent/actions/runs/38306151076) 也成功。下载的 CI 报告确认两份 checkout 同为该 HEAD、372 tracked files / 432 快照项、Git worktree clean 且 `working_tree_write_free=true`；每根 Stage2==Stage3 及跨根 Stage2/Stage3 manifest/bytes 均相等、差异为空；Stage0→2 投影为 243 case IDs、244 fixture matches、505 properties，零 runner/property/artifact mismatch。
 
 
-### 2026-10-13 追加复核：仅排除 checkout 根级 `.git` 元数据（本机通过，远端待验收）
+### 2026-10-13 追加复核：仅排除 checkout 根级 `.git` 元数据（本机与远端均通过）
 
 - **审计发现：** 快照过滤条件此前跳过路径中任何名为 `.git` 的分量，而完整 checkout 内只有根级 `.git` 是该检出自身的 Git 管理目录；嵌套 `.git` 名称也可能是普通源码数据。当前仓库的 tracked paths 中没有此类嵌套路径，但既有规则会让未来新增的此类文件逃过只读快照。
-- **修复与本机验证：** 过滤范围收窄到 `relative.parts[0] == ".git"`。新增临时探针同时验证根级 `.git/config` 不进入工作树快照、`nested/.git/payload` 仍被纳入；双完整 clone fixed-point 专项 **1/1**（128.938 秒）、完整 smoke **14/14**（391.675 秒）、ledger checker **3/3** 均通过，`compileall` 与 `git diff --check` 通过。该改动的远端 CI 待推送后验收。
+- **修复与本机验证：** 过滤范围收窄到 `relative.parts[0] == ".git"`。新增临时探针同时验证根级 `.git/config` 不进入工作树快照、`nested/.git/payload` 仍被纳入；双完整 clone fixed-point 专项 **1/1**（128.938 秒）、完整 smoke **14/14**（391.675 秒）、ledger checker **3/3** 均通过，`compileall` 与 `git diff --check` 通过。该改动的远端验收结果见下一项。
+- **远端验收：** GitHub `Tests` run [38310147544](https://github.com/fghijkln/latent/actions/runs/38310147544) 对提交 `352ab4531e61afdf76d7fe907c193ae44e5de46c` 返回 **success**，四个 job 全部通过；DevSkim [38310147779](https://github.com/fghijkln/latent/actions/runs/38310147779) 与 CodeQL [38310147288](https://github.com/fghijkln/latent/actions/runs/38310147288) 也成功。上传报告确认两份 checkout 均为该 HEAD、372 tracked files / 432 快照项、clean worktrees 且无工作树写入；两根 Stage2==Stage3 与跨根 Stage2/3 manifest/bytes 全部相等；Stage0→2 projector 为 243 case IDs、244 fixture invocations、505 properties，0 mismatch。
