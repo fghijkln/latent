@@ -223,6 +223,21 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertEqual((outside_output_dir / "keep.txt").read_text(),
                              "preserve\n")
 
+            output_path_file = root / "output-path-file"
+            output_path_file.write_text("preserve output path\n",
+                                        encoding="utf-8")
+            output_path_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture),
+                 "-o", str(output_path_file)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(output_path_result.returncode, 1)
+            self.assertEqual(
+                output_path_result.stderr,
+                f"{output_path_file}: output error: not-a-directory\n")
+            self.assertEqual(output_path_file.read_text(),
+                             "preserve output path\n")
+
             linked_main_out = root / "linked-main-output"
             linked_main_out.mkdir()
             outside_main = root / "outside-main.py"

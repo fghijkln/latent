@@ -90,6 +90,13 @@ class HostContractTests(unittest.TestCase):
                 self.assertEqual(result, {
                     "ok": False, "value": "", "error": expected})
 
+    def test_make_dirs_existing_file_maps_to_not_a_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root, "not-a-directory")
+            target.write_text("file\n", encoding="utf-8")
+            self.assertEqual(host.make_dirs(str(target)), {
+                "ok": False, "value": "", "error": "not-a-directory"})
+
     @unittest.skipUnless(os.name == "posix", "ENOTDIR mapping is POSIX-specific")
     def test_non_directory_parent_maps_to_stable_error(self):
         with tempfile.TemporaryDirectory() as root:

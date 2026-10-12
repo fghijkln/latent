@@ -335,3 +335,5 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **CLI 输入诊断追加：** 对非法 UTF-8 源文件，Stage1 CLI 必须返回精确 `input error: invalid-utf8`、exit code 1，并且不创建输出目录；emitter focused smoke **1/1** 通过。只增加输入诊断回归与文档。
 
 - **Host 错误映射追加：** 通过 mock 覆盖 `PermissionError` → `permission-denied`、通用 `OSError` → `io-error`，避免测试依赖 runner 的实际文件权限；Host contract 当前 **17/17** 通过。仅补充测试与 README/计划说明。
+
+另复现并修复了一个 Host/CLI 分类缺陷：当 `-o` 指向已存在普通文件，`os.makedirs(..., exist_ok=True)` 抛出 `FileExistsError`，旧映射错误返回通用 `io-error`。`make_dirs` 现在将该情形报告为 `not-a-directory`；Host contract **18/18** 与 Stage1 emitter focused smoke **1/1** 均通过，CLI 回归同时确认原文件内容未变。该修复及其测试待本轮后续提交。

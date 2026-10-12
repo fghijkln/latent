@@ -145,6 +145,8 @@ def make_dirs(path: str) -> dict:
     try:
         os.makedirs(path, exist_ok=True)
         return {"ok": True, "value": path, "error": ""}
+    except FileExistsError:
+        return {"ok": False, "value": "", "error": "not-a-directory"}
     except OSError as exc:
         return {"ok": False, "value": "", "error": _error_code(exc)}
 
