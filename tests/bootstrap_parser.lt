@@ -1,8 +1,202 @@
 import "../bootstrap/parser.lt" as parser
+import "../bootstrap/desugar.lt" as desugar
 
 fn assert_equal(actual, expected, message):
     if actual != expected:
         throw message + ": got " + str(actual)
+
+fn expression_signature(expression_node):
+    kind = expression_node["type"]
+    if kind == "Name":
+        return "Name{" + expression_node["id"] + "}"
+    if kind == "Str":
+        return "Str{" + expression_node["value"] + "}"
+    if kind == "Num":
+        return "Num{" + str(expression_node["value"]) + "}"
+    if kind == "BinOp":
+        return "BinOp(" + expression_node["op"] + "," + expression_signature(expression_node["left"]) + "," + expression_signature(expression_node["right"]) + ")"
+    if kind == "Call":
+        output = "Call(" + expression_signature(expression_node["func"]) + ";"
+        first = true
+        for argument in expression_node["args"]:
+            if first:
+                first = false
+            else:
+                output = output + ","
+            output = output + expression_signature(argument)
+        return output + ")"
+    return "Unexpected{" + kind + "}"
+
+fn run_desugar_checks():
+    dollar = "$"
+    source = "fn normalized(name, obj, xs):\n  say \"Hi " + dollar + dollar + " " + dollar + "name " + dollar + "{1 + 2}\"\n  obj.item\n  obj.work(name)\n  xs[0]\nfn branch(flag):\n  if flag:\n    flag\n  else:\n    9\nfn no_else(flag):\n  if flag:\n    flag\nfn mutate(obj, xs):\n  obj.value = 4\n  xs[0] = 5\nimport \"lib.lt\" as lib\nglobal state\nnonlocal outer\nclass Child(lib.Base):\n  fn method(self, x=2, *, flag=1):\n    try:\n      throw x\n    catch error:\n      say error\nfn parent_call(self):\n  return super.run(self)\n"
+    parsed = parser.parse(source, "bootstrap/m5-fixture.lt")
+    if not parsed["ok"]:
+        throw "M5 fixture parse failed: " + parsed["error"]
+    lowered = desugar.run(parsed["tree"])
+    if not lowered["ok"]:
+        throw "M5 fixture desugar failed: " + lowered["error"]
+    tree = lowered["value"]
+    assert_equal(tree["source_id"], "bootstrap/m5-fixture.lt", "M5 program source id")
+
+    normalized = tree["stmts"][0]
+    assert_equal(normalized["source_id"], tree["source_id"], "function source id")
+    body = normalized["body"]
+    say_call = body[0]["expr"]
+    assert_equal(body[0]["type"], "ExprStmt", "say statement normal form")
+    assert_equal(say_call["func"]["id"], "__say", "say helper rewrite")
+    interpolation = say_call["args"][0]
+    assert_equal(interpolation["type"], "BinOp", "interpolation concatenation root")
+    assert_equal(interpolation["right"]["type"], "Call", "interpolation stringify call")
+    assert_equal(interpolation["right"]["func"]["id"], "str", "interpolation uses Latent str")
+    assert_equal(interpolation["right"]["args"][0]["op"], "+", "braced interpolation parses expression")
+    assert_equal(interpolation["source_id"], tree["source_id"], "interpolation root source id")
+    assert_equal(interpolation["right"]["source_id"], tree["source_id"], "generated stringify source id")
+    assert_equal(interpolation["right"]["args"][0]["line"], 2, "interpolation expression root line")
+    assert_equal(interpolation["right"]["args"][0]["col"], 7, "interpolation expression root column")
+
+    assert_equal(body[1]["expr"]["func"]["id"], "__wgetattr", "dot read helper rewrite")
+    method_call = body[2]["expr"]
+    assert_equal(method_call["func"]["id"], "__wcall", "dot call helper rewrite")
+    assert_equal(method_call["direct_method"], "work", "direct method hint")
+    assert_equal(body[3]["type"], "Return", "last expression implicit return")
+    assert_equal(body[3]["value"]["func"]["id"], "__index", "subscript read helper rewrite")
+
+    branch = tree["stmts"][1]["body"][0]
+    assert_equal(branch["then_body"][0]["type"], "Return", "then branch implicit return")
+    assert_equal(branch["else_body"][0]["type"], "Return", "else branch implicit return")
+    no_else = tree["stmts"][2]["body"][0]
+    assert_equal(no_else["then_body"][0]["type"], "ExprStmt", "if without else is not rewritten")
+
+    writes = tree["stmts"][3]["body"]
+    assert_equal(writes[0]["type"], "ExprStmt", "attribute assignment statement rewrite")
+    assert_equal(writes[0]["expr"]["func"]["id"], "__wsetattr", "attribute write helper")
+    assert_equal(writes[1]["type"], "Return", "last index assignment follows implicit-return rule")
+    assert_equal(writes[1]["value"]["func"]["id"], "__wsetindex", "index write helper")
+    assert_equal(tree["stmts"][4]["type"], "ImportStmt", "import preserved")
+    assert_equal(tree["stmts"][5]["type"], "GlobalStmt", "global preserved")
+    assert_equal(tree["stmts"][6]["type"], "NonlocalStmt", "nonlocal preserved")
+    class_node = tree["stmts"][7]
+    assert_equal(class_node["parent"]["display"], "lib.Base", "qualified class parent preserved")
+    assert_equal(class_node["methods"][0]["param_specs"][1]["default"]["value"], 2, "parameter default traversed")
+    assert_equal(class_node["methods"][0]["params"][1]["default"]["value"], 2, "source-form default remains transformed")
+    try_node = class_node["methods"][0]["body"][0]
+    assert_equal(try_node["type"], "Try", "try/catch preserved")
+    assert_equal(try_node["body"][0]["type"], "Throw", "throw preserved")
+    assert_equal(try_node["handler"][0]["expr"]["func"]["id"], "__say", "catch handler traversed")
+    super_call = tree["stmts"][8]["body"][0]["value"]
+    assert_equal(super_call["type"], "SuperCall", "super method call normalized")
+    assert_equal(super_call["method"], "run", "super method name preserved")
+
+    expression_result = parser.parse_expression_source("left + 2", "bootstrap/m5-expr.lt")
+    if not expression_result["ok"]:
+        throw "M5 expression parser API rejected a valid expression"
+    assert_equal(expression_result["value"]["op"], "+", "expression-only parser result")
+    assert_equal(expression_result["value"]["source_id"], "bootstrap/m5-expr.lt", "expression parser root source id")
+    assert_equal(expression_result["value"]["right"]["source_id"], "bootstrap/m5-expr.lt", "expression parser child source id")
+    trailing = parser.parse_expression_source("left right", "bootstrap/m5-trailing.lt")
+    if trailing["ok"]:
+        throw "expression parser must reject trailing tokens"
+    assert_equal(trailing["error"], "trailing tokens", "expression parser trailing-token message")
+    assert_equal(trailing["col"], 6, "expression parser trailing-token column")
+
+    exhaustive_source = "fn exhaustive(a, b=2, *rest, required, option=3, **extra):\n  while a < b:\n    a = a + 1\n    continue\n  for item in [a, -2, true, nil, {key: item}]:\n    if item:\n      break\n    else:\n      say f(item, *rest, flag=option, **extra)\n  say py \"math\"\n  say java \"java.lang.String\"\n"
+    exhaustive_parsed = parser.parse(exhaustive_source, "bootstrap/m5-all-nodes.lt")
+    if not exhaustive_parsed["ok"]:
+        throw "M5 all-nodes source parse failed: " + exhaustive_parsed["error"]
+    exhaustive_lowered = desugar.run(exhaustive_parsed["tree"])
+    if not exhaustive_lowered["ok"]:
+        throw "M5 all-nodes desugar failed: " + exhaustive_lowered["error"]
+    exhaustive = exhaustive_lowered["value"]["stmts"][0]
+    assert_equal(exhaustive["body"][0]["type"], "While", "while statement handled")
+    assert_equal(exhaustive["body"][0]["body"][0]["type"], "Assign", "name assignment handled")
+    assert_equal(exhaustive["body"][0]["body"][1]["type"], "Continue", "continue handled")
+    for_node = exhaustive["body"][1]
+    assert_equal(for_node["type"], "For", "for statement handled")
+    elements = for_node["iter"]["elts"]
+    assert_equal(elements[1]["type"], "UnOp", "unary expression handled")
+    assert_equal(elements[2]["type"], "Bool", "boolean expression handled")
+    assert_equal(elements[3]["type"], "Nil", "nil expression handled")
+    assert_equal(elements[4]["type"], "Map", "map expression handled")
+    nested_if = for_node["body"][0]
+    assert_equal(nested_if["type"], "If", "nested conditional handled")
+    assert_equal(nested_if["then_body"][0]["type"], "Break", "break handled")
+    nested_call = nested_if["else_body"][0]["expr"]["args"][0]
+    assert_equal(nested_call["type"], "Call", "nested call handled")
+    call_args = nested_call["args"]
+    assert_equal(call_args[1]["type"], "StarArg", "star argument traversed")
+    assert_equal(call_args[2]["type"], "NamedArg", "named argument traversed")
+    assert_equal(call_args[3]["type"], "StarStarArg", "starstar argument traversed")
+    assert_equal(exhaustive["body"][2]["expr"]["args"][0]["type"], "PyImport", "python import expression handled")
+    assert_equal(exhaustive["body"][3]["value"]["args"][0]["type"], "JavaImport", "java import expression handled")
+
+    say "M5SIG|" + expression_signature(say_call)
+    say "M5SIG|" + expression_signature(body[1]["expr"])
+    say "M5SIG|" + expression_signature(method_call)
+    say "M5SIG|" + expression_signature(body[3]["value"])
+    say "M5SIG|" + expression_signature(branch["then_body"][0]["value"])
+    say "M5SIG|" + expression_signature(branch["else_body"][0]["value"])
+
+    malformed_source = "say \"" + dollar + "{1 + }\"\n"
+    malformed = parser.parse(malformed_source, "bootstrap/m5-bad.lt")
+    if not malformed["ok"]:
+        throw "malformed interpolation fixture should parse before desugar"
+    failed = desugar.run(malformed["tree"])
+    if failed["ok"]:
+        throw "malformed interpolation must fail closed"
+    assert_equal(failed["line"], 1, "interpolation error line")
+    assert_equal(failed["col"], 5, "interpolation error column")
+    if not contains(failed["error"], "bad interpolation"):
+        throw "interpolation error phase marker missing"
+    assert_equal(failed["source_id"], "bootstrap/m5-bad.lt", "interpolation error source id")
+
+    bad_super = parser.parse("say super\n", "bootstrap/m5-super.lt")
+    rejected_super = desugar.run(bad_super["tree"])
+    if rejected_super["ok"]:
+        throw "standalone super must fail in desugar"
+    assert_equal(rejected_super["line"], 1, "super error line")
+    assert_equal(rejected_super["col"], 5, "super error column")
+
+    unknown = {"type": "AlienExpr", "line": 9, "col": 4, "source_id": "unknown.lt"}
+    unknown_program = {"type": "Program", "line": 1, "col": 1, "source_id": "unknown.lt", "stmts": [unknown]}
+    unknown_result = desugar.run(unknown_program)
+    if unknown_result["ok"]:
+        throw "unknown AST statement must fail closed"
+    assert_equal(unknown_result["line"], 9, "unknown node error line")
+    assert_equal(unknown_result["col"], 4, "unknown node error column")
+    if not contains(unknown_result["error"], "unsupported statement node"):
+        throw "unknown node internal-stage error is not explicit"
+    unknown_expression = desugar.expression(unknown)
+    if unknown_expression["ok"]:
+        throw "unknown AST expression must fail closed"
+    if not contains(unknown_expression["error"], "unsupported expression node"):
+        throw "unknown expression internal-stage error is not explicit"
+
+    unterminated_source = "say \"" + dollar + "{name\"\n"
+    unterminated = parser.parse(unterminated_source, "bootstrap/m5-unclosed.lt")
+    unterminated_result = desugar.run(unterminated["tree"])
+    if unterminated_result["ok"]:
+        throw "unterminated interpolation must fail"
+    assert_equal(unterminated_result["line"], 1, "unterminated interpolation line")
+    assert_equal(unterminated_result["col"], 5, "unterminated interpolation column")
+    assert_equal(unterminated_result["source_id"], "bootstrap/m5-unclosed.lt", "unterminated interpolation source id")
+
+fn contains(text, fragment):
+    if len(fragment) > len(text):
+        return false
+    start = 0
+    while start <= len(text) - len(fragment):
+        matched = true
+        index = 0
+        while index < len(fragment):
+            if text[start + index] != fragment[index]:
+                matched = false
+                break
+            index = index + 1
+        if matched:
+            return true
+        start = start + 1
+    return false
 
 fn main():
     result = parser.parse("say 10 - 3 - 2 * 4 + 1\n")
@@ -159,6 +353,7 @@ fn main():
     assert_equal(result["line"], 1, "mismatched closer line")
     assert_equal(result["col"], 10, "mismatched closer column")
 
+    run_desugar_checks()
     say "bootstrap parser ok"
 
 main()

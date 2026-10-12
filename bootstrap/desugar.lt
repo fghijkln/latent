@@ -1,0 +1,511 @@
+# P15 M5 desugaring slice. Every rewrite and generated node is built in Latent.
+import "parser.lt" as parser
+import "unicode_tables.lt" as unicode
+
+fn success(value):
+    return {"ok": true, "value": value, "error": "", "line": 0, "col": 0, "source_id": nil}
+
+fn failure_at(template, message):
+    return {"ok": false, "value": nil, "error": message, "line": template["line"], "col": template["col"], "source_id": template["source_id"]}
+
+fn node(kind, template):
+    return {"type": kind, "line": template["line"], "col": template["col"], "source_id": template["source_id"]}
+
+fn make_name(template, identifier):
+    result = node("Name", template)
+    result["id"] = identifier
+    return result
+
+fn make_string(template, value):
+    result = node("Str", template)
+    result["value"] = value
+    return result
+
+fn make_call(template, function, arguments):
+    result = node("Call", template)
+    result["func"] = function
+    result["args"] = arguments
+    return result
+
+fn make_binary(template, operator, left, right):
+    result = node("BinOp", template)
+    result["op"] = operator
+    result["left"] = left
+    result["right"] = right
+    return result
+
+fn with_expression(template, helper, arguments):
+    return make_call(template, make_name(template, helper), arguments)
+
+fn transformed_list(nodes):
+    result = []
+    for child in nodes:
+        converted = expression(child)
+        if not converted["ok"]:
+            return converted
+        result = result + [converted["value"]]
+    return success(result)
+
+fn transformed_arguments(arguments):
+    result = []
+    for argument in arguments:
+        kind = argument["type"]
+        if kind == "NamedArg" or kind == "StarArg" or kind == "StarStarArg":
+            value = expression(argument["value"])
+            if not value["ok"]:
+                return value
+            converted = node(kind, argument)
+            if kind == "NamedArg":
+                converted["name"] = argument["name"]
+            converted["value"] = value["value"]
+            result = result + [converted]
+        else:
+            value = expression(argument)
+            if not value["ok"]:
+                return value
+            result = result + [value["value"]]
+    return success(result)
+
+fn transformed_parameters(parameters):
+    result = []
+    for parameter in parameters:
+        kind = parameter["type"]
+        converted = node(kind, parameter)
+        converted["name"] = parameter["name"]
+        if kind == "DefaultParam" or kind == "KeywordOnlyParam":
+            default = expression(parameter["default"])
+            if not default["ok"]:
+                return default
+            converted["default"] = default["value"]
+        result = result + [converted]
+    return success(result)
+
+fn transformed_pairs(pairs):
+    result = []
+    for pair in pairs:
+        value = expression(pair["value"])
+        if not value["ok"]:
+            return value
+        result = result + [{"key": pair["key"], "value": value["value"]}]
+    return success(result)
+
+fn transformed_block(statements):
+    result = []
+    for statement_node in statements:
+        converted = statement(statement_node)
+        if not converted["ok"]:
+            return converted
+        result = result + [converted["value"]]
+    return success(result)
+
+fn interpolation_start(character):
+    return character == "_" or unicode.is_alpha(character)
+
+fn interpolation_tail(character):
+    return interpolation_start(character) or unicode.is_digit(character) or unicode.is_numeric_tail(character)
+
+fn append_text(current, text, template):
+    if text == "":
+        return current
+    piece = make_string(template, text)
+    if current == nil:
+        return piece
+    return make_binary(template, "+", current, piece)
+
+fn parse_interpolation_expression(source, template):
+    parsed = parser.parse_expression_source(source, template["source_id"])
+    if not parsed["ok"]:
+        message = parsed["error"]
+        if message == "trailing tokens":
+            message = "bad interpolation: trailing tokens"
+        else:
+            message = "bad interpolation: " + message
+        return failure_at(template, message)
+    parsed["value"]["line"] = template["line"]
+    parsed["value"]["col"] = template["col"]
+    parsed["value"]["source_id"] = template["source_id"]
+    result = expression(parsed["value"])
+    if not result["ok"]:
+        return result
+    stringify = with_expression(template, "str", [result["value"]])
+    return success(stringify)
+
+fn interpolated_string(string_node):
+    text = string_node["value"]
+    size = len(text)
+    index = 0
+    buffer = ""
+    output = nil
+    found_interpolation = false
+    while index < size:
+        character = text[index]
+        if character == "$" and index + 1 < size:
+            next_character = text[index + 1]
+            if next_character == "$":
+                buffer = buffer + "$"
+                index = index + 2
+            elif next_character == "{":
+                depth = 1
+                end = index + 2
+                while end < size and depth > 0:
+                    if text[end] == "{":
+                        depth = depth + 1
+                    elif text[end] == "}":
+                        depth = depth - 1
+                    end = end + 1
+                if depth > 0:
+                    return failure_at(string_node, "unterminated " + "$" + "{ in string")
+                output = append_text(output, buffer, string_node)
+                buffer = ""
+                found_interpolation = true
+                source = ""
+                cursor = index + 2
+                while cursor < end - 1:
+                    source = source + text[cursor]
+                    cursor = cursor + 1
+                parsed = parse_interpolation_expression(source, string_node)
+                if not parsed["ok"]:
+                    return parsed
+                if output == nil:
+                    output = parsed["value"]
+                else:
+                    output = make_binary(string_node, "+", output, parsed["value"])
+                index = end
+            elif interpolation_start(next_character):
+                output = append_text(output, buffer, string_node)
+                buffer = ""
+                found_interpolation = true
+                end = index + 1
+                while end < size and interpolation_tail(text[end]):
+                    end = end + 1
+                source = ""
+                cursor = index + 1
+                while cursor < end:
+                    source = source + text[cursor]
+                    cursor = cursor + 1
+                parsed = parse_interpolation_expression(source, string_node)
+                if not parsed["ok"]:
+                    return parsed
+                if output == nil:
+                    output = parsed["value"]
+                else:
+                    output = make_binary(string_node, "+", output, parsed["value"])
+                index = end
+            else:
+                buffer = buffer + character
+                index = index + 1
+        else:
+            buffer = buffer + character
+            index = index + 1
+    output = append_text(output, buffer, string_node)
+    if not found_interpolation:
+        return success(make_string(string_node, text))
+    if output == nil:
+        return success(make_string(string_node, ""))
+    return success(output)
+
+fn implicit_return(statements):
+    if len(statements) == 0:
+        return success(statements)
+    index = len(statements) - 1
+    last = statements[index]
+    kind = last["type"]
+    if kind == "ExprStmt":
+        returned = node("Return", last)
+        returned["value"] = last["expr"]
+        statements[index] = returned
+    elif kind == "If" and last["else_body"] != nil:
+        then_body = implicit_return(last["then_body"])
+        if not then_body["ok"]:
+            return then_body
+        else_body = implicit_return(last["else_body"])
+        if not else_body["ok"]:
+            return else_body
+        last["then_body"] = then_body["value"]
+        last["else_body"] = else_body["value"]
+        statements[index] = last
+    return success(statements)
+
+fn statement(statement_node):
+    kind = statement_node["type"]
+    if kind == "ImportStmt":
+        converted = node(kind, statement_node)
+        converted["module_path"] = statement_node["module_path"]
+        converted["alias"] = statement_node["alias"]
+        return success(converted)
+    if kind == "GlobalStmt" or kind == "NonlocalStmt":
+        converted = node(kind, statement_node)
+        converted["names"] = statement_node["names"]
+        return success(converted)
+    if kind == "Assign":
+        target = statement_node["target"]
+        target_kind = target["type"]
+        value = expression(statement_node["value"])
+        if not value["ok"]:
+            return value
+        if target_kind == "Name":
+            converted_target = expression(target)
+            if not converted_target["ok"]:
+                return converted_target
+            converted = node("Assign", statement_node)
+            converted["target"] = converted_target["value"]
+            converted["value"] = value["value"]
+            return success(converted)
+        if target_kind == "Dot":
+            object = expression(target["obj"])
+            if not object["ok"]:
+                return object
+            call = with_expression(statement_node, "__wsetattr", [object["value"], make_string(statement_node, target["attr"]), value["value"]])
+            converted = node("ExprStmt", statement_node)
+            converted["expr"] = call
+            return success(converted)
+        if target_kind == "Subscript":
+            object = expression(target["obj"])
+            if not object["ok"]:
+                return object
+            index = expression(target["index"])
+            if not index["ok"]:
+                return index
+            call = with_expression(statement_node, "__wsetindex", [object["value"], index["value"], value["value"]])
+            converted = node("ExprStmt", statement_node)
+            converted["expr"] = call
+            return success(converted)
+        return failure_at(statement_node, "unsupported assignment target in desugar: " + target_kind)
+    if kind == "ClassDef":
+        methods = []
+        for method in statement_node["methods"]:
+            converted_method = statement(method)
+            if not converted_method["ok"]:
+                return converted_method
+            methods = methods + [converted_method["value"]]
+        parent = nil
+        if statement_node["parent"] != nil:
+            source_parent = statement_node["parent"]
+            parent = node("ClassRef", source_parent)
+            parent["name"] = source_parent["name"]
+            parent["alias"] = source_parent["alias"]
+            parent["display"] = source_parent["display"]
+        converted = node(kind, statement_node)
+        converted["name"] = statement_node["name"]
+        converted["source_name"] = statement_node["source_name"]
+        converted["methods"] = methods
+        converted["parent"] = parent
+        return success(converted)
+    if kind == "FnDef":
+        body = transformed_block(statement_node["body"])
+        if not body["ok"]:
+            return body
+        returned = implicit_return(body["value"])
+        if not returned["ok"]:
+            return returned
+        parameters = transformed_parameters(statement_node["param_specs"])
+        if not parameters["ok"]:
+            return parameters
+        converted = node(kind, statement_node)
+        converted["name"] = statement_node["name"]
+        converted["source_name"] = statement_node["source_name"]
+        # Preserve the legacy source-form API (required positional parameters
+        # stay strings) while rebuilding its node-valued forms from normalized
+        # specs so defaults receive the same recursive transformation.
+        source_parameters = []
+        for parameter in parameters["value"]:
+            if parameter["type"] == "PositionalParam":
+                source_parameters = source_parameters + [parameter["name"]]
+            else:
+                source_parameters = source_parameters + [parameter]
+        converted["params"] = source_parameters
+        converted["param_specs"] = parameters["value"]
+        converted["body"] = returned["value"]
+        return success(converted)
+    if kind == "Try":
+        body = transformed_block(statement_node["body"])
+        if not body["ok"]:
+            return body
+        handler = transformed_block(statement_node["handler"])
+        if not handler["ok"]:
+            return handler
+        converted = node(kind, statement_node)
+        converted["body"] = body["value"]
+        converted["var"] = statement_node["var"]
+        converted["handler"] = handler["value"]
+        return success(converted)
+    if kind == "Throw" or kind == "Say" or kind == "Return":
+        value = expression(statement_node["value"])
+        if not value["ok"]:
+            return value
+        if kind == "Say":
+            converted = node("ExprStmt", statement_node)
+            converted["expr"] = with_expression(statement_node, "__say", [value["value"]])
+            return success(converted)
+        converted = node(kind, statement_node)
+        converted["value"] = value["value"]
+        return success(converted)
+    if kind == "If":
+        condition = expression(statement_node["cond"])
+        if not condition["ok"]:
+            return condition
+        then_body = transformed_block(statement_node["then_body"])
+        if not then_body["ok"]:
+            return then_body
+        else_body = nil
+        if statement_node["else_body"] != nil:
+            transformed_else = transformed_block(statement_node["else_body"])
+            if not transformed_else["ok"]:
+                return transformed_else
+            else_body = transformed_else["value"]
+        converted = node(kind, statement_node)
+        converted["cond"] = condition["value"]
+        converted["then_body"] = then_body["value"]
+        converted["else_body"] = else_body
+        return success(converted)
+    if kind == "While":
+        condition = expression(statement_node["cond"])
+        if not condition["ok"]:
+            return condition
+        body = transformed_block(statement_node["body"])
+        if not body["ok"]:
+            return body
+        converted = node(kind, statement_node)
+        converted["cond"] = condition["value"]
+        converted["body"] = body["value"]
+        return success(converted)
+    if kind == "For":
+        iterable = expression(statement_node["iter"])
+        if not iterable["ok"]:
+            return iterable
+        body = transformed_block(statement_node["body"])
+        if not body["ok"]:
+            return body
+        converted = node(kind, statement_node)
+        converted["var"] = statement_node["var"]
+        converted["iter"] = iterable["value"]
+        converted["body"] = body["value"]
+        return success(converted)
+    if kind == "ExprStmt":
+        value = expression(statement_node["expr"])
+        if not value["ok"]:
+            return value
+        converted = node(kind, statement_node)
+        converted["expr"] = value["value"]
+        return success(converted)
+    if kind == "Break" or kind == "Continue":
+        return success(node(kind, statement_node))
+    return failure_at(statement_node, "unsupported statement node in desugar: " + kind)
+
+fn expression(expression_node):
+    if expression_node == nil:
+        return success(nil)
+    kind = expression_node["type"]
+    if kind == "Num" or kind == "Bool" or kind == "Nil" or kind == "Name":
+        converted = node(kind, expression_node)
+        if kind == "Num" or kind == "Bool":
+            converted["value"] = expression_node["value"]
+        elif kind == "Name":
+            converted["id"] = expression_node["id"]
+        return success(converted)
+    if kind == "Str":
+        return interpolated_string(expression_node)
+    if kind == "Super":
+        return failure_at(expression_node, "super must be called as super.method(self, ...)")
+    if kind == "List":
+        elements = transformed_list(expression_node["elts"])
+        if not elements["ok"]:
+            return elements
+        converted = node(kind, expression_node)
+        converted["elts"] = elements["value"]
+        return success(converted)
+    if kind == "Map":
+        pairs = transformed_pairs(expression_node["pairs"])
+        if not pairs["ok"]:
+            return pairs
+        converted = node(kind, expression_node)
+        converted["pairs"] = pairs["value"]
+        return success(converted)
+    if kind == "BinOp":
+        left = expression(expression_node["left"])
+        if not left["ok"]:
+            return left
+        right = expression(expression_node["right"])
+        if not right["ok"]:
+            return right
+        return success(make_binary(expression_node, expression_node["op"], left["value"], right["value"]))
+    if kind == "UnOp":
+        operand = expression(expression_node["operand"])
+        if not operand["ok"]:
+            return operand
+        converted = node(kind, expression_node)
+        converted["op"] = expression_node["op"]
+        converted["operand"] = operand["value"]
+        return success(converted)
+    if kind == "Dot":
+        if expression_node["obj"]["type"] == "Super":
+            return failure_at(expression_node, "super must be called as super.method(self, ...)")
+        object = expression(expression_node["obj"])
+        if not object["ok"]:
+            return object
+        return success(with_expression(expression_node, "__wgetattr", [object["value"], make_string(expression_node, expression_node["attr"])]))
+    if kind == "Subscript":
+        object = expression(expression_node["obj"])
+        if not object["ok"]:
+            return object
+        index = expression(expression_node["index"])
+        if not index["ok"]:
+            return index
+        return success(with_expression(expression_node, "__index", [object["value"], index["value"]]))
+    if kind == "Call":
+        function = expression_node["func"]
+        if function["type"] == "Dot" and function["obj"]["type"] == "Super":
+            arguments = transformed_arguments(expression_node["args"])
+            if not arguments["ok"]:
+                return arguments
+            converted = node("SuperCall", expression_node)
+            converted["method"] = function["attr"]
+            converted["args"] = arguments["value"]
+            return success(converted)
+        arguments = transformed_arguments(expression_node["args"])
+        if not arguments["ok"]:
+            return arguments
+        if function["type"] == "Dot":
+            object = expression(function["obj"])
+            if not object["ok"]:
+                return object
+            rewritten = with_expression(expression_node, "__wcall", [object["value"], make_string(expression_node, function["attr"])] + arguments["value"])
+            rewritten["direct_method"] = function["attr"]
+            return success(rewritten)
+        converted_function = expression(function)
+        if not converted_function["ok"]:
+            return converted_function
+        return success(make_call(expression_node, converted_function["value"], arguments["value"]))
+    if kind == "PyImport":
+        module = expression(expression_node["module_expr"])
+        if not module["ok"]:
+            return module
+        converted = node(kind, expression_node)
+        converted["module_expr"] = module["value"]
+        return success(converted)
+    if kind == "JavaImport":
+        class_expression = expression(expression_node["class_expr"])
+        if not class_expression["ok"]:
+            return class_expression
+        converted = node(kind, expression_node)
+        converted["class_expr"] = class_expression["value"]
+        return success(converted)
+    if kind == "SuperCall":
+        arguments = transformed_arguments(expression_node["args"])
+        if not arguments["ok"]:
+            return arguments
+        converted = node(kind, expression_node)
+        converted["method"] = expression_node["method"]
+        converted["args"] = arguments["value"]
+        return success(converted)
+    return failure_at(expression_node, "unsupported expression node in desugar: " + kind)
+
+fn run(program):
+    if program["type"] != "Program":
+        return failure_at(program, "desugar expects Program root")
+    statements = transformed_block(program["stmts"])
+    if not statements["ok"]:
+        return statements
+    converted = node("Program", program)
+    converted["stmts"] = statements["value"]
+    return success(converted)

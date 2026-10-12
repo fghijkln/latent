@@ -666,3 +666,18 @@ fn parse(source, source_id=nil):
     if not tokenized["ok"]:
         return {"ok": false, "tree": nil, "error": tokenized["error"], "line": tokenized["line"], "col": tokenized["col"]}
     return parse_tokens(tokenized["tokens"], source_id)
+
+fn parse_expression_source(source, source_id=nil):
+    tokenized = lexer.lex(source)
+    if not tokenized["ok"]:
+        return {"ok": false, "value": nil, "error": tokenized["error"], "line": tokenized["line"], "col": tokenized["col"]}
+    parser = {"tokens": tokenized["tokens"], "pos": 0, "error": "", "line": 0, "col": 0}
+    try:
+        value = parse_expression(parser)
+        skip_newlines(parser)
+        if current(parser)["kind"] != "EOF":
+            return {"ok": false, "value": nil, "error": "trailing tokens", "line": current(parser)["line"], "col": current(parser)["col"]}
+        tag_source_node(value, source_id)
+        return {"ok": true, "value": value, "error": nil, "line": 0, "col": 0}
+    catch ignored:
+        return {"ok": false, "value": nil, "error": parser["error"], "line": parser["line"], "col": parser["col"]}

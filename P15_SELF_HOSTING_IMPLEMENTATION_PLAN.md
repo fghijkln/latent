@@ -146,3 +146,16 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **里程碑状态：M4 不标记完成。** Parser 语法接受面已覆盖当前仓库语料并补齐此前缺失的 statement families，但 M4 全部 AST 形状/位置的独立覆盖与完整阶段切片门仍未全部验收；M5 脱糖、M6 静态语义、M7 本地模块图/稳定符号身份、M8 完整 Python emitter/runtime、M9 CLI/错误与安全写出均未完成。当前 emitter 对尚无运行时/语义支持的类、导入、异常和 interop 节点仍应 fail closed；Stage1→Stage2→Stage3、fixed point、双根复现、完整 Python-target 对拍和最终 P15 DoD 均未通过或未执行。
 
 - **Stage0 全量结果补记：** 本轮启动的 `python3 tests/run_tests.py` 最终以 exit 0 完成，**259 passed / 0 failed**（含 505 个固定种子性质案例）。该测试运行期间仓库仅修改 P15 `bootstrap/` 实现及 bootstrap 专用 fixture/test/计划记录；Stage0 Python 编译器实现和标准回归输入未改动。此结果证明原有 Stage0 基线通过，不替代以上 15 项 bootstrap 专项验证，也不证明任何完整 stage 自举门禁通过。
+
+
+### 本轮记录：M5 Latent 脱糖器切片（M5 仍未完成）
+
+- 新增 `bootstrap/desugar.lt`，由 Latent 对 parser 当前产生的节点做显式递归转换；结果统一为结构化 `{ok, value, error, line, col, source_id}`，未知语句/表达式节点和不支持的赋值目标均 fail closed。复制和合成节点继承逻辑 `source_id` 与锚定行列；参数 `param_specs` 及 node-valued 的兼容 `params` 默认表达式均递归变换，简单必需形参仍保留字符串形状。
+- 已实现并由 Latent 执行：字符串 `$name` / `${expression}` 插值、`$$` 在包含插值的字符串中的字面转义；`say → __say`；点读取 `Dot → __wgetattr`、直接点调用 `Call(Dot, ...) → __wcall`（含 `direct_method` 提示）；下标读取/写入 `→ __index` / `__wsetindex`、属性写入 `→ __wsetattr`；`super.method(...) → SuperCall` 且滥用的独立 `super` 显式报错；仅函数体末表达式隐式返回，并递归改写末尾带 `else` 的 `if` 两支。循环、容器、运算、函数形参与调用实参、导入、类/父类、异常、global/nonlocal、显式 return、break/continue 和 py/java 前缀均有 traversal 覆盖。
+- `bootstrap/parser.lt` 增加 `parse_expression_source`，用于在 Latent 中解析插值表达式、递归标注 `source_id`，并对词法/语法错误和尾随 token 返回结构化结果；M5 对 malformed/unclosed interpolation、trailing tokens、独立 super、未知节点及错误行列/source ID 有断言。
+- 固定 Stage0 对同一插值/点访问样例的 6 个规范化 AST 签名与 Latent 输出逐项相同，覆盖插值 `say`、dot 读取、dot 调用、下标尾表达式及 `if/else` 两个隐式返回值。仓库现有 bootstrap parser 测试仍逐项比较 286 个 `.lt` 文件的 parser 接受面和拒绝诊断。**这些是结构/AST 对拍，不是脱糖前后生成程序的运行时行为对拍。**
+- **明确未完成：** `bootstrap/compiler.lt` 尚未把脱糖结果接到 `bootstrap/gen_py.lt`；当前 emitter/runtime 不提供这些规范化 helper 的完整语义，因此没有把它接入编译链或声称其生成程序行为一致。`$$` 在没有任何插值表达式的字符串上遵循 Stage0 当前实现的原样字符串快捷路径；M5 的运行时行为、错误诊断全量对拍、标准 IR 消费端与全量语法族验收仍未完成。M5 保持进行中；M4 完整验收、M6–M15 及最终 P15 DoD 仍未完成。
+
+- **M5 聚焦验证：** `python3 -m compileall -q bootstrap tests` 与 `git diff --check` 通过；bootstrap host **6 passed**、smoke **3 passed**、lexer **3 passed**、parser **3 passed**（含 286 个 `.lt` parser corpus 与 6 条 Stage0 M5 AST 签名差分）；账本 checker 报告 **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**。这些检查只确认 M5 脱糖树和 parser/ledger 覆盖，不替代尚待完成的运行期行为对拍或 full bootstrap gates。
+
+- **Stage0 post-change 全量结果：** `python3 tests/run_tests.py` 在本轮代码修改后以 exit 0 完成，**259 passed / 0 failed**，包括 **505** 个固定种子性质案例；本机 Python **3.12.3** / OpenJDK **25.0.4.1**。Bootstrap 聚焦结果见上项。该全量结果验证 Stage0 回归未受影响，不表示 Stage1/2/3、运行期脱糖一致性或完整 Python-target 自举门禁通过；本轮未重跑规划中的 Python 3.11/JDK 17、21 CI 矩阵。

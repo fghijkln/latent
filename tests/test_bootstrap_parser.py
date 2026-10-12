@@ -58,6 +58,42 @@ PARSER_CASES = (
     ("throw requires an expression", "throw\n"),
 )
 
+M5_REFERENCE_SOURCE = (
+    'fn normalized(name, obj, xs):\n'
+    '  say "Hi $$ $name ${1 + 2}"\n'
+    '  obj.item\n'
+    '  obj.work(name)\n'
+    '  xs[0]\n'
+    'fn branch(flag):\n'
+    '  if flag:\n'
+    '    flag\n'
+    '  else:\n'
+    '    9\n'
+)
+
+
+def _m5_expression_signature(node) -> str:
+    kind = type(node).__name__
+    if kind == "Name":
+        return f"Name{{{node.id}}}"
+    if kind == "Str":
+        return f"Str{{{node.value}}}"
+    if kind == "Num":
+        value = node.value
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return f"Num{{{value}}}"
+    if kind == "BinOp":
+        return (f"BinOp({node.op},"
+                f"{_m5_expression_signature(node.left)},"
+                f"{_m5_expression_signature(node.right)})")
+    if kind == "Call":
+        arguments = ",".join(_m5_expression_signature(argument)
+                              for argument in node.args)
+        return (f"Call({_m5_expression_signature(node.func)};"
+                f"{arguments})")
+    raise AssertionError(f"unexpected Stage0 M5 expression node: {kind}")
+
 
 def extract_stage0(destination: Path) -> None:
     archive = subprocess.run(
@@ -106,8 +142,46 @@ class BootstrapParserTests(unittest.TestCase):
                 text=True, encoding="utf-8", capture_output=True, check=False)
             self.assertEqual(executed.returncode, 0,
                              executed.stdout + executed.stderr)
-            self.assertEqual(executed.stdout, "bootstrap parser ok\n")
+            output_lines = executed.stdout.splitlines()
+            latent_signatures = [line.removeprefix("M5SIG|")
+                                 for line in output_lines
+                                 if line.startswith("M5SIG|")]
+            self.assertEqual(latent_signatures,
+                             self._stage0_m5_signatures(stage0))
+            self.assertEqual([line for line in output_lines
+                              if not line.startswith("M5SIG|")],
+                             ["bootstrap parser ok"])
             self.assertEqual(executed.stderr, "")
+
+    def _stage0_m5_signatures(self, stage0: Path) -> list[str]:
+        module_names = ("nodes", "lex", "parse", "desugar")
+        previous_modules = {name: sys.modules.pop(name, None)
+                            for name in module_names}
+        previous_path = list(sys.path)
+        try:
+            sys.path.insert(0, str(stage0))
+            importlib.invalidate_caches()
+            reference_lexer = importlib.import_module("lex")
+            reference_parser = importlib.import_module("parse")
+            reference_desugar = importlib.import_module("desugar")
+            parsed = reference_parser.parse(
+                reference_lexer.lex(M5_REFERENCE_SOURCE))
+            lowered = reference_desugar.desugar(parsed)
+            body = lowered.stmts[0].body
+            return [
+                _m5_expression_signature(body[0].expr),
+                _m5_expression_signature(body[1].expr),
+                _m5_expression_signature(body[2].expr),
+                _m5_expression_signature(body[3].value),
+                _m5_expression_signature(lowered.stmts[1].body[0].then_body[0].value),
+                _m5_expression_signature(lowered.stmts[1].body[0].else_body[0].value),
+            ]
+        finally:
+            sys.path[:] = previous_path
+            for name in module_names:
+                sys.modules.pop(name, None)
+                if previous_modules[name] is not None:
+                    sys.modules[name] = previous_modules[name]
 
     def test_parameter_and_call_forms_match_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-parser-diff-") as temporary:
