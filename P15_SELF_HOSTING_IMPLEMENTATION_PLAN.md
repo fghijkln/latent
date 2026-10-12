@@ -159,3 +159,17 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **M5 聚焦验证：** `python3 -m compileall -q bootstrap tests` 与 `git diff --check` 通过；bootstrap host **6 passed**、smoke **3 passed**、lexer **3 passed**、parser **3 passed**（含 286 个 `.lt` parser corpus 与 6 条 Stage0 M5 AST 签名差分）；账本 checker 报告 **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**。这些检查只确认 M5 脱糖树和 parser/ledger 覆盖，不替代尚待完成的运行期行为对拍或 full bootstrap gates。
 
 - **Stage0 post-change 全量结果：** `python3 tests/run_tests.py` 在本轮代码修改后以 exit 0 完成，**259 passed / 0 failed**，包括 **505** 个固定种子性质案例；本机 Python **3.12.3** / OpenJDK **25.0.4.1**。Bootstrap 聚焦结果见上项。该全量结果验证 Stage0 回归未受影响，不表示 Stage1/2/3、运行期脱糖一致性或完整 Python-target 自举门禁通过；本轮未重跑规划中的 Python 3.11/JDK 17、21 CI 矩阵。
+
+
+### 本轮补充：M5 接线、M6 静态语义增量与 M9 CLI（仍未完成 P15）
+
+> 本节更新并覆盖前文“脱糖尚未接入编译器”“尚无 M6 静态语义层”及“CLI/`--run` 尚未集成”等历史状态描述。它只记录已执行的切片，不改变批准范围，也不将阶段性通过等同于 M5/M6/M8/M9 完成。
+
+- `bootstrap/compiler.lt` 当前执行 **parse → Latent desugar → Latent semant → Latent Python emitter**；语义失败或 emitter fail-closed 均发生在创建输出目录/写 `.py` 之前。parser API 获得调用者提供的 source ID，但当前 CLI 暂以传入的源文件路径（物理路径）作为该 ID；M7 要求的稳定逻辑模块 ID、跨根 source map 与依赖图尚未实现。
+- M5 的 Latent 脱糖器已接入真正编译流程。Stage0/Stage1 运行期对拍覆盖 `$name`/`${expr}` 插值、数值 stringify、函数末表达式隐式返回、列表负索引读取、列表索引写入与输出；Stage0 M5 AST 签名断言继续覆盖 say、dot、call、index、if 两支隐式返回。属性读/调/写目前没有 Python 目标运行时，因此 emitter 明确拒绝，不会发出含未定义 helper 的 Python 程序；py/java import 与 super 也仍 fail closed。故此接线不构成 M5 全量语义验收或 M8 完成。
+- 新增 `bootstrap/semant.lt`，所有规则在 Latent 中实现，不把编译期语义判断移入 host adapter。当前切片覆盖顶层/函数名字解析、直线局部读前赋值、嵌套函数作用域的一部分、循环/try 名称绑定、global/nonlocal 的基础绑定检查、默认参数前向引用、已知函数的直接实参签名绑定，以及内建函数的命名/展开/元数约束。固定 Stage0 对照共 10 个编译期负例：undefined、read-before、函数缺参、重复命名、位置与命名重复赋值、未知命名、内建命名参数/展开/元数、默认参数前向引用；每例比较非零退出、诊断首行（含阶段/行列/消息）并确认失败不创建输出目录。
+- **M6 未完成项：** 目前不完整覆盖全部 v0.13.5 scope/closure 控制流交集、重复定义/完整 global 与 nonlocal 约束、所有 built-in、调用展开的完整静态推理、间接函数值、类/继承与 override 兼容、`super`、Python/Java interop 的静态检查及完整诊断类别/source-map；这些仍须逐项补入和对拍，不能以 10 个负例代表 M6 DoD。
+- CLI 已实现 `-t/--target py`、`-o/--outdir`、`--help`、明确拒绝 `-t java` 和未知 target、拒绝暂缓的诊断 CLI 模式、`--run` 的 stdout/stderr/退出码转发，并修复多点号源文件 stem 只剥离最后扩展名。编译/语义失败不创建输出目录；host 的原子 UTF-8 写入 API 仅负责 OS 写文件。`--run` 成功、程序返回非零、help/target 拒绝和多点号 stem 有 CLI 测试。CLI 仍缺完整 parser/argparse 兼容、隔离 Stage 产物 manifest 与所有失败路径门禁，故 M9 仍未完成。
+- M4 方面，固定 Stage0 parser oracle 当前逐一检查仓库 `bootstrap/`、`tests/`、`cookbook/` 中 286 个 `.lt` 输入的接受/拒绝及拒绝位置/消息；额外语法边界包括 import/declarations/classes/try/throw/参数与调用形态。它证明当前语法接受面语料一致，但并不证明每种节点的完整 AST schema/子节点位置与 Stage0 一致；AST 形状/位置独立覆盖及逻辑身份分离仍是 M4/M7 待办。
+- 本轮验证：最新 smoke `python3 -m unittest discover -s tests -p 'test_bootstrap_smoke.py' -v` **3 passed**（内含 10 个 Stage0 语义诊断对拍与 CLI/fail-closed 场景）；全套 bootstrap 聚焦测试在最近一次完整运行中 **15 passed**，此后仅追加了 fail-closed emitter 分支，且最新 smoke 再次通过；ledger 测试 **3 passed**、checker 为 **243 included / 0 excluded / 291 inventoried paths**；`python3 -m compileall -q bootstrap tests` 与 `git diff --check` 通过。`python3 tests/run_tests.py` exit 0：**259 passed / 0 failed**（其中 505 个固定种子性质案例），用于确认未改动 Stage0 全量双后端基线。
+- **仍未通过或未执行的硬门：** M4 完整 AST 验收；M5/M6/M8/M9 完整验收；M7 本地模块图与稳定逻辑 ID；M10 Stage0→Stage1 完整 Python-target 投影；M11 Stage1→Stage2；M12 Stage2→Stage3 fixed point；M13 双根复现；M14 完整 Python-target 投影逐案零差异；M15 新 CI 自举门禁。当前没有 Stage1→2→3 产物或双根对拍证据，故不能宣布“全部自举准备工作已完成”或 P15 DoD。

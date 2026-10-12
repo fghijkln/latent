@@ -29,6 +29,16 @@ fn sum_positive(values):
             total = total + value
     return total
 
+fn interpolate(name):
+    return "Hi $name / ${1 + 2}"
+
+fn read_last(values):
+    values[-1]
+
+fn mutate_first(values):
+    values[0] = 9
+    values[0]
+
 say "bootstrap smoke"
 say add(40, 2)
 say sum_positive([-2, 3, 6])
@@ -36,6 +46,9 @@ say 1 / 2
 say [true, nil, "line\nnext"]
 say ["quote: \"x\""]
 say {"items": [1, 2]}
+say interpolate("world")
+say read_last([5, 6])
+say mutate_first([1, 2])
 '''
 EXPECTED_STDOUT = r'''bootstrap smoke
 42
@@ -44,6 +57,9 @@ EXPECTED_STDOUT = r'''bootstrap smoke
 [true, nil, "line\nnext"]
 ["quote: \"x\""]
 {"items": [1, 2]}
+Hi world / 3
+6
+9
 '''
 
 
@@ -161,6 +177,93 @@ class BootstrapEmitterTests(unittest.TestCase):
                 rejected.stderr)
             self.assertFalse(malformed_out.exists())
 
+            semantic_cases = (
+                ("undefined", "say missing_name\n", "undefined name 'missing_name'"),
+                ("read-before", "fn bad():\n    say local\n    local = 1\n", "local 'local' read before assignment"),
+                ("call-missing", "fn pair(left, right):\n    return left + right\nsay pair(left=1)\n", "pair() missing required argument 'right'"),
+                ("call-duplicate", "fn pair(left, right):\n    return left + right\nsay pair(left=1, left=2)\n", "got duplicate named argument 'left'"),
+                ("call-multiple", "fn pair(left, right):\n    return left + right\nsay pair(1, left=2)\n", "got multiple values for argument 'left'"),
+                ("call-unknown", "fn pair(left, right):\n    return left + right\nsay pair(left=1, other=2)\n", "got unexpected named argument 'other'"),
+                ("builtin-keyword", "say len(value=[])\n", "built-in function 'len' does not accept named arguments"),
+                ("builtin-unpack", "say len(*[1])\n", "built-in function 'len' does not support argument unpacking"),
+                ("builtin-arity", "say len()\n", "len() takes 1..1 args, got 0"),
+                ("default-forward", "fn bad(first=later, later=2):\n    return first\nsay bad()\n", "default for parameter 'first' cannot reference parameter 'later' before it is bound"),
+            )
+            for name, source, marker in semantic_cases:
+                semantic_fixture = root / f"semantic-{name}.lt"
+                semantic_fixture.write_text(source, encoding="utf-8", newline="\n")
+                stage0_semantic_out = root / f"stage0-semantic-{name}"
+                stage1_semantic_out = root / f"stage1-semantic-{name}"
+                stage0_error = subprocess.run(
+                    [sys.executable, str(stage0 / "latent.py"),
+                     str(semantic_fixture), "-t", "py", "-o",
+                     str(stage0_semantic_out)], cwd=root, env=clean_env,
+                    text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                stage1_error = subprocess.run(
+                    [sys.executable, str(compiler_a), str(semantic_fixture),
+                     "-o", str(stage1_semantic_out)], cwd=root, env=clean_env,
+                    text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                self.assertEqual(stage0_error.returncode, 1)
+                self.assertEqual(stage1_error.returncode, stage0_error.returncode)
+                self.assertEqual(stage1_error.stderr.splitlines()[0],
+                                 stage0_error.stderr.splitlines()[0])
+                self.assertIn(marker, stage1_error.stderr)
+                self.assertFalse(stage0_semantic_out.exists())
+                self.assertFalse(stage1_semantic_out.exists())
+
+            help_result = subprocess.run(
+                [sys.executable, str(compiler_a), "--help"], cwd=root,
+                env=clean_env, text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            self.assertEqual(help_result.returncode, 0)
+            self.assertIn("usage: latent source.lt", help_result.stdout)
+            self.assertEqual(help_result.stderr, "")
+
+            for target in ("java", "ruby"):
+                rejected_target_out = root / f"target-{target}-out"
+                target_result = subprocess.run(
+                    [sys.executable, str(compiler_a), "-t", target,
+                     str(fixture), "-o", str(rejected_target_out)], cwd=root,
+                    env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                self.assertEqual(target_result.returncode, 2)
+                self.assertIn("target '" + target + "' is unsupported",
+                              target_result.stderr)
+                self.assertFalse(rejected_target_out.exists())
+
+            run_out = root / "stage1-run-out"
+            run_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture), "-t", "py",
+                 "--run", "-o", str(run_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(run_result.returncode, 0, run_result.stderr)
+            self.assertTrue(run_result.stdout.startswith("wrote "))
+            self.assertTrue(run_result.stdout.endswith(EXPECTED_STDOUT))
+            self.assertEqual(run_result.stderr, "")
+
+            dotted_source = root / "multi.part.name.lt"
+            dotted_source.write_text('say "dotted stem"\n',
+                                     encoding="utf-8", newline="\n")
+            dotted_out = root / "dotted-out"
+            checked([sys.executable, str(compiler_a), str(dotted_source),
+                     "-o", str(dotted_out)], cwd=root, env=clean_env)
+            self.assertTrue((dotted_out / "multi.part.name.py").is_file())
+
+            runtime_failure = root / "runtime-failure.lt"
+            runtime_failure.write_text("say 1 / 0\n", encoding="utf-8",
+                                      newline="\n")
+            runtime_failure_out = root / "runtime-failure-out"
+            run_failure = subprocess.run(
+                [sys.executable, str(compiler_a), str(runtime_failure),
+                 "--run", "-o", str(runtime_failure_out)], cwd=root,
+                env=clean_env, text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            self.assertEqual(run_failure.returncode, 1)
+            self.assertIn("ZeroDivisionError", run_failure.stderr)
+
     def test_parameter_and_call_nodes_match_fixed_stage0(self):
         fixture_source = r'''fn describe(value, fallback=value + 1, *rest, required, option=fallback + 2, **extra):
     return [value, fallback, rest, required, option, extra]
@@ -238,12 +341,18 @@ say invoke(describe, {"value": 70, "required": 71})
 
     def test_unimplemented_interop_and_super_nodes_fail_closed(self):
         cases = (
-            ('say py "math".sqrt(4)\n', True,
+            ('say py "math"\n', True,
              "Python interop requires the unavailable target runtime"),
             ('say java "java.lang.String"\n', True,
              "Java interop requires the unavailable target runtime"),
+            ("fn read(obj):\n    return obj.field\n", True,
+             "attribute access requires the unavailable target runtime"),
+            ("fn call(obj):\n    return obj.method()\n", True,
+             "attribute access requires the unavailable target runtime"),
+            ("fn write(obj):\n    obj.field = 1\n", True,
+             "attribute access requires the unavailable target runtime"),
             ("say super.method(self)\n", False,
-             "super requires the unavailable class runtime"),
+             "undefined name 'self'"),
         )
         with tempfile.TemporaryDirectory(prefix="p15-emitter-boundary-") as temporary:
             root = Path(temporary)

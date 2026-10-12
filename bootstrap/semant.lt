@@ -1,0 +1,545 @@
+# P15 M6 semantic-analysis slice. Scope/name policy is implemented in Latent.
+# This first slice covers name resolution, straight-line local binding order,
+# top-level declarations, loop control, and effectful expression statements.
+
+fn success(value):
+    return {"ok": true, "value": value, "error": "", "line": 0, "col": 0, "source_id": nil}
+
+fn failure_at(node, message):
+    return {"ok": false, "value": nil, "error": message, "line": node["line"], "col": node["col"], "source_id": node["source_id"]}
+
+fn has(items, target):
+    for item in items:
+        if item == target:
+            return true
+    return false
+
+fn add_unique(items, item):
+    if has(items, item):
+        return items
+    return items + [item]
+
+fn remove_names(items, excluded):
+    kept = []
+    for item in items:
+        if not has(excluded, item):
+            kept = kept + [item]
+    return kept
+
+fn builtin_name(name):
+    return name == "__say" or name == "len" or name == "range" or name == "str" or name == "int" or name == "push" or name == "keys" or name == "__wgetattr" or name == "__wcall" or name == "__index" or name == "__wsetattr" or name == "__wsetindex"
+
+fn map_has(values, wanted):
+    for name in keys(values):
+        if name == wanted:
+            return true
+    return false
+
+fn copy_functions(source, extra):
+    result = {}
+    for name in keys(source):
+        result[name] = source[name]
+    for name in keys(extra):
+        result[name] = extra[name]
+    return result
+
+fn collect_functions(statements, functions):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "FnDef":
+            functions[statement["name"]] = statement
+        elif kind == "If":
+            functions = collect_functions(statement["then_body"], functions)
+            if statement["else_body"] != nil:
+                functions = collect_functions(statement["else_body"], functions)
+        elif kind == "For" or kind == "While":
+            functions = collect_functions(statement["body"], functions)
+        elif kind == "Try":
+            functions = collect_functions(statement["body"], functions)
+            functions = collect_functions(statement["handler"], functions)
+    return functions
+
+fn signature_info(parameters):
+    positional = []
+    fixed = []
+    required = []
+    required_keyword = []
+    rest_name = nil
+    extra_name = nil
+    saw_default = false
+    for parameter in parameters:
+        kind = parameter["type"]
+        name = parameter_name(parameter)
+        if kind == "RestParam":
+            rest_name = name
+        elif kind == "ExtraParam":
+            extra_name = name
+        else:
+            fixed = fixed + [name]
+            if kind == "PositionalParam":
+                positional = positional + [name]
+                if not saw_default:
+                    required = required + [name]
+            elif kind == "DefaultParam":
+                positional = positional + [name]
+                saw_default = true
+            elif kind == "KeywordOnlyParam" and parameter["default"] == nil:
+                required_keyword = required_keyword + [name]
+    return {"positional": positional, "fixed": fixed, "required": required, "required_keyword": required_keyword, "rest": rest_name, "extra": extra_name}
+
+fn builtin_minimum(name):
+    if name == "range":
+        return 1
+    if name == "push" or name == "__wcall":
+        return 2
+    if name == "__wsetattr" or name == "__wsetindex":
+        return 3
+    if name == "__wgetattr" or name == "__index":
+        return 2
+    return 1
+
+fn builtin_maximum(name):
+    if name == "range":
+        return 2
+    if name == "__wcall":
+        return -1
+    if name == "push" or name == "__wsetattr" or name == "__wsetindex":
+        return 3
+    if name == "__wgetattr" or name == "__index":
+        return 2
+    return 1
+
+fn check_arguments(call, parameters, label):
+    info = signature_info(parameters)
+    actuals = call["args"]
+    positional_count = 0
+    has_named = false
+    has_expansion = false
+    has_starstar = false
+    for actual in actuals:
+        kind = actual["type"]
+        if kind == "NamedArg":
+            has_named = true
+        elif kind == "StarArg":
+            has_expansion = true
+        elif kind == "StarStarArg":
+            has_expansion = true
+            has_starstar = true
+        else:
+            positional_count = positional_count + 1
+    capacity = len(info["positional"])
+    if not has_named and not has_expansion:
+        if positional_count > capacity and info["rest"] == nil:
+            return failure_at(call, label + "() takes " + str(capacity) + " args, got " + str(positional_count))
+        if positional_count < len(info["required"]):
+            if len(info["required"]) == capacity:
+                return failure_at(call, label + "() takes " + str(capacity) + " args, got " + str(positional_count))
+            return failure_at(call, label + "() missing required argument '" + info["required"][positional_count] + "'")
+        if len(info["required_keyword"]) > 0:
+            return failure_at(call, label + "() missing required keyword-only argument '" + info["required_keyword"][0] + "'")
+        return success(nil)
+    if positional_count > capacity and info["rest"] == nil:
+        return failure_at(call, label + "() takes " + str(capacity) + " args, got " + str(positional_count))
+    supplied = []
+    slot = 0
+    for parameter_name_value in info["positional"]:
+        if slot < positional_count:
+            supplied = add_unique(supplied, parameter_name_value)
+        slot = slot + 1
+    seen = []
+    for actual in actuals:
+        if actual["type"] == "NamedArg":
+            name = actual["name"]
+            if has(seen, name):
+                return failure_at(actual, label + "() got duplicate named argument '" + name + "'")
+            seen = seen + [name]
+            if not has(info["fixed"], name) and info["extra"] == nil:
+                return failure_at(actual, label + "() got unexpected named argument '" + name + "'")
+            if has(info["fixed"], name) and has(supplied, name):
+                return failure_at(actual, label + "() got multiple values for argument '" + name + "'")
+            if has(info["fixed"], name):
+                supplied = add_unique(supplied, name)
+    if not has_expansion:
+        for name in info["required"]:
+            if not has(supplied, name):
+                return failure_at(call, label + "() missing required argument '" + name + "'")
+    if not has_starstar:
+        for name in info["required_keyword"]:
+            if not has(supplied, name):
+                return failure_at(call, label + "() missing required keyword-only argument '" + name + "'")
+    return success(nil)
+
+fn check_builtin_call(call, name):
+    for actual in call["args"]:
+        if actual["type"] == "NamedArg":
+            return failure_at(call, "built-in function '" + name + "' does not accept named arguments")
+        if actual["type"] == "StarArg" or actual["type"] == "StarStarArg":
+            return failure_at(call, "built-in function '" + name + "' does not support argument unpacking")
+    count = len(call["args"])
+    minimum = builtin_minimum(name)
+    maximum = builtin_maximum(name)
+    if count < minimum or (maximum >= 0 and count > maximum):
+        if maximum < 0:
+            return failure_at(call, name + "() takes " + str(minimum) + "..many args, got " + str(count))
+        return failure_at(call, name + "() takes " + str(minimum) + ".." + str(maximum) + " args, got " + str(count))
+    return success(nil)
+
+fn check_known_call(call, context):
+    function = call["func"]
+    if function["type"] != "Name":
+        return success(nil)
+    name = function["id"]
+    if has(context["locals"], name) or has(context["outer"], name):
+        if map_has(context["local_functions"], name):
+            target = context["local_functions"][name]
+            return check_arguments(call, target["param_specs"], name)
+        return success(nil)
+    if map_has(context["functions"], name):
+        target = context["functions"][name]
+        return check_arguments(call, target["param_specs"], name)
+    shadowed = has(context["globals"], name)
+    if context["top"]:
+        shadowed = has(context["done"], name)
+    if builtin_name(name) and not shadowed:
+        return check_builtin_call(call, name)
+    return success(nil)
+
+fn collect_module_names(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "FnDef" or kind == "ClassDef":
+            names = add_unique(names, statement["name"])
+        elif kind == "ImportStmt":
+            names = add_unique(names, statement["alias"])
+        elif kind == "Assign":
+            target = statement["target"]
+            if target["type"] == "Name":
+                names = add_unique(names, target["id"])
+        elif kind == "For":
+            names = add_unique(names, statement["var"])
+            names = collect_module_names(statement["body"], names)
+        elif kind == "If":
+            names = collect_module_names(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_module_names(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_module_names(statement["body"], names)
+        elif kind == "Try":
+            names = add_unique(names, statement["var"])
+            names = collect_module_names(statement["body"], names)
+            names = collect_module_names(statement["handler"], names)
+    return names
+
+fn collect_locals(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "Assign":
+            target = statement["target"]
+            if target["type"] == "Name":
+                names = add_unique(names, target["id"])
+        elif kind == "ImportStmt":
+            names = add_unique(names, statement["alias"])
+        elif kind == "FnDef" or kind == "ClassDef":
+            names = add_unique(names, statement["name"])
+        elif kind == "For":
+            names = add_unique(names, statement["var"])
+            names = collect_locals(statement["body"], names)
+        elif kind == "If":
+            names = collect_locals(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_locals(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_locals(statement["body"], names)
+        elif kind == "Try":
+            names = add_unique(names, statement["var"])
+            names = collect_locals(statement["body"], names)
+            names = collect_locals(statement["handler"], names)
+    return names
+
+fn collect_scope_names(statements, wanted, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == wanted:
+            for name in statement["names"]:
+                names = add_unique(names, name)
+        elif kind == "FnDef" or kind == "ClassDef":
+            continue
+        elif kind == "If":
+            names = collect_scope_names(statement["then_body"], wanted, names)
+            if statement["else_body"] != nil:
+                names = collect_scope_names(statement["else_body"], wanted, names)
+        elif kind == "For" or kind == "While":
+            names = collect_scope_names(statement["body"], wanted, names)
+        elif kind == "Try":
+            names = collect_scope_names(statement["body"], wanted, names)
+            names = collect_scope_names(statement["handler"], wanted, names)
+    return names
+
+fn parameter_name(parameter):
+    kind = parameter["type"]
+    if kind == "PositionalParam":
+        return parameter["name"]
+    if kind == "DefaultParam" or kind == "RestParam" or kind == "ExtraParam" or kind == "KeywordOnlyParam":
+        return parameter["name"]
+    return ""
+
+fn check_expression(node, context, as_callee):
+    kind = node["type"]
+    if kind == "Num" or kind == "Str" or kind == "Bool" or kind == "Nil":
+        return success(nil)
+    if kind == "Name":
+        name = node["id"]
+        if context["top"]:
+            if has(context["done"], name):
+                return success(nil)
+        else:
+            if has(context["locals"], name):
+                if not has(context["done"], name):
+                    if context["default_for"] != "" and has(context["default_unbound"], name):
+                        return failure_at(node, "default for parameter '" + context["default_for"] + "' cannot reference parameter '" + name + "' before it is bound")
+                    return failure_at(node, "local '" + name + "' read before assignment")
+                return success(nil)
+            if has(context["globals"], name) or has(context["outer"], name):
+                return success(nil)
+        if builtin_name(name):
+            if as_callee:
+                return success(nil)
+            return failure_at(node, "built-in functions are not first-class values")
+        return failure_at(node, "undefined name '" + name + "'")
+    if kind == "List":
+        for child in node["elts"]:
+            checked = check_expression(child, context, false)
+            if not checked["ok"]:
+                return checked
+        return success(nil)
+    if kind == "Map":
+        for pair in node["pairs"]:
+            checked = check_expression(pair["value"], context, false)
+            if not checked["ok"]:
+                return checked
+        return success(nil)
+    if kind == "BinOp":
+        checked = check_expression(node["left"], context, false)
+        if not checked["ok"]:
+            return checked
+        return check_expression(node["right"], context, false)
+    if kind == "UnOp":
+        return check_expression(node["operand"], context, false)
+    if kind == "Call":
+        function = node["func"]
+        if function["type"] == "Name":
+            checked_function = check_expression(function, context, true)
+        else:
+            checked_function = check_expression(function, context, false)
+        if not checked_function["ok"]:
+            return checked_function
+        for argument in node["args"]:
+            argument_kind = argument["type"]
+            if argument_kind == "NamedArg" or argument_kind == "StarArg" or argument_kind == "StarStarArg":
+                checked = check_expression(argument["value"], context, false)
+            else:
+                checked = check_expression(argument, context, false)
+            if not checked["ok"]:
+                return checked
+        return check_known_call(node, context)
+    if kind == "Dot":
+        return check_expression(node["obj"], context, false)
+    if kind == "Subscript":
+        checked = check_expression(node["obj"], context, false)
+        if not checked["ok"]:
+            return checked
+        return check_expression(node["index"], context, false)
+    if kind == "PyImport":
+        return check_expression(node["module_expr"], context, false)
+    if kind == "JavaImport":
+        return check_expression(node["class_expr"], context, false)
+    if kind == "SuperCall":
+        for argument in node["args"]:
+            if argument["type"] == "NamedArg" or argument["type"] == "StarArg" or argument["type"] == "StarStarArg":
+                checked = check_expression(argument["value"], context, false)
+            else:
+                checked = check_expression(argument, context, false)
+            if not checked["ok"]:
+                return checked
+        return success(nil)
+    if kind == "Super":
+        return failure_at(node, "super must be called as super.method(self, ...)")
+    return failure_at(node, "unsupported expression node in semantic analysis: " + kind)
+
+fn check_block(statements, context, in_loop):
+    for statement in statements:
+        checked = check_statement(statement, context, in_loop)
+        if not checked["ok"]:
+            return checked
+    return success(nil)
+
+fn check_statement(node, context, in_loop):
+    kind = node["type"]
+    if kind == "ImportStmt" or kind == "GlobalStmt" or kind == "NonlocalStmt":
+        if context["top"] and kind == "ImportStmt":
+            context["done"] = add_unique(context["done"], node["alias"])
+        elif kind == "ImportStmt":
+            context["locals"] = add_unique(context["locals"], node["alias"])
+            context["done"] = add_unique(context["done"], node["alias"])
+        return success(nil)
+    if kind == "FnDef" or kind == "ClassDef":
+        if context["top"]:
+            return success(nil)
+        context["done"] = add_unique(context["done"], node["name"])
+        outer = context["outer"] + context["locals"]
+        return check_function(node, context["globals"], outer, context["functions"])
+    if kind == "Assign":
+        value_result = check_expression(node["value"], context, false)
+        if not value_result["ok"]:
+            return value_result
+        target = node["target"]
+        if target["type"] == "Name":
+            if context["top"]:
+                context["done"] = add_unique(context["done"], target["id"])
+            elif has(context["locals"], target["id"]):
+                context["done"] = add_unique(context["done"], target["id"])
+        else:
+            target_result = check_expression(target, context, false)
+            if not target_result["ok"]:
+                return target_result
+        return success(nil)
+    if kind == "If":
+        condition_result = check_expression(node["cond"], context, false)
+        if not condition_result["ok"]:
+            return condition_result
+        then_result = check_block(node["then_body"], context, in_loop)
+        if not then_result["ok"]:
+            return then_result
+        if node["else_body"] != nil:
+            return check_block(node["else_body"], context, in_loop)
+        return success(nil)
+    if kind == "While":
+        condition_result = check_expression(node["cond"], context, false)
+        if not condition_result["ok"]:
+            return condition_result
+        return check_block(node["body"], context, in_loop + 1)
+    if kind == "For":
+        iterable_result = check_expression(node["iter"], context, false)
+        if not iterable_result["ok"]:
+            return iterable_result
+        context["done"] = add_unique(context["done"], node["var"])
+        if not context["top"]:
+            context["locals"] = add_unique(context["locals"], node["var"])
+        return check_block(node["body"], context, in_loop + 1)
+    if kind == "Try":
+        body_result = check_block(node["body"], context, in_loop)
+        if not body_result["ok"]:
+            return body_result
+        context["done"] = add_unique(context["done"], node["var"])
+        if not context["top"]:
+            context["locals"] = add_unique(context["locals"], node["var"])
+        return check_block(node["handler"], context, in_loop)
+    if kind == "ExprStmt":
+        expression_result = check_expression(node["expr"], context, false)
+        if not expression_result["ok"]:
+            return expression_result
+        expression_kind = node["expr"]["type"]
+        if expression_kind != "Call" and expression_kind != "SuperCall":
+            return failure_at(node, "expression statement does nothing; did you mean to call it or 'say' it?")
+        return success(nil)
+    if kind == "Say" or kind == "Throw":
+        return check_expression(node["value"], context, false)
+    if kind == "Return":
+        if context["top"]:
+            return failure_at(node, "return outside function")
+        if node["value"] == nil:
+            return success(nil)
+        return check_expression(node["value"], context, false)
+    if kind == "Break" or kind == "Continue":
+        if in_loop == 0:
+            if kind == "Break":
+                return failure_at(node, "break outside loop")
+            return failure_at(node, "continue outside loop")
+        return success(nil)
+    return failure_at(node, "unexpected statement node in semantic analysis: " + kind)
+
+fn check_function(node, module_names, outer_names, function_map):
+    parameters = node["param_specs"]
+    parameter_names = []
+    for parameter in parameters:
+        name = parameter_name(parameter)
+        if has(parameter_names, name):
+            return failure_at(node, "duplicate parameter in '" + node["name"] + "'")
+        parameter_names = parameter_names + [name]
+    locals = collect_locals(node["body"], [])
+    global_names = collect_scope_names(node["body"], "GlobalStmt", [])
+    nonlocal_names = collect_scope_names(node["body"], "NonlocalStmt", [])
+    for name in global_names:
+        if has(parameter_names, name):
+            return failure_at(node, "parameter '" + name + "' cannot be global")
+    for name in nonlocal_names:
+        if has(parameter_names, name):
+            return failure_at(node, "parameter '" + name + "' cannot be nonlocal")
+    for name in global_names:
+        if not has(module_names, name):
+            return failure_at(node, "global name '" + name + "' is not declared at module scope")
+    for name in nonlocal_names:
+        if not has(outer_names, name):
+            return failure_at(node, "no binding for nonlocal '" + name + "' found in enclosing functions")
+    for name in global_names:
+        locals = remove_names(locals, [name])
+    for name in nonlocal_names:
+        locals = remove_names(locals, [name])
+    locals = locals + parameter_names
+    nested_functions = collect_functions(node["body"], {})
+    functions = copy_functions(function_map, nested_functions)
+    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "default_for": "", "default_unbound": []}
+    bound = []
+    parameter_index = 0
+    for parameter in parameters:
+        kind = parameter["type"]
+        if kind == "DefaultParam" or (kind == "KeywordOnlyParam" and parameter["default"] != nil):
+            unbound = []
+            later = parameter_index
+            while later < len(parameters):
+                unbound = unbound + [parameter_name(parameters[later])]
+                later = later + 1
+            context["done"] = bound
+            context["default_for"] = parameter_name(parameter)
+            context["default_unbound"] = unbound
+            default_result = check_expression(parameter["default"], context, false)
+            if not default_result["ok"]:
+                return default_result
+        bound = bound + [parameter_name(parameter)]
+        context["done"] = parameter_names
+        context["default_for"] = ""
+        context["default_unbound"] = []
+        parameter_index = parameter_index + 1
+    return check_block(node["body"], context, 0)
+
+fn check_definitions(statements, module_names, outer_names, function_map):
+    for node in statements:
+        kind = node["type"]
+        if kind == "FnDef":
+            checked = check_function(node, module_names, outer_names, function_map)
+            if not checked["ok"]:
+                return checked
+        elif kind == "ClassDef":
+            for method in node["methods"]:
+                checked = check_function(method, module_names, outer_names, function_map)
+                if not checked["ok"]:
+                    return checked
+    return success(nil)
+
+fn check(tree):
+    if tree["type"] != "Program":
+        return failure_at(tree, "unsupported root node in semantic analysis: " + tree["type"])
+    module_names = collect_module_names(tree["stmts"], [])
+    function_map = collect_functions(tree["stmts"], {})
+    definitions = check_definitions(tree["stmts"], module_names, [], function_map)
+    if not definitions["ok"]:
+        return definitions
+    visible = []
+    for node in tree["stmts"]:
+        if node["type"] == "FnDef" or node["type"] == "ClassDef":
+            visible = add_unique(visible, node["name"])
+    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map}
+    checked = check_block(tree["stmts"], context, 0)
+    if not checked["ok"]:
+        return checked
+    return success(tree)

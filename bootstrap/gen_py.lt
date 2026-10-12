@@ -98,6 +98,10 @@ fn emit_expression(node):
     if kind == "Nil":
         return result("None")
     if kind == "Name":
+        if node["id"] == "str":
+            return result("_lt_bootstrap_str")
+        if node["id"] == "__wgetattr" or node["id"] == "__wcall" or node["id"] == "__wsetattr":
+            return failure("attribute access requires the unavailable target runtime")
         return result(node["id"])
     if kind == "BinOp":
         left = emit_expression(node["left"])
@@ -153,6 +157,8 @@ fn emit_expression(node):
     if kind == "JavaImport":
         return failure("Java interop requires the unavailable target runtime")
     if kind == "Super":
+        return failure("super requires the unavailable class runtime")
+    if kind == "SuperCall":
         return failure("super requires the unavailable class runtime")
     return failure("unsupported expression node: " + kind)
 
@@ -329,6 +335,18 @@ fn runtime_prelude():
     output = output + "_lt_bootstrap_missing = _LtBootstrapFunction.MISSING\n"
     output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
     output = output + "def _lt_bootstrap_say(value):\n    print(_lt_bootstrap_repr(value))\n\n"
+    output = output + "def _lt_bootstrap_str(value):\n    return _lt_bootstrap_repr(value)\n\n"
+    output = output + "def _lt_bootstrap_index(value, key):\n"
+    output = output + "    if isinstance(value, (list, str)):\n"
+    output = output + "        if isinstance(key, bool) or not isinstance(key, (int, float)) or int(key) != key:\n            raise TypeError('index must be an integer')\n"
+    output = output + "        index = int(key)\n        if index < 0:\n            index += len(value)\n        if index < 0 or index >= len(value):\n            raise IndexError('index out of range: ' + str(int(key)))\n        return value[index]\n"
+    output = output + "    if isinstance(value, dict):\n        if key not in value:\n            raise KeyError('key not found: ' + _lt_bootstrap_repr(key))\n        return value[key]\n"
+    output = output + "    raise TypeError('cannot index ' + _lt_bootstrap_repr(value))\n\n"
+    output = output + "def _lt_bootstrap_wsetindex(value, key, item):\n"
+    output = output + "    if isinstance(value, list):\n        if isinstance(key, bool) or not isinstance(key, (int, float)) or int(key) != key:\n            raise TypeError('index must be an integer')\n        index = int(key)\n        if index < 0:\n            index += len(value)\n        if index < 0 or index >= len(value):\n            raise IndexError('index out of range: ' + str(int(key)))\n        value[index] = item\n        return None\n"
+    output = output + "    if isinstance(value, dict):\n        value[key] = item\n        return None\n"
+    output = output + "    raise TypeError('cannot index-assign ' + _lt_bootstrap_repr(value))\n\n"
+    output = output + "__say = _lt_bootstrap_say\n__index = _lt_bootstrap_index\n__wsetindex = _lt_bootstrap_wsetindex\n"
     return output
 
 fn generate(tree):

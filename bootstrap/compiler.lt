@@ -1,29 +1,49 @@
 # P15 first Python emitter slice. The parser and emitter remain Latent modules;
 # this entry point only coordinates their results with the thin OS adapter.
 import "parser.lt" as parser
+import "desugar.lt" as desugar
+import "semant.lt" as semant
 import "gen_py.lt" as gen_py
 host = py "latent_host"
 
 fn source_stem(path):
     name = host.path_basename(path)
-    stem = ""
+    index = 0
+    last_dot = -1
     for ch in name:
         if ch == ".":
-            break
-        stem = stem + ch
+            last_dot = index
+        index = index + 1
+    if last_dot < 0:
+        return name
+    stem = ""
+    index = 0
+    while index < last_dot:
+        stem = stem + name[index]
+        index = index + 1
     return stem
 
-fn compile_one(source_path, output_dir):
+fn compile_one(source_path, output_dir, run_after):
     read_result = host.read_utf8(source_path)
     if not read_result["ok"]:
         host.stderr(source_path + ": input error: " + read_result["error"] + "\n")
         return 1
-    parsed = parser.parse(read_result["value"])
+    parsed = parser.parse(read_result["value"], source_path)
     if not parsed["ok"]:
         message = source_path + ":" + str(parsed["line"]) + ":" + str(parsed["col"])
         host.stderr(message + ": parse error: " + parsed["error"] + "\n")
         return 1
-    generated = gen_py.generate(parsed["tree"])
+    lowered = desugar.run(parsed["tree"])
+    if not lowered["ok"]:
+        message = source_path + ":" + str(lowered["line"]) + ":" + str(lowered["col"])
+        host.stderr(message + ": desugar error: " + lowered["error"] + "\n")
+        return 1
+    checked = semant.check(lowered["value"])
+    if not checked["ok"]:
+        message = source_path + ":" + str(checked["line"]) + ":" + str(checked["col"])
+        host.stderr(message + ": semant error: " + checked["error"] + "\n")
+        return 1
+    generated = gen_py.generate(lowered["value"])
     if not generated["ok"]:
         host.stderr(source_path + ": codegen error: " + generated["error"] + "\n")
         return 1
@@ -37,22 +57,46 @@ fn compile_one(source_path, output_dir):
         host.stderr(output_path + ": output error: " + write_result["error"] + "\n")
         return 1
     host.stdout("wrote " + output_path + "\n")
+    if run_after:
+        execution = host.run_python(output_path)
+        if not execution["ok"]:
+            host.stderr("error: failed to run generated program: " + execution["error"] + "\n")
+            return execution["returncode"]
+        host.stdout(execution["stdout"])
+        host.stderr(execution["stderr"])
+        return execution["returncode"]
     return 0
 
 fn main():
     args = host.argv()
     if len(args) == 0:
-        host.stderr("usage: latent source.lt [-o OUTDIR]\n")
+        host.stderr("usage: latent source.lt [-t py] [-o OUTDIR] [--run]\n")
         return 2
     source_path = ""
     output_dir = "build/py"
+    target = "py"
+    run_after = false
     take_output = false
+    take_target = false
     for arg in args:
         if take_output:
             output_dir = arg
             take_output = false
-        elif arg == "-o":
+        elif take_target:
+            target = arg
+            take_target = false
+        elif arg == "--help" or arg == "-h":
+            host.stdout("usage: latent source.lt [-t py] [-o OUTDIR] [--run]\n")
+            return 0
+        elif arg == "-o" or arg == "--outdir":
             take_output = true
+        elif arg == "-t" or arg == "--target":
+            take_target = true
+        elif arg == "--run":
+            run_after = true
+        elif arg == "--show-ast" or arg == "--show-desugar" or arg == "--editor-metadata":
+            host.stderr("error: diagnostic options are not supported by the bootstrap compiler\n")
+            return 2
         elif source_path == "":
             source_path = arg
         else:
@@ -61,9 +105,15 @@ fn main():
     if take_output:
         host.stderr("error: -o requires a directory\n")
         return 2
+    if take_target:
+        host.stderr("error: -t requires a target\n")
+        return 2
+    if target != "py":
+        host.stderr("error: target '" + target + "' is unsupported; only 'py' is available\n")
+        return 2
     if source_path == "":
         host.stderr("error: source path is required\n")
         return 2
-    return compile_one(source_path, output_dir)
+    return compile_one(source_path, output_dir, run_after)
 
 host.exit_process(main())
