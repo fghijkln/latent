@@ -73,6 +73,21 @@ class HostContractTests(unittest.TestCase):
             self.assertEqual(host.read_utf8(root)["error"], "is-directory")
             self.assertTrue(host.make_dirs(os.path.join(root, "nested"))["ok"])
 
+    def test_invalid_utf8_maps_to_stable_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            invalid = Path(root, "invalid.lt")
+            invalid.write_bytes(b"\xff\xfe")
+            self.assertEqual(host.read_utf8(str(invalid)), {
+                "ok": False, "value": "", "error": "invalid-utf8"})
+
+    @unittest.skipUnless(os.name == "posix", "ENOTDIR mapping is POSIX-specific")
+    def test_non_directory_parent_maps_to_stable_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            parent = Path(root, "plain-file")
+            parent.write_text("not a directory\n", encoding="utf-8")
+            self.assertEqual(host.read_utf8(str(parent / "child.lt")), {
+                "ok": False, "value": "", "error": "not-a-directory"})
+
     def test_relpath_preserves_cross_drive_absolute_candidate(self):
         candidate = r"C:\outside\main.lt"
         project_root = r"D:\project"

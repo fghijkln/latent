@@ -325,3 +325,5 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **可复现性改进：** Stage1 编译器从两个彼此独立的 cwd、对同一显式 `--source-root` 模块项目编译，产物目录逐文件 bytes 相同，生成程序可从外部 cwd 正常运行。另从输出目录以外的 cwd 执行 `--run` 编译 `java_basic.lt`，确认 Java sidecars 自动通过 `javac` 编译，CLI stdout/stderr 与直接运行生成 Python 的结果相符。
 - **CI 复核：** `.github/workflows/tests.yml` 保持 `contents: read`；bootstrap normalized report artifact 用 `if: always()`、无文件时忽略并保留 14 天。DevSkim 的 `security-events: write` 仅用于上传 SARIF。本轮未发现需调整的 workflow 权限或 artifact 配置。
 - **验证：** Host contract **14/14**；ledger/projection checker **8/8**；fixed-Stage0 parser **4/4**；emitter/CLI/standalone/Java-sidecar focused smoke **1/1**；完整 Stage0 双后端 **259/259**；单根 Stage0→Stage3 projection 为 **243 case IDs、244/244 fixtures、505/505 properties、0 mismatch**，且 Stage2/Stage3 bytes 相等。Python compileall、`git diff --check` 与全量父环境展开扫描均通过。此前 34 个 bootstrap_* 测试也通过；需要说明：当时筛除 dual-root 测试的过滤器误带了 `tests.` 前缀，unittest 实际 ID 不含该前缀，因此该 34 项中包含并意外重跑了已完成的 dual-root 用例。发现后已即时告知用户，之后没有再次执行双根 clone 测试；本轮投影为单根构建。
+
+- **诊断覆盖追加：** Host contract 新增 invalid UTF-8 → `invalid-utf8` 与 POSIX 文件作为父路径 → `not-a-directory` 回归；运行结果 **16/16**。这是仅补测试/文档的后续小提交，不改生产逻辑或重新运行 bootstrap/dual-root gate。
