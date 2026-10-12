@@ -1,6 +1,6 @@
 # Latent 自托管编译器实施计划（P15）
 
-> **状态：** M13 双完整检出修复已在本机及推送提交 `a486fefd26c74c2ef45ca1e1001df5a56d989e8d` 上验收：bootstrap 28/28、Stage0 基线 259/259，Tests 四个 job、DevSkim 与 CodeQL 均通过。该 CI 明确警告 `ubuntu-latest` 将于 2026-10-19 迁移到 Ubuntu 26；为避免运行环境漂移，Tests/DevSkim 四个显式 runner 已固定至 `ubuntu-24.04`，当前等待该固定环境下的 CI 复验。用户授权实施、测试并推送；不包括创建 tag/Release 或修改 main 分支保护。范围仍为 Python 宿主上的可复现自托管 bootstrap，不声称 native 或 host-independent。
+> **状态：** M13 双完整检出修复已在本机及远端完整验证：clean-clone bootstrap 28/28、Stage0 基线 259/259；随后 Tests、DevSkim、CodeQL 在提交 `a486fef` 上通过。针对该运行给出的 `ubuntu-latest` 迁移警告，已将 Tests/DevSkim 全部显式 runner 固定为 `ubuntu-24.04`；推送提交 `7e5ec58291d8f6657d566fa1948fc7113df1a77b` 后，Tests 四个 job、DevSkim、CodeQL 再次全部 success。P15 仍限定为 Python-hosted 可复现 bootstrap，不声称 native/host-independent；不创建 tag/Release 或修改 main 分支保护。
 >
 > **依据：** [P15 自举设计提案](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md)。本计划落实该提案已批准的首期范围，不重新扩大或缩小范围。
 >
@@ -278,18 +278,18 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - `tests/bootstrap/project_stage0.py` 已从固定 Stage0 构建 Stage1/2/3，并对账本所有 **243 included / 0 excluded / 291 inventoried paths** 执行 **244** 个 fixture 调用（**71** 正例、**88** 编译负例、**85** 运行负例）和 **505** 个固定种子性质用例；逐项比较 Stage0/1/2 的状态、stdout/stderr、编译诊断/源码位置及运行错误位置。最新报告为 **244/244 fixture 匹配、505/505 性质匹配、0 runner/property/artifact mismatch**；Stage1/2/3 均无缺少或额外产物，Stage2/Stage3 声明文件 bytes 相等。Stage1 初始 seed emission 仅临时隐藏 `javac`，避免固定 Stage0 的 eager `.class` 缓存进入清单；必需 Java `.java` sidecars 保留，JDK-backed interop fixtures 照常运行。
 - `bootstrap/latent_host.py` 显式声明精确 `__all__` API allowlist，host contract 新增对公开函数集合的断言。双根 fixed-point 测试从同一 HEAD 创建两份完整 clean Git clone，核验 HEAD、空 Git status 和全部 tracked paths；删除各根 Stage0 seed 后再由 Stage1 编译 Stage2，空 `PYTHONPATH`，各阶段输出均置于两根之外。快照排除 `.git`，但覆盖每根的全部其他路径、根目录本身、条目类型、权限、mtime、文件内容、symlink 与特殊节点。
 - 本机验证：`python3 tests/run_tests.py` **259 passed / 0 failed**；最新 host/smoke/lexer/parser bootstrap suite **28 passed / 0 failed**（含 Stage1→2→3 fixed point、双绝对根和源码树只读断言）；Stage0/1/2 projector **243 case IDs / 244 fixture invocations / 505 properties 全部零差异**，stage artifact mismatch **0**；ledger checker 与其 **3 项**测试、Python syntax checks、`git diff --check` 均通过。本机为 Python **3.12.3** / OpenJDK **25.0.4.1**。
-- **远端最终验收（M13 修复提交）：** GitHub `Tests` run [38296512999](https://github.com/fghijkln/latent/actions/runs/38296512999) 对提交 `a486fefd26c74c2ef45ca1e1001df5a56d989e8d` 返回 **success**；4 个 job 全部通过，其中 P15 clean-clone fixed-point 门、ledger、host contract、lexer/parser、全量 Stage0/1/2 projection 与报告上传均成功，Python 3.11/JDK 17 和 21 回归及 VS Code extension 也通过。DevSkim [38296511854](https://github.com/fghijkln/latent/actions/runs/38296511854) 与 CodeQL [38296509557](https://github.com/fghijkln/latent/actions/runs/38296509557) 同样成功。后续 `ubuntu-24.04` runner pin 复验待完成。
+- **远端最终验收（clean clone + Ubuntu 24.04）：** GitHub `Tests` run [38298754644](https://github.com/fghijkln/latent/actions/runs/38298754644) 对提交 `7e5ec58291d8f6657d566fa1948fc7113df1a77b` 返回 **success**；四个 job 均通过，包括 P15 clean-clone 固定点/账本/全量投影门、Python 3.11/JDK 17 与 21 回归和 VS Code extension。DevSkim [38298754485](https://github.com/fghijkln/latent/actions/runs/38298754485) 与 CodeQL [38298754329](https://github.com/fghijkln/latent/actions/runs/38298754329) 同样成功。
 - **DoD 结论：** M10–M15 的本地与干净 checkout CI 门均通过；全量 Python-target 投影零差异、Stage2/3 固定点与双根复现逐字节一致、原有双后端回归保持通过、全部排除项具备范围理由。P15 首期可标记 **Done**；不扩大到 native、host-independent 或计划外功能。
 
 - **M14 账本报告补充（最终投影已验证）：** CI JSON 现分别列出 runner 用例 **243/0**（included/excluded）、fixture 路径 **285/6**（共 291 项）、辅助测试路径 **11/2**、P14 协议操作 **2/1**，并逐项记录全部 9 个明确排除项的理由。3 个 Java-only host helper 源文件虽不作为 Latent 输入 fixture 计入，但仍由纳入的 Python-target interop/property 用例编译和使用。报告 schema 扩展后的完整投影再次通过：244/244 fixture、505/505 property，Stage2→Stage3 及 artifact 门均零差异。
 
 
-### 2026-10-13 追加审计：M13 双完整检出通过；runner pin 重验进行中
+### 2026-10-13 追加审计：M13 clean-clone 与 Ubuntu 24.04 runner 验收通过
 
 - **审计发现：** 原固定点测试的第二个根目录仅复制 `bootstrap/`，故虽有 Stage2/3 字节一致结果，却不足以证明 M13 所要求的两个完整 checkout 路径可复现。历史 CI run `38285571371` 和最新的 `38287288939` 均运行了这一旧测试；两次绿色结果都不作为完整 checkout 证据。M13 已重新开放。
 - **测试修复：** `tests/test_bootstrap_smoke.py` 现在从同一当前 Git HEAD 创建两个独立的完整本地 clone，核验二者 HEAD 相同、所有 `git ls-files` 路径均存在，并要求两个 clone 的 `git status --porcelain` 为空；不覆盖调用方工作树，确保二者都是记录提交的干净检出。Stage0 archive 每根独立提取；Stage1→2→3 源码来自对应完整根，Stage0 在 Stage1 编译 Stage2 前删除；Stage 输出位于两根之外。构建前后对所有非 `.git` 项（类型、权限模式、`mtime_ns`、文件内容、符号链接目标、目录/特殊节点）做 SHA-256 快照，以每个 clone 自己的构建前快照作为基线，要求整个构建期间不产生任何持久写入。产物按递归相对路径生成 manifest，精确拒绝缺失/多余文件、目录或链接，并同时比较每根 Stage2==Stage3 以及两根 Stage2/Stage3 的 manifest 与原始 bytes。固定点子进程设 `PYTHONPATH=''`、`enable_mcp=false`；对应 CI bootstrap job 也在 job 级别显式设置 `enable_mcp: "false"`。
 - **本机证据：** 提交 `3c23a2323efe1fd658ad74026e6d14b146a32176` 上的最终 bootstrap host/smoke/lexer/parser suite 通过 **28/28**（456.119 秒）。报告确认 checkout-a/b HEAD 同为该提交；各自 `git status --porcelain` 为空，372 个 tracked paths / **432** 个快照项完整，跨根类型/权限/内容一致，每根构建前后含 `mtime_ns` 的快照一致。两根内 Stage2==Stage3、跨根 Stage2/Stage3 的 manifest 和原始 bytes 均一致、差异为零；Stage2/3 仅有 5 个声明文件，无多余项。
-- **后续门禁状态：** 同一实现提交上的 Stage0 全量双后端基线通过 **259/259**；Stage0→1/2 projector 对 **243** 个账本 case ID / **244** 个 fixture / **505** 个 properties 零差异，账本 243 included、0 excluded，checker 3 项测试通过。本机为 Python 3.12.3 / OpenJDK 25.0.4.1。GitHub Tests run [38296512999](https://github.com/fghijkln/latent/actions/runs/38296512999)、DevSkim [38296511854](https://github.com/fghijkln/latent/actions/runs/38296511854)、CodeQL [38296509557](https://github.com/fghijkln/latent/actions/runs/38296509557) 均对 `a486fef` 成功；现对 `ubuntu-24.04` runner pin 执行复验。
+- **后续门禁状态：** 同一实现提交上的 Stage0 全量双后端基线通过 **259/259**；Stage0→1/2 projector 的 **243** 个账本 case ID / **244** 个 fixture / **505** 个 properties 零差异，ledger 243 included、0 excluded，checker 3 项测试通过。本机 Python 3.12.3 / OpenJDK 25.0.4.1。首次修复后 Tests [38296512999](https://github.com/fghijkln/latent/actions/runs/38296512999)、DevSkim 及 CodeQL 均成功；runner pin 后三项在 `7e5ec58` 上再次成功。
 
 
 ### 2026-10-13 追加复核：源树快照内容与元数据完整性（clean clone 已通过）
@@ -297,6 +297,6 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - 最终 diff 复核发现原快照把目录编码成固定字节 `b"<directory>"`，可能与同路径文件内容碰撞，且会跳过 FIFO/socket 等特殊节点；仅 hash 内容也看不出内容不变的 touch 或 checkout 根目录中新建再删除的路径。最终实现把每个条目的类型、权限模式、`mtime_ns` 及文件内容/符号链接目标/特殊节点类型纳入摘要，并包括根目录本身。
 - 回归探针仅在临时目录验证文件/目录类型碰撞和内容不变的持久 touch；最终 28/28 suite 已在无 overlay 的 clean clones 上通过。报告的 `both_git_worktrees_clean`、`both_checkouts_content_mode_identical`、`working_tree_write_free` 均为 true；各根 Stage2/3 与跨根 Stage2/3 manifest/bytes 的 file differences 均为空。
 
-### 2026-10-13 追加审计：固定 GitHub Actions Ubuntu runner
+### 2026-10-13 追加审计：固定 GitHub Actions Ubuntu runner（复验通过）
 - Tests run `38296512999` emitted GitHub’s annotation that `ubuntu-latest` will move to Ubuntu 26 on 2026-10-19. Repository inspection found three declarations in `.github/workflows/tests.yml` and one in `.github/workflows/devskim.yml`. All four are now pinned to `ubuntu-24.04`; no explicit `ubuntu-latest` remains in `.github/workflows/`.
-- `actionlint` v1.7.12 passed both changed workflow files locally. The runner-pin changes are not yet pushed; their GitHub CI result remains pending.
+- `actionlint` v1.7.12 passed `.github/workflows/tests.yml` 与 `.github/workflows/devskim.yml`；显式 runner 均固定到 `ubuntu-24.04`。Pinned-runner Tests/DevSkim/CodeQL 分别由 run `38298754644` / `38298754485` / `38298754329` 验证成功，未见 ubuntu-latest 迁移 annotation。
