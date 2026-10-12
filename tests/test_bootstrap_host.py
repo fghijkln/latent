@@ -80,6 +80,16 @@ class HostContractTests(unittest.TestCase):
             self.assertEqual(host.read_utf8(str(invalid)), {
                 "ok": False, "value": "", "error": "invalid-utf8"})
 
+    def test_permission_and_io_errors_map_to_stable_codes(self):
+        for error_type, expected in (
+                (PermissionError, "permission-denied"),
+                (OSError, "io-error")):
+            with self.subTest(error=expected):
+                with patch("builtins.open", side_effect=error_type("blocked")):
+                    result = host.read_utf8("unused.lt")
+                self.assertEqual(result, {
+                    "ok": False, "value": "", "error": expected})
+
     @unittest.skipUnless(os.name == "posix", "ENOTDIR mapping is POSIX-specific")
     def test_non_directory_parent_maps_to_stable_error(self):
         with tempfile.TemporaryDirectory() as root:
