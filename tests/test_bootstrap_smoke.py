@@ -221,7 +221,17 @@ class BootstrapEmitterTests(unittest.TestCase):
                 capture_output=True, check=False)
             self.assertEqual(help_result.returncode, 0)
             self.assertIn("usage: latent source.lt", help_result.stdout)
+            self.assertIn("--source-root ROOT", help_result.stdout)
             self.assertEqual(help_result.stderr, "")
+
+            missing_root = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture),
+                 "--source-root"], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(missing_root.returncode, 2)
+            self.assertIn("--source-root requires a directory",
+                          missing_root.stderr)
 
             for target in ("java", "ruby"):
                 rejected_target_out = root / f"target-{target}-out"
@@ -497,6 +507,46 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertEqual(generated,
                              (stage1_repeat / "main.py").read_bytes())
             self.assertNotIn(str(module_project).encode("utf-8"), generated)
+
+            rooted_outputs = []
+            for index, label in enumerate(
+                    ("rooted-checkout-a", "rooted-checkout-b")):
+                project = root / label
+                modules = project / "modules"
+                app = modules / "app"
+                library = modules / "lib"
+                app.mkdir(parents=True)
+                library.mkdir(parents=True)
+                main = app / "main.lt"
+                main.write_text(
+                    'import "../lib/shared.lt" as shared\n'
+                    'say shared.value()\n',
+                    encoding="utf-8", newline="\n")
+                (library / "shared.lt").write_text(
+                    'say "rooted lib init"\n'
+                    'fn value():\n    return 42\n',
+                    encoding="utf-8", newline="\n")
+                stage0_rooted_out = root / (label + "-stage0-out")
+                stage1_rooted_out = root / (label + "-stage1-out")
+                checked([sys.executable, str(stage0 / "latent.py"),
+                         str(main), "-t", "py", "-o", str(stage0_rooted_out)],
+                        cwd=root, env=clean_env)
+                checked([sys.executable, str(compiler), str(main),
+                         "--source-root",
+                         "modules" if index == 0 else str(modules), "-o",
+                         str(stage1_rooted_out)],
+                        cwd=project if index == 0 else root, env=clean_env)
+                stage0_rooted = run_stage_program(
+                    stage0_rooted_out / "main.py", root)
+                stage1_rooted = run_stage_program(
+                    stage1_rooted_out / "main.py", root)
+                self.assertEqual(stage1_rooted, stage0_rooted)
+                self.assertEqual(stage1_rooted,
+                                 (0, "rooted lib init\n42\n", ""))
+                rooted_bytes = (stage1_rooted_out / "main.py").read_bytes()
+                self.assertNotIn(str(project).encode("utf-8"), rooted_bytes)
+                rooted_outputs.append(rooted_bytes)
+            self.assertEqual(rooted_outputs[0], rooted_outputs[1])
 
             private = module_project / "private.lt"
             private.write_text('import "core.lt" as core\nsay core._hidden\n',

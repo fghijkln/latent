@@ -187,11 +187,17 @@ fn visit(context, physical_path, source_id, importer_id, import_node):
     context["order"] = context["order"] + [unit]
     return success(unit)
 
-fn load(entry_path):
+fn load(entry_path, requested_root = nil):
     entry_absolute = host.path_abspath(entry_path)
     entry_real = host.path_realpath(entry_absolute)
     root_dir = host.path_realpath(host.path_dirname(entry_real))
+    if requested_root != nil:
+        root_dir = host.path_realpath(host.path_abspath(requested_root))
+        if not host.path_is_dir(root_dir):
+            return failure("input", requested_root, 1, 1, "source root is not a directory")
     root_id = source_id_for(entry_real, root_dir)
+    if outside_root(root_id):
+        return failure("module", root_id, 1, 1, "entry path escapes the source root")
     context = {"root_dir": root_dir, "states": {}, "units": {}, "active": [], "order": [], "import_count": 0}
     loaded = visit(context, entry_real, root_id, nil, nil)
     if not loaded["ok"]:

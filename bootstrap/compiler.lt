@@ -23,8 +23,8 @@ fn source_stem(path):
         index = index + 1
     return stem
 
-fn compile_one(source_path, output_dir, run_after):
-    graph = module_graph.load(source_path)
+fn compile_one(source_path, output_dir, run_after, source_root):
+    graph = module_graph.load(source_path, source_root)
     if not graph["ok"]:
         if graph["kind"] == "input":
             host.stderr(source_path + ": input error: " + graph["error"] + "\n")
@@ -90,14 +90,16 @@ fn compile_one(source_path, output_dir, run_after):
 fn main():
     args = host.argv()
     if len(args) == 0:
-        host.stderr("usage: latent source.lt [-t py] [-o OUTDIR] [--run]\n")
+        host.stderr("usage: latent source.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]\n")
         return 2
     source_path = ""
     output_dir = "build/py"
+    source_root = nil
     target = "py"
     run_after = false
     take_output = false
     take_target = false
+    take_source_root = false
     for arg in args:
         if take_output:
             output_dir = arg
@@ -105,13 +107,18 @@ fn main():
         elif take_target:
             target = arg
             take_target = false
+        elif take_source_root:
+            source_root = arg
+            take_source_root = false
         elif arg == "--help" or arg == "-h":
-            host.stdout("usage: latent source.lt [-t py] [-o OUTDIR] [--run]\n")
+            host.stdout("usage: latent source.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]\n")
             return 0
         elif arg == "-o" or arg == "--outdir":
             take_output = true
         elif arg == "-t" or arg == "--target":
             take_target = true
+        elif arg == "--source-root":
+            take_source_root = true
         elif arg == "--run":
             run_after = true
         elif arg == "--show-ast" or arg == "--show-desugar" or arg == "--editor-metadata":
@@ -128,12 +135,15 @@ fn main():
     if take_target:
         host.stderr("error: -t requires a target\n")
         return 2
+    if take_source_root:
+        host.stderr("error: --source-root requires a directory\n")
+        return 2
     if target != "py":
         host.stderr("error: target '" + target + "' is unsupported; only 'py' is available\n")
         return 2
     if source_path == "":
         host.stderr("error: source path is required\n")
         return 2
-    return compile_one(source_path, output_dir, run_after)
+    return compile_one(source_path, output_dir, run_after, source_root)
 
 host.exit_process(main())

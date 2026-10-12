@@ -183,8 +183,8 @@ fn run_desugar_checks():
     assert_equal(unterminated_result["col"], 5, "unterminated interpolation column")
     assert_equal(unterminated_result["source_id"], "bootstrap/m5-unclosed.lt", "unterminated interpolation source id")
 
-fn run_module_graph_probe(path):
-    result = module_graph.load(path)
+fn run_module_graph_probe(path, root_dir = nil):
+    result = module_graph.load(path, root_dir)
     if not result["ok"]:
         say "GRAPH_ERROR|" + result["kind"] + "|" + result["source_id"] + "|" + str(result["line"]) + "|" + str(result["col"]) + "|" + result["error"]
         return nil
@@ -369,6 +369,9 @@ fn main():
     say "bootstrap parser ok"
     args = host.argv()
     if len(args) > 0:
-        run_module_graph_probe(args[0])
+        root_dir = nil
+        if len(args) > 1:
+            root_dir = args[1]
+        run_module_graph_probe(args[0], root_dir)
 
 main()

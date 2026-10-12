@@ -173,9 +173,14 @@ class BootstrapParserTests(unittest.TestCase):
                 (ROOT / "bootstrap" / "latent_host.py").read_bytes())
             generated = output / "bootstrap_parser.py"
 
-            def run_probe(project: Path) -> list[str]:
+            def run_probe(project: Path,
+                          source_root: Path | None = None) -> list[str]:
+                arguments = [sys.executable, str(generated),
+                             str(project / "main.lt")]
+                if source_root is not None:
+                    arguments.append(str(source_root))
                 result = subprocess.run(
-                    [sys.executable, str(generated), str(project / "main.lt")],
+                    arguments,
                     cwd=ROOT, env={"PYTHONPATH": str(output)}, text=True,
                     encoding="utf-8", capture_output=True, check=False)
                 self.assertEqual(result.returncode, 0,
@@ -207,6 +212,52 @@ class BootstrapParserTests(unittest.TestCase):
                 "GRAPH_UNIT|lib.lt|lib.lt",
                 "GRAPH_UNIT|main.lt|main.lt",
             ])
+
+            rooted_outputs = []
+            for suffix in ("rooted-one", "rooted-two"):
+                project = temporary / suffix
+                modules = project / "modules"
+                app = modules / "app"
+                library = modules / "lib"
+                app.mkdir(parents=True)
+                library.mkdir(parents=True)
+                (app / "main.lt").write_text(
+                    'import "../lib/shared.lt" as shared\n',
+                    encoding="utf-8", newline="\n")
+                (library / "shared.lt").write_text(
+                    'say "shared"\n', encoding="utf-8", newline="\n")
+                rooted_outputs.append(run_probe(app, modules))
+                self.assertNotIn(str(project), "\n".join(rooted_outputs[-1]))
+            self.assertEqual(rooted_outputs[0], rooted_outputs[1])
+            self.assertEqual(rooted_outputs[0], [
+                "GRAPH_OK|app/main.lt|2|1",
+                "GRAPH_UNIT|lib/shared.lt|lib/shared.lt",
+                "GRAPH_UNIT|app/main.lt|app/main.lt",
+            ])
+
+            explicit_escape = temporary / "explicit-root-escape"
+            modules = explicit_escape / "modules"
+            app = modules / "app"
+            app.mkdir(parents=True)
+            (app / "main.lt").write_text(
+                'import "../../outside.lt" as outside\n',
+                encoding="utf-8", newline="\n")
+            (explicit_escape / "outside.lt").write_text(
+                'say "outside"\n', encoding="utf-8", newline="\n")
+            self.assertIn("module path escapes the source root",
+                          "\n".join(run_probe(app, modules)))
+
+            outside_entry = temporary / "outside-entry"
+            outside_entry.mkdir()
+            (outside_entry / "main.lt").write_text(
+                'say "outside entry"\n', encoding="utf-8", newline="\n")
+            nested_root = outside_entry / "inside"
+            nested_root.mkdir()
+            self.assertIn("entry path escapes the source root",
+                          "\n".join(run_probe(outside_entry, nested_root)))
+            self.assertIn("source root is not a directory",
+                          "\n".join(run_probe(
+                              outside_entry, outside_entry / "missing-root")))
 
             def run_error(name: str, source: str,
                           imported: dict[str, str] | None = None,

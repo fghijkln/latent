@@ -237,3 +237,11 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - `tests/test_bootstrap_smoke.py` 新增固定 Stage0/Stage1 差分，覆盖 **20 个单文件/ cookbook 程序**：`scope`、P5 closure/global、P6 nonlocal、P8–P11 参数/闭包、range 循环、动态非函数错误，以及 `py_math`、`py_os` 和 cookbook functions。stdout、stderr 与退出码逐项相等。
 - 本轮最终完整 bootstrap 门禁 `python3 -m unittest tests.test_bootstrap_host tests.test_bootstrap_smoke tests.test_bootstrap_lexer tests.test_bootstrap_parser -v` **23 passed / 0 failed**，包含 Stage1→Stage2→Stage3 fixed point 和双根原始字节一致；作用域/runtime 差分专项 **1 passed**（内含 20 个程序）；`git diff --check` 通过。Stage0 源码未修改，本轮没有重跑 `tests/run_tests.py`；此前 Stage0 259/259 仍仅是此前一次基线，不作为本轮后的新运行结果。
 - **下一阻塞与未完成项：** 243-case Stage0/Stage1 完整 Python-target 投影仍未实现。71 个成功用例的早期普查在本切片前只有 28 项完全匹配，结果已因本轮作用域/runtime 修复而过期，不用于宣称当前通过率。多模块入口当前把 entry 文件父目录固定作 source root，导致需从 entry 向上导入同一模块树内文件的有效图误报 root escape；下一步应提供明确、可差分的 source-root 选择，同时保留 realpath/symlink escape 拒绝，再扩大多模块 class/nested function 与 interop 覆盖。Java interop、全量诊断/source map、M10–M15 和完整 P15 DoD 仍未完成，不能声称所有自举准备工作已完成。
+
+
+### 本轮增量：显式模块 source-root 选择与越界保护（M7 仍未完成）
+
+- `bootstrap/module_graph.lt` 的 `load` 增加可选 `requested_root`：未指定时保留 entry 的 realpath 父目录作为既有默认；指定时先解析为绝对 realpath 并要求其为现存目录，再要求 entry realpath 位于该根内。所有 import 仍相对 importer 文件解析、realpath 去重，任一文件或 symlink 目标越过所选根继续 fail-closed。`bootstrap/compiler.lt` 新增 `--source-root ROOT`，相对 root 以调用 CLI 的 working directory 解析；缺参有明确参数错误。
+- 固定 Stage0 module-graph differential 在两个不同 checkout 根下验证跨目录向上导入的 root-relative ID/DFS 顺序一致，并覆盖不存在 root、entry 在 root 外、普通 import 越界和既有 symlink 越界拒绝。Stage0/Stage1 compiler integration 用两个绝对目录不同的项目对拍成功程序，测试相对和绝对 source-root 参数、stdout/stderr/退出码与生成字节稳定，确认输出不泄漏绝对 checkout root。
+- 本轮全量门禁：`python3 -m unittest tests.test_bootstrap_host tests.test_bootstrap_smoke tests.test_bootstrap_lexer tests.test_bootstrap_parser -v` **23 passed / 0 failed**（含 Stage1→Stage2→Stage3 fixed point 与双根 bytes）；固定 Stage0 `python3 tests/run_tests.py` **259 passed / 0 failed**（505 个固定种子性质案例）；`compileall`、`git diff --check` 通过；ledger **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**。未重跑 CI 的 Python 3.11/JDK 17 矩阵。
+- **P15 尚未完成：** 显式 source-root 只修复模块图边界，不增加多模块 class/nested function/Java interop 能力；243-case Stage0/Stage1 全量行为与诊断投影、完整 source map/CLI 及 M10–M15 硬门仍未完成。随后应把成功/负例 case 投影自动化并按差异推进多模块 class/nested function/interop，不得宣称所有自举准备工作已完成。
