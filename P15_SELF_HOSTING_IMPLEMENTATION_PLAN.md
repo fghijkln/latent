@@ -343,3 +343,5 @@ Stage1 `--run` failure propagation is now pinned end-to-end with a generated `Ze
 Source-root normalization also has a POSIX integration case: Stage1 compiles the standalone module project through a symlink alias for both entry and `--source-root`, and the emitted program returns the expected output. The emitter focused smoke **1/1** passed; this is test/documentation only.
 
 The POSIX CLI smoke also covers `-o` as a symlink to an existing directory: Stage1 retains the directory link, places the generated `.py` and Java daemon sidecar in the real target, and the program runs correctly. Emitter focused smoke **1/1** passed; this is test/documentation only.
+
+Projection subprocess-wrapper coverage now includes a timed command that preserves partial stdout/stderr as text and a missing executable that returns structured `rc: error`; `tests/bootstrap/test_checker.py` passes **10/10**. No production changes or long gates were needed for this test-only addition.
