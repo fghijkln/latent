@@ -185,6 +185,9 @@ fn check_builtin_call(call, name):
     return success(nil)
 
 fn check_known_call(call, context):
+    checked_constructor = check_class_constructor_call(call, context)
+    if not checked_constructor["ok"]:
+        return checked_constructor
     function = call["func"]
     if function["type"] != "Name":
         return success(nil)
@@ -203,6 +206,38 @@ fn check_known_call(call, context):
     if builtin_name(name) and not shadowed:
         return check_builtin_call(call, name)
     return success(nil)
+
+fn drop_first_parameter(parameters):
+    out = []
+    first = true
+    for parameter in parameters:
+        if first:
+            first = false
+        else:
+            out = out + [parameter]
+    return out
+
+fn check_class_constructor_call(call, context):
+    function = call["func"]
+    if function["type"] != "Name" or function["id"] != "__wcall":
+        return success(nil)
+    actuals = call["args"]
+    if len(actuals) < 2 or actuals[0]["type"] != "Name" or actuals[1]["type"] != "Str" or actuals[1]["value"] != "new":
+        return success(nil)
+    class_name = actuals[0]["id"]
+    if not map_has(context["classes"], class_name):
+        return success(nil)
+    parameters = []
+    for index in range(2, len(actuals)):
+        parameters = parameters + [actuals[index]]
+    synthetic_call = {"args": parameters, "line": call["line"], "col": call["col"], "source_id": call["source_id"]}
+    initializer = nil
+    for method in context["classes"][class_name]["methods"]:
+        if method["name"] == "init":
+            initializer = method
+    if initializer != nil:
+        return check_arguments(synthetic_call, drop_first_parameter(initializer["param_specs"]), class_name + ".new")
+    return check_arguments(synthetic_call, [], class_name + ".new")
 
 fn collect_module_names(statements, names):
     for statement in statements:
@@ -282,6 +317,32 @@ fn parameter_name(parameter):
     if kind == "DefaultParam" or kind == "RestParam" or kind == "ExtraParam" or kind == "KeywordOnlyParam":
         return parameter["name"]
     return ""
+
+fn validate_class_declarations(statements):
+    declarations = {}
+    for node in statements:
+        kind = node["type"]
+        if kind == "FnDef" or kind == "ClassDef":
+            if map_has(declarations, node["name"]):
+                return failure_at(node, "duplicate definition '" + node["name"] + "'")
+            declarations[node["name"]] = true
+        if kind == "ClassDef":
+            methods = {}
+            for method in node["methods"]:
+                if map_has(methods, method["name"]):
+                    return failure_at(method, "duplicate method '" + method["name"] + "' in class '" + node["name"] + "'")
+                methods[method["name"]] = true
+                if method["name"] == "new":
+                    return failure_at(method, "'new' is reserved for construction in class '" + node["name"] + "'")
+                parameters = method["param_specs"]
+                if len(parameters) == 0:
+                    return failure_at(method, "method " + node["name"] + "." + method["name"] + " must declare a receiver parameter")
+                receiver = parameters[0]
+                if receiver["type"] == "DefaultParam":
+                    return failure_at(receiver, "method " + node["name"] + "." + method["name"] + " receiver parameter cannot have a default")
+                if receiver["type"] != "PositionalParam":
+                    return failure_at(receiver, "method " + node["name"] + "." + method["name"] + " receiver must be a required positional parameter")
+    return success(nil)
 
 fn check_expression(node, context, as_callee):
     kind = node["type"]
@@ -387,7 +448,7 @@ fn check_statement(node, context, in_loop):
             return success(nil)
         context["done"] = add_unique(context["done"], node["name"])
         outer = context["outer"] + context["locals"]
-        return check_function(node, context["globals"], outer, context["functions"])
+        return check_function(node, context["globals"], outer, context["functions"], context["classes"])
     if kind == "Assign":
         value_result = check_expression(node["value"], context, false)
         if not value_result["ok"]:
@@ -458,7 +519,7 @@ fn check_statement(node, context, in_loop):
         return success(nil)
     return failure_at(node, "unexpected statement node in semantic analysis: " + kind)
 
-fn check_function(node, module_names, outer_names, function_map):
+fn check_function(node, module_names, outer_names, function_map, class_map):
     parameters = node["param_specs"]
     parameter_names = []
     for parameter in parameters:
@@ -488,7 +549,7 @@ fn check_function(node, module_names, outer_names, function_map):
     locals = locals + parameter_names
     nested_functions = collect_functions(node["body"], {})
     functions = copy_functions(function_map, nested_functions)
-    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "default_for": "", "default_unbound": []}
+    context = {"top": false, "locals": locals, "done": parameter_names, "globals": module_names + global_names, "outer": outer_names + nonlocal_names, "functions": functions, "local_functions": nested_functions, "classes": class_map, "default_for": "", "default_unbound": []}
     bound = []
     parameter_index = 0
     for parameter in parameters:
@@ -512,16 +573,16 @@ fn check_function(node, module_names, outer_names, function_map):
         parameter_index = parameter_index + 1
     return check_block(node["body"], context, 0)
 
-fn check_definitions(statements, module_names, outer_names, function_map):
+fn check_definitions(statements, module_names, outer_names, function_map, class_map):
     for node in statements:
         kind = node["type"]
         if kind == "FnDef":
-            checked = check_function(node, module_names, outer_names, function_map)
+            checked = check_function(node, module_names, outer_names, function_map, class_map)
             if not checked["ok"]:
                 return checked
         elif kind == "ClassDef":
             for method in node["methods"]:
-                checked = check_function(method, module_names, outer_names, function_map)
+                checked = check_function(method, module_names, outer_names, function_map, class_map)
                 if not checked["ok"]:
                     return checked
     return success(nil)
@@ -529,16 +590,23 @@ fn check_definitions(statements, module_names, outer_names, function_map):
 fn check(tree):
     if tree["type"] != "Program":
         return failure_at(tree, "unsupported root node in semantic analysis: " + tree["type"])
+    declarations = validate_class_declarations(tree["stmts"])
+    if not declarations["ok"]:
+        return declarations
     module_names = collect_module_names(tree["stmts"], [])
     function_map = collect_functions(tree["stmts"], {})
-    definitions = check_definitions(tree["stmts"], module_names, [], function_map)
+    class_map = {}
+    for node in tree["stmts"]:
+        if node["type"] == "ClassDef":
+            class_map[node["name"]] = node
+    definitions = check_definitions(tree["stmts"], module_names, [], function_map, class_map)
     if not definitions["ok"]:
         return definitions
     visible = []
     for node in tree["stmts"]:
         if node["type"] == "FnDef" or node["type"] == "ClassDef":
             visible = add_unique(visible, node["name"])
-    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map}
+    context = {"top": true, "locals": [], "done": visible, "globals": module_names, "outer": [], "functions": function_map, "classes": class_map}
     checked = check_block(tree["stmts"], context, 0)
     if not checked["ok"]:
         return checked

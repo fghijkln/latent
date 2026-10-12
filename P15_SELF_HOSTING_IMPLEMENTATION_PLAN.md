@@ -205,3 +205,15 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - `.github/workflows/tests.yml` 的 Python 3.11/JDK 17 bootstrap job 已改为显式运行 `python -m unittest tests.test_bootstrap_smoke -v`，其中包含 Stage0/1 行为差分、Stage1→2→3 fixed point 与双根 manifest/字节复现门；原 Stage0 lexer/parser、host 与 projection ledger 检查保留。
 - **仍未完成的范围/门：** 这些行为对拍是有界自举切片，不是 Python-target ledger 的 243 个 runner case 全量 Stage0/Stage1 对拍。Stage1 仍未实现/验证完整 class/inheritance/super、完整 Python/Java interop 及互操作值/回调、属性写入、完整静态语义/诊断/source map、全量 CLI 与负运行期用例；Stage2/3 清单当前仅含单一 compiler entry 和固定 adapter，CI 未产出受限诊断 artifacts。本轮本机也未运行 Python 3.11/JDK 17 CI 环境。故 M7/M8、M10/M14/M15 的完整验收与最终 P15 DoD 仍未通过，不能宣称完整自托管兼容已完成。
 - 本轮最后一次代码/测试变更后的验证（本机 Python 3.12 / JDK 25）：`python -m compileall -q bootstrap tests` 与 `git diff --check` 通过；projection ledger 为 **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**，host 契约 **6 passed**；lexer、parser 与 smoke 合计 **13 passed**，含 **286 个仓库 `.lt` 输入**的 Stage0 parser 接受/拒绝对拍。固定点用例通过：Stage0 删除、空 `PYTHONPATH` 下 Stage1→2→3 成功，Stage2==Stage3 manifest 及原始 bytes 相等，另一个独立 Stage0 在另一绝对 bootstrap 源根上生成完全相同的 Stage2/3 bytes。最后一次完整 Stage0 `python tests/run_tests.py` **259 passed / 0 failed**，含 **505** 个固定种子性质案例。未在本机运行 Python 3.11/JDK 17 CI 矩阵；P15 全语义/全投影的未完成项仍如上列明。
+
+
+### 本轮增量：单文件、无继承类基础语义（M8 仍未完成，P15 仍未完成）
+
+> 本节更新前文“class/inheritance/super 尚未实现”的历史状态：Latent Python emitter/runtime 现具备有界单文件类切片。继承、`super`、多模块 class 与完整 P15 语义均未实现或未验收；不改变 v0.13.5 Python-target 完整范围，也不声称所有自举准备已完成。
+
+- `bootstrap/gen_py.lt` 使用 Latent 逻辑发射无父类的 class 工厂、方法签名包装和实例 runtime。覆盖 `.new()` / 可选 `init` 与默认参数、动态实例字段读写、字段/方法读取、直接方法调用、bound method、类/实例/方法 repr、实例身份比较；工厂名确定性避让所有已收集的模块绑定。
+- `bootstrap/semant.lt` 在 Latent 中新增类/函数重复定义检查、类内重复方法检查、`new` 保留规则、方法首参数必须为必需位置 receiver 的检查；对可静态识别的直接 `Class.new(...)` 依据 `init` 的形参列表（排除 receiver）绑定，覆盖 no-init 额外实参编译期拒绝。Python/Java host 属性写入与完整互操作不在此支持范围。
+- 固定 Stage0 对拍覆盖自定义单文件类程序和仓库现有 `tests/class_basic.lt`。执行比较包含 initializer/default、独立实例、字段变更、方法间调用与模块全局读取、bound method 表示、类/实例 repr 与相等；runtime negatives 覆盖缺字段、缺方法和 bound-method 错误元数；compile negatives 覆盖重复方法、非法/默认 receiver、保留 `new`、no-init constructor arity。含用户函数名与生成工厂名冲突。继承和 `super` 输入在发射前 fail-closed；多模块类仍由 module linker 拒绝。
+- `tests/bootstrap/README.md`、`manifest.json` 已更新，区分该单文件类切片和仍明确拒绝/缺失的能力。
+- 最终验证：Python 工具/测试 `compileall` 与 `git diff --check` 通过；projection checker 报告 **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**；host/lexer/parser 聚焦用例 **13 passed**；host object 字段写入收紧为明确 unsupported 后，完整 bootstrap smoke **8 passed**，覆盖仓库 `class_basic.lt`、host-write 负例及 Stage1→Stage2→Stage3 fixed-point/双根 bytes 门禁；固定 Stage0 全量双后端 **259 passed / 0 failed**（含 **505** 固定种子性质案例，本机 Python 3.12.3 / OpenJDK 25.0.4.1）。未在本机重跑 Python 3.11/JDK 17、21 CI 矩阵。
+- **后续硬缺口：** 尚未做到 ledger 中 243 个 Python-target runner case 的 Stage0/Stage1 逐案行为与诊断零差异验收；继承/override/`super`、跨模块 class、完整 host 属性写入与 Python/Java interop/回调、完整 scope/class semantics、全部负编译/运行期诊断和 source map、全 CLI 兼容及 CI M15 尚未完成。M4/M5/M6/M7/M8/M9/M10/M11/M12/M13/M14/M15 的完整 DoD 仍未全部通过。必须继续逐项扩展并对拍；本轮仅完成 class 基础切片，不得宣称所有自举准备工作或 P15 已完成。

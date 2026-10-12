@@ -345,10 +345,8 @@ say invoke(describe, {"value": 70, "required": 71})
         cases = (
             ('say java "java.lang.String"\n', True,
              "Java interop requires the unavailable target runtime"),
-            ("fn write(obj):\n    obj.field = 1\n", True,
-             "attribute access requires the unavailable target runtime"),
-            ("say super.method(self)\n", False,
-             "undefined name 'self'"),
+            ("class Plain:\n    fn method(self):\n        return super.method(self)\n",
+             False, "super requires the unavailable class runtime"),
         )
         with tempfile.TemporaryDirectory(prefix="p15-emitter-boundary-") as temporary:
             root = Path(temporary)
@@ -383,6 +381,41 @@ say invoke(describe, {"value": 70, "required": 71})
                 self.assertNotEqual(stage1_result.returncode, 0)
                 self.assertIn(expected_error, stage1_result.stderr)
                 self.assertFalse(stage1_out.exists())
+
+    def test_host_attribute_write_fails_closed_at_runtime(self):
+        source = ('types = py "types"\n'
+                  'obj = types.SimpleNamespace()\n'
+                  'obj.value = 1\n')
+        with tempfile.TemporaryDirectory(prefix="p15-host-write-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": ""}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            fixture = root / "host-write.lt"
+            fixture.write_text(source, encoding="utf-8", newline="\n")
+            stage0_out = root / "stage0-out"
+            stage1_out = root / "stage1-out"
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(fixture), "-t", "py", "-o", str(stage0_out)],
+                    cwd=root, env=clean_env)
+            checked([sys.executable, str(stage1_dir / "compiler.py"),
+                     str(fixture), "-o", str(stage1_out)], cwd=root,
+                    env=clean_env)
+            stage0_result = run_stage_program(stage0_out / "host-write.py", root)
+            stage1_result = run_stage_program(stage1_out / "host-write.py", root)
+            self.assertEqual(stage0_result[0], 0,
+                             stage0_result[1] + stage0_result[2])
+            self.assertNotEqual(stage1_result[0], 0)
+            self.assertIn(
+                "attribute assignment on non-Latent objects is not supported",
+                stage1_result[2])
 
     def test_stage1_compiler_links_simple_module_graph_like_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-module-compiler-") as temporary:
@@ -567,6 +600,164 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertEqual(stage0_result,
                              (0, "<module math>\n3\nleaf\ncaught: expected\nnormal\nnil\n", ""))
             self.assertEqual(stage1_result, stage0_result)
+
+    def test_single_file_class_basics_match_fixed_stage0(self):
+        source = r'''fn _lt_bootstrap_make_class_Point():
+    return "user factory"
+
+class Point:
+    fn init(self, x=1, y=2):
+        self.x = x
+        self.y = y
+
+    fn move(self, dx, dy):
+        self.x = self.x + dx
+        self.y = self.y + dy
+        return self
+
+    fn total(self):
+        return self.x + self.y
+
+class Empty:
+    fn ping(self):
+        return "pong"
+
+p = Point.new(3, 4)
+q = Point.new()
+say Point
+say p
+say p.x
+say p.y
+say p == p
+say p == q
+bound = p.move
+say bound
+say bound(2, 3)
+say p.total()
+try:
+    bound()
+catch err:
+    say err
+try:
+    say p.missing
+catch err:
+    say err
+try:
+    p.missing()
+catch err:
+    say err
+p.extra = 99
+say p.extra
+e = Empty.new()
+say e.ping()
+say Empty
+say _lt_bootstrap_make_class_Point()
+'''
+        with tempfile.TemporaryDirectory(prefix="p15-class-basics-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            fixture = root / "classes.lt"
+            fixture.write_text(source, encoding="utf-8", newline="\n")
+            stage0_out = root / "stage0-out"
+            stage1_out = root / "stage1-out"
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(fixture), "-t", "py", "-o", str(stage0_out)],
+                    cwd=root, env=clean_env)
+            checked([sys.executable, str(stage1_dir / "compiler.py"),
+                     str(fixture), "-o", str(stage1_out)], cwd=root,
+                    env=clean_env)
+            stage0_result = run_stage_program(stage0_out / "classes.py", root)
+            stage1_result = run_stage_program(stage1_out / "classes.py", root)
+            self.assertEqual(stage0_result[0], 0,
+                             stage0_result[1] + stage0_result[2])
+            self.assertEqual(stage1_result, stage0_result,
+                             stage1_result[2] or stage1_result[1])
+            self.assertEqual(stage0_result[1],
+                             "<class Point>\n<Point object>\n3\n4\ntrue\n"
+                             "false\n<bound method Point.move>\n<Point object>\n"
+                             "12\nmove() takes 2 args, got 0\n"
+                             "no field 'missing'\nno method 'missing'\n"
+                             "99\npong\n<class Empty>\nuser factory\n")
+
+            repository_fixture = ROOT / "tests" / "class_basic.lt"
+            repository_stage0_out = root / "repository-stage0-out"
+            repository_stage1_out = root / "repository-stage1-out"
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(repository_fixture), "-t", "py", "-o",
+                     str(repository_stage0_out)], cwd=root, env=clean_env)
+            checked([sys.executable, str(stage1_dir / "compiler.py"),
+                     str(repository_fixture), "-o",
+                     str(repository_stage1_out)], cwd=root, env=clean_env)
+            repository_stage0_result = run_stage_program(
+                repository_stage0_out / "class_basic.py", root)
+            repository_stage1_result = run_stage_program(
+                repository_stage1_out / "class_basic.py", root)
+            self.assertEqual(repository_stage0_result[0], 0,
+                             repository_stage0_result[1] +
+                             repository_stage0_result[2])
+            self.assertEqual(repository_stage1_result,
+                             repository_stage0_result,
+                             repository_stage1_result[2] or
+                             repository_stage1_result[1])
+
+            for index, invalid_source in enumerate((
+                    "class Child(Base):\n    fn value(self):\n        return super.value(self)\n",
+                    "class Parent:\n    fn value(self):\n        return 1\n\n"
+                    "class Child(Parent):\n    fn value(self):\n        return 2\n")):
+                invalid = root / f"inheritance-{index}.lt"
+                invalid.write_text(invalid_source, encoding="utf-8",
+                                   newline="\n")
+                out = root / f"inheritance-{index}-out"
+                rejected = subprocess.run(
+                    [sys.executable, str(stage1_dir / "compiler.py"),
+                     str(invalid), "-o", str(out)], cwd=root, env=clean_env,
+                    text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                self.assertEqual(rejected.returncode, 1,
+                                 rejected.stdout + rejected.stderr)
+                self.assertIn(
+                    "codegen error: inheritance requires the unavailable class runtime",
+                    rejected.stderr)
+                self.assertFalse(out.exists())
+
+            semantic_cases = (
+                ("duplicate-method", "class A:\n    fn init(self):\n        return nil\n\n"
+                 "    fn init(self, value):\n        return value\n"),
+                ("reserved-new", "class A:\n    fn new(self):\n        return nil\n"),
+                ("missing-receiver", "class A:\n    fn broken():\n        return nil\n"),
+                ("default-receiver", "class A:\n    fn broken(self=nil):\n        return nil\n"),
+                ("constructor-arity", "class Empty:\n    fn ping(self):\n        return 'pong'\n\nEmpty.new(1)\n"),
+            )
+            for name, invalid_source in semantic_cases:
+                invalid = root / f"{name}.lt"
+                invalid.write_text(invalid_source, encoding="utf-8",
+                                   newline="\n")
+                stage0_error = subprocess.run(
+                    [sys.executable, str(stage0 / "latent.py"), str(invalid),
+                     "-t", "py", "-o", str(root / (name + "-stage0"))],
+                    cwd=root, env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                stage1_error = subprocess.run(
+                    [sys.executable, str(stage1_dir / "compiler.py"),
+                     str(invalid), "-o", str(root / (name + "-stage1"))],
+                    cwd=root, env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                self.assertEqual(stage0_error.returncode, 1,
+                                 stage0_error.stdout + stage0_error.stderr)
+                self.assertEqual(stage1_error.returncode,
+                                 stage0_error.returncode)
+                self.assertEqual(stage1_error.stderr.splitlines()[0],
+                                 stage0_error.stderr.splitlines()[0])
 
     def test_stage1_compiles_stage2_and_stage3_to_a_dual_root_fixed_point(self):
         with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:
