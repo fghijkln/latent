@@ -2,6 +2,7 @@
 # the host adapter supplies only explicit path and UTF-8 file primitives.
 import "parser.lt" as parser
 import "lexer.lt" as lexer
+import "desugar.lt" as desugar
 host = py "latent_host"
 
 fn map_has(values, wanted):
@@ -269,15 +270,63 @@ fn collect_function_locals(statements, names):
             names = add_unique(names, statement["name"])
     return names
 
+fn remove_scope_name(names, wanted):
+    remaining = []
+    for name in names:
+        if name != wanted:
+            remaining = remaining + [name]
+    return remaining
+
+fn collect_scope_names(statements, wanted_kind, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == wanted_kind:
+            for name in statement["names"]:
+                names = add_unique(names, name)
+        elif kind == "If":
+            names = collect_scope_names(statement["then_body"], wanted_kind, names)
+            if statement["else_body"] != nil:
+                names = collect_scope_names(statement["else_body"], wanted_kind, names)
+        elif kind == "While" or kind == "For":
+            names = collect_scope_names(statement["body"], wanted_kind, names)
+        elif kind == "Try":
+            names = collect_scope_names(statement["body"], wanted_kind, names)
+            names = collect_scope_names(statement["handler"], wanted_kind, names)
+    return names
+
+fn collect_module_globals(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "GlobalStmt":
+            for name in statement["names"]:
+                names = add_unique(names, name)
+        elif kind == "FnDef":
+            names = collect_module_globals(statement["body"], names)
+        elif kind == "ClassDef":
+            for method in statement["methods"]:
+                names = collect_module_globals(method["body"], names)
+        elif kind == "If":
+            names = collect_module_globals(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_module_globals(statement["else_body"], names)
+        elif kind == "While" or kind == "For":
+            names = collect_module_globals(statement["body"], names)
+        elif kind == "Try":
+            names = collect_module_globals(statement["body"], names)
+            names = collect_module_globals(statement["handler"], names)
+    return names
+
 fn validate_linked_statement(statement, module_top):
     kind = statement["type"]
     if kind == "ClassDef":
-        return linked_failure("module", statement, "class declarations are not yet supported by bootstrap module emission")
-    if kind == "GlobalStmt" or kind == "NonlocalStmt":
-        return linked_failure("module", statement, "global/nonlocal declarations are not yet supported by bootstrap module linking")
-    if kind == "FnDef":
         if not module_top:
-            return linked_failure("module", statement, "nested functions are not yet supported by bootstrap module linking")
+            return linked_failure("module", statement, "nested class declarations are not supported by bootstrap module linking")
+        for method in statement["methods"]:
+            checked = validate_linked_statement(method, true)
+            if not checked["ok"]:
+                return checked
+        return linked_success(nil)
+    if kind == "FnDef":
         for child in statement["body"]:
             checked = validate_linked_statement(child, false)
             if not checked["ok"]:
@@ -343,6 +392,13 @@ fn rewrite_linked_expression(expression, unit, locals):
     if expression == nil:
         return linked_success(nil)
     kind = expression["type"]
+    if kind == "Str":
+        converted = desugar.expression(expression)
+        if not converted["ok"]:
+            return linked_failure("desugar", expression, converted["error"])
+        if converted["value"]["type"] == "Str":
+            return linked_success(converted["value"])
+        return rewrite_linked_expression(converted["value"], unit, locals)
     if kind == "Name":
         if map_has(unit["alias_targets"], expression["id"]):
             return linked_failure("module", expression, "module namespace is not a value; use alias.name")
@@ -444,10 +500,13 @@ fn rewrite_linked_statement(statement, unit, locals, module_top):
     if kind == "ImportStmt":
         return linked_success(nil)
     if kind == "FnDef":
-        function_locals = []
+        function_locals = locals
         for parameter in statement["param_specs"]:
             function_locals = add_unique(function_locals, parameter["name"])
         function_locals = collect_function_locals(statement["body"], function_locals)
+        global_names = collect_scope_names(statement["body"], "GlobalStmt", [])
+        for global_name in global_names:
+            function_locals = remove_scope_name(function_locals, global_name)
         for parameter in statement["param_specs"]:
             if parameter["type"] == "DefaultParam" or (parameter["type"] == "KeywordOnlyParam" and parameter["default"] != nil):
                 default_value = rewrite_linked_expression(parameter["default"], unit, function_locals)
@@ -467,8 +526,43 @@ fn rewrite_linked_statement(statement, unit, locals, module_top):
                 return linked_failure("module", statement, "missing linked symbol for function '" + statement["name"] + "'")
             statement["name"] = symbol["name"]
         return linked_success(statement)
-    if kind == "ClassDef" or kind == "GlobalStmt" or kind == "NonlocalStmt":
-        return validate_linked_statement(statement, module_top)
+    if kind == "ClassDef":
+        parent = statement["parent"]
+        if parent != nil:
+            if parent["alias"] != nil:
+                exported = resolve_export(unit, parent["alias"], parent["name"], parent)
+                if not exported["ok"]:
+                    return exported
+                parent["name"] = exported["value"]["name"]
+                parent["alias"] = nil
+            else:
+                parent_symbol = module_symbol(unit, parent["name"])
+                if parent_symbol != nil:
+                    parent["name"] = parent_symbol["name"]
+        methods = []
+        for method in statement["methods"]:
+            rewritten = rewrite_linked_statement(method, unit, [], false)
+            if not rewritten["ok"]:
+                return rewritten
+            methods = methods + [rewritten["value"]]
+        symbol = module_symbol(unit, statement["name"])
+        if symbol == nil:
+            return linked_failure("module", statement, "missing linked symbol for class '" + statement["name"] + "'")
+        statement["name"] = symbol["name"]
+        statement["methods"] = methods
+        return linked_success(statement)
+    if kind == "GlobalStmt":
+        converted_names = []
+        for name in statement["names"]:
+            symbol = module_symbol(unit, name)
+            if symbol != nil:
+                converted_names = converted_names + [symbol["name"]]
+            else:
+                converted_names = converted_names + [name]
+        statement["names"] = converted_names
+        return linked_success(statement)
+    if kind == "NonlocalStmt":
+        return linked_success(statement)
     if kind == "Assign":
         target = statement["target"]
         if target["type"] == "Dot" and target["obj"]["type"] == "Name" and map_has(unit["alias_targets"], target["obj"]["id"]):
@@ -575,14 +669,23 @@ fn prepare(graph):
         unit["symbols"] = {}
         unit["alias_targets"] = {}
         functions = []
+        classes = []
         for statement in unit["tree"]["stmts"]:
             if statement["type"] == "FnDef":
                 functions = add_unique(functions, statement["name"])
+            elif statement["type"] == "ClassDef":
+                classes = add_unique(classes, statement["name"])
         for name in functions:
             allocated = make_symbol_name(module_index, name, reserved)
             reserved = allocated["reserved"]
             unit["symbols"][name] = {"kind": "function", "name": allocated["name"]}
+        for name in classes:
+            if not map_has(unit["symbols"], name):
+                allocated = make_symbol_name(module_index, name, reserved)
+                reserved = allocated["reserved"]
+                unit["symbols"][name] = {"kind": "class", "name": allocated["name"]}
         variables = collect_module_variables(unit["tree"]["stmts"], [])
+        variables = collect_module_globals(unit["tree"]["stmts"], variables)
         for name in variables:
             if not map_has(unit["symbols"], name):
                 allocated = make_symbol_name(module_index, name, reserved)
@@ -592,6 +695,10 @@ fn prepare(graph):
         for name in variables:
             symbol = module_symbol(unit, name)
             if symbol != nil and symbol["kind"] == "variable":
+                unit["globals"] = add_unique(unit["globals"], symbol["name"])
+        for name in classes:
+            symbol = module_symbol(unit, name)
+            if symbol != nil:
                 unit["globals"] = add_unique(unit["globals"], symbol["name"])
         unit["init_name"] = "_ltm_init_m" + str(module_index)
         while has(reserved, unit["init_name"]):
@@ -616,11 +723,16 @@ fn prepare(graph):
             if map_has(unit["symbols"], alias):
                 return linked_failure("module", import_node, "module alias '" + alias + "' conflicts with a module binding")
             for statement in unit["tree"]["stmts"]:
+                functions_to_check = []
                 if statement["type"] == "FnDef":
+                    functions_to_check = [statement]
+                elif statement["type"] == "ClassDef":
+                    functions_to_check = statement["methods"]
+                for function_node in functions_to_check:
                     locals = []
-                    for parameter in statement["param_specs"]:
+                    for parameter in function_node["param_specs"]:
                         locals = add_unique(locals, parameter["name"])
-                    locals = collect_function_locals(statement["body"], locals)
+                    locals = collect_function_locals(function_node["body"], locals)
                     if has(locals, alias):
                         return linked_failure("module", import_node, "module alias '" + alias + "' conflicts with a local binding")
     linked_statements = []

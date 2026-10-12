@@ -1,9 +1,8 @@
-"""Fixed-Stage0 smoke test for the first Latent Python-emitter slice.
+"""Fixed-Stage0 differential and fixed-point tests for bounded bootstrap slices.
 
-The compiler subset is intentionally limited to the current M4 parser/AST. The
-module source root is fixed for this slice because current module identities
-and source maps include normalized absolute paths. Stage1-to-Stage2 self-hosting
-is deferred until the Latent compiler can parse and resolve its own modules.
+Coverage includes Stage0/Stage1 behavior, explicit module-root selection, and
+Stage1-to-Stage3 reproducibility. These gates do not imply full Python-target
+parity; unsupported features remain fail-closed and are tracked in the plan.
 """
 from __future__ import annotations
 
@@ -603,6 +602,85 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertEqual(generated[0], generated[1])
             self.assertNotIn(str(root).encode("utf-8"), generated[0])
 
+    def test_multi_module_classes_closures_and_scope_match_fixed_stage0(self):
+        fixtures = (
+            "modules/app/main", "modules/same/main",
+            "modules/inheritance/main", "modules/bound_methods/main",
+            "modules/default_arguments/main", "modules/keyword_only/main",
+            "modules/function_values/main", "modules/nonlocal/main",
+        )
+        with tempfile.TemporaryDirectory(prefix="p15-module-linker-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+
+            for name in fixtures:
+                with self.subTest(fixture=name):
+                    source = ROOT / "tests" / (name + ".lt")
+                    stage0_out = root / (name.replace("/", "-") + "-stage0")
+                    stage1_out = root / (name.replace("/", "-") + "-stage1")
+                    checked([sys.executable, str(stage0 / "latent.py"),
+                             str(source), "-t", "py", "-o", str(stage0_out)],
+                            cwd=root, env=clean_env)
+                    checked([sys.executable, str(stage1_dir / "compiler.py"),
+                             str(source), "--source-root",
+                             str(ROOT / "tests" / "modules"), "-o",
+                             str(stage1_out)], cwd=root, env=clean_env)
+                    stage0_result = run_stage_program(
+                        stage0_out / "main.py", Path(tempfile.gettempdir()))
+                    stage1_result = run_stage_program(
+                        stage1_out / "main.py", Path(tempfile.gettempdir()))
+                    self.assertEqual(stage0_result[0], 0,
+                                     stage0_result[1] + stage0_result[2])
+                    self.assertEqual(stage1_result, stage0_result,
+                                     name + ": " + stage1_result[2] +
+                                     stage1_result[1])
+                    self.assertNotIn(str(ROOT).encode("utf-8"),
+                                     (stage1_out / "main.py").read_bytes())
+
+    def test_module_interpolation_globals_match_fixed_stage0(self):
+        with tempfile.TemporaryDirectory(prefix="p15-module-interpolation-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            source = ROOT / "cookbook" / "modules.lt"
+            stage0_out = root / "stage0-out"
+            stage1_out = root / "stage1-out"
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(source), "-t", "py", "-o", str(stage0_out)],
+                    cwd=root, env=clean_env)
+            checked([sys.executable, str(stage1_dir / "compiler.py"),
+                     str(source), "--source-root", str(ROOT / "cookbook"),
+                     "-o", str(stage1_out)], cwd=root, env=clean_env)
+            stage0_result = run_stage_program(
+                stage0_out / "modules.py", Path(tempfile.gettempdir()))
+            stage1_result = run_stage_program(
+                stage1_out / "modules.py", Path(tempfile.gettempdir()))
+            self.assertEqual(stage0_result[0], 0,
+                             stage0_result[1] + stage0_result[2])
+            self.assertEqual(stage1_result, stage0_result,
+                             stage1_result[2] + stage1_result[1])
+            self.assertNotIn(str(ROOT).encode("utf-8"),
+                             (stage1_out / "modules.py").read_bytes())
+
     def test_python_interop_and_try_match_fixed_stage0(self):
         source = (
             'math = py "math"\n'
@@ -877,7 +955,8 @@ say _lt_bootstrap_make_class_Point()
                 "p6_nonlocal_shared", "p6_nonlocal_returned",
                 "p6_nonlocal_nested_scope", "p8_named_arguments",
                 "p9_default_parameters", "p10_variadic_arguments",
-                "p11_keyword_only_parameters", "loop", "p5_invalid_calls")]
+                "p11_keyword_only_parameters", "loop", "p5_invalid_calls",
+                "py_numpy")]
             fixtures.extend((ROOT / "cookbook" / "py_math.lt",
                              ROOT / "cookbook" / "py_os.lt"))
             fixtures.append(ROOT / "cookbook" / "functions.lt")

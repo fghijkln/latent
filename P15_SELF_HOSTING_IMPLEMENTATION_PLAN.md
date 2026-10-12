@@ -245,3 +245,14 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - 固定 Stage0 module-graph differential 在两个不同 checkout 根下验证跨目录向上导入的 root-relative ID/DFS 顺序一致，并覆盖不存在 root、entry 在 root 外、普通 import 越界和既有 symlink 越界拒绝。Stage0/Stage1 compiler integration 用两个绝对目录不同的项目对拍成功程序，测试相对和绝对 source-root 参数、stdout/stderr/退出码与生成字节稳定，确认输出不泄漏绝对 checkout root。
 - 本轮全量门禁：`python3 -m unittest tests.test_bootstrap_host tests.test_bootstrap_smoke tests.test_bootstrap_lexer tests.test_bootstrap_parser -v` **23 passed / 0 failed**（含 Stage1→Stage2→Stage3 fixed point 与双根 bytes）；固定 Stage0 `python3 tests/run_tests.py` **259 passed / 0 failed**（505 个固定种子性质案例）；`compileall`、`git diff --check` 通过；ledger **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**。未重跑 CI 的 Python 3.11/JDK 17 矩阵。
 - **P15 尚未完成：** 显式 source-root 只修复模块图边界，不增加多模块 class/nested function/Java interop 能力；243-case Stage0/Stage1 全量行为与诊断投影、完整 source map/CLI 及 M10–M15 硬门仍未完成。随后应把成功/负例 case 投影自动化并按差异推进多模块 class/nested function/interop，不得宣称所有自举准备工作已完成。
+
+
+### 本轮增量：多模块 class/closure 链接与宿主 equality parity（M6/M7/M8 仍未完成）
+
+> 本节更新此前“linked graph 不支持 class、nested function 和 global/nonlocal”的历史状态；旧段落保留作为时间线记录。当前切片仍不是完整 Python-target 投影或 P15 DoD。
+
+- `bootstrap/module_graph.lt` 现在将顶层 class 纳入各模块的 collision-checked 私有符号表和 initializer globals；重写跨模块 class-parent alias 与方法体引用；父模块初始化先于子类发射。模块图还支持嵌套函数词法捕获、`global` 名称映射到模块私有变量、`nonlocal` 保持词法绑定，以及在符号链接前预解析字符串插值中的自由模块名。嵌套 class 继续明确拒绝。
+- `bootstrap/gen_py.lt` 的多模块 emitter 按继承拓扑在所属模块 initializer 中生成 class factory；运行时 `==`/`!=` 与固定 Stage0 对齐：浮点 NaN 不相等、Latent list/map 递归比较、外部宿主对象（含 NumPy ndarray）按 identity 比较。
+- `tests/test_bootstrap_smoke.py` 增加八个多模块 Stage0/Stage1 fixture（class/inheritance/bound method/default/keyword-only/functions/closures/nonlocal）、cookbook module interpolation 回归，并将 `py_numpy` 加入单文件 scope/runtime differential。
+- 当前验证：bootstrap host/smoke/lexer/parser 共 **25 tests passed**，含 Stage1→Stage2→Stage3 fixed-point 与双根逐字节门；Stage0 `tests/run_tests.py` **259 passed / 0 failed**（505 个固定种子性质案例）；`compileall`、`git diff --check`、ledger checker 与单测通过，ledger 为 **243 included / 0 excluded / 291 inventoried paths**（ledger 单测 3 passed）。固定 Stage0 seed 下 71 个 success/cookbook 正例最新扫描为 **54 matched / 17 mismatched**；17 个差异全部是 Java interop case 的 Stage1 codegen 拒绝，没有其余正例差异。
+- **下一阻塞与未完成项：** 17 个 Java interop 正例仍需在 Latent emitter/runtime 中实现 Java JSON-RPC wrappers，并通过 fixed Java runtime source packaging 让 Stage1 输出可运行；host adapter 已有显式文件复制 primitive，Stage0 构建的 Stage1 目录含三份 daemon/runtime `.java` source。后续还须完成 243-case Stage0/Stage1 编译诊断/运行错误/输出投影、完整 interop 回调、全量 source map/CLI 和 M10–M15 门禁。P15 仍未完成，不得声称“所有自举准备工作已完成”。

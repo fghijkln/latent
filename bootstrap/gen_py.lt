@@ -126,6 +126,10 @@ fn emit_expression(node):
         right = emit_expression(node["right"])
         if not right["ok"]:
             return right
+        if node["op"] == "==":
+            return result("_lt_bootstrap_eq(" + left["code"] + ", " + right["code"] + ")")
+        if node["op"] == "!=":
+            return result("(not _lt_bootstrap_eq(" + left["code"] + ", " + right["code"] + "))")
         return result("(" + left["code"] + " " + node["op"] + " " + right["code"] + ")")
     if kind == "UnOp":
         operand = emit_expression(node["operand"])
@@ -538,6 +542,13 @@ fn runtime_prelude():
     output = output + "    if isinstance(value, _LtBootstrapFunction):\n        if value._display is not None:\n            return value._display\n        return '<function ' + value._name + '>'\n"
     output = output + "    if isinstance(value, tuple):\n        return '[' + ', '.join(_lt_bootstrap_repr(item, True) for item in value) + ']'\n"
     output = output + "    return str(value)\n"
+    output = output + "def _lt_bootstrap_eq(left, right):\n"
+    output = output + "    if isinstance(left, float) and isinstance(right, float):\n        if left != left or right != right:\n            return False\n        return left == right\n"
+    output = output + "    primitive_types = (bool, float, str, list, dict)\n    if not isinstance(left, primitive_types) or not isinstance(right, primitive_types):\n        return left is right\n"
+    output = output + "    if type(left) is not type(right):\n        return False\n"
+    output = output + "    if isinstance(left, list):\n        return len(left) == len(right) and all(_lt_bootstrap_eq(left[index], right[index]) for index in range(len(left)))\n"
+    output = output + "    if isinstance(left, dict):\n        if len(left) != len(right) or any(key not in right for key in left):\n            return False\n        return all(_lt_bootstrap_eq(left[key], right[key]) for key in left)\n"
+    output = output + "    return left == right\n\n"
     output = output + "class _LtBootstrapArgumentError(RuntimeError):\n    pass\n\n"
     output = output + "class _LtBootstrapNamedArg:\n    def __init__(self, name, value):\n        self.name = name\n        self.value = value\n\n"
     output = output + "class _LtBootstrapStarArg:\n    def __init__(self, values):\n        self.values = tuple(values)\n\n"
@@ -633,6 +644,10 @@ fn join_python_names(names):
 fn generate_modules(tree, metadata, root_id):
     if tree["type"] != "Program":
         return failure("unsupported root node: " + tree["type"])
+    ordered_classes = order_classes(tree["stmts"])
+    if not ordered_classes["ok"]:
+        return failure(ordered_classes["error"])
+    reserved = collect_module_bindings(tree["stmts"], [])
     output = runtime_prelude()
     for module in metadata:
         for name in module["globals"]:
@@ -660,9 +675,17 @@ fn generate_modules(tree, metadata, root_id):
             if dependency == nil:
                 return failure("module linker produced unresolved dependency " + imported_id)
             output = output + "        " + dependency["init_name"] + "()\n"
+        for class_node in ordered_classes["classes"]:
+            if class_node["source_id"] == module["source_id"]:
+                allocated = class_factory_name(class_node["name"], reserved)
+                reserved = allocated["reserved"]
+                emitted_class = emit_class(class_node, "        ", allocated["name"])
+                if not emitted_class["ok"]:
+                    return emitted_class
+                output = output + emitted_class["code"]
         body = []
         for statement in tree["stmts"]:
-            if statement["source_id"] == module["source_id"] and statement["type"] != "FnDef":
+            if statement["source_id"] == module["source_id"] and statement["type"] != "FnDef" and statement["type"] != "ClassDef":
                 body = body + [statement]
         emitted_body = emit_block(body, "        ")
         if not emitted_body["ok"]:
