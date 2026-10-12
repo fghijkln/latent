@@ -265,6 +265,21 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertIn("input error: not-found", missing.stderr)
             self.assertFalse(missing_out.exists())
 
+            invalid_source = root / "invalid-utf8.lt"
+            invalid_source.write_bytes(b"\xff\xfe")
+            invalid_out = root / "invalid-utf8-out"
+            invalid_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(invalid_source),
+                 "-o", str(invalid_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(invalid_result.returncode, 1)
+            self.assertEqual(invalid_result.stdout, "")
+            self.assertEqual(
+                invalid_result.stderr,
+                f"{invalid_source}: input error: invalid-utf8\n")
+            self.assertFalse(invalid_out.exists())
+
             malformed = root / "malformed.lt"
             malformed.write_text("say 1 +\n", encoding="utf-8", newline="\n")
             malformed_out = root / "malformed-out"

@@ -331,3 +331,5 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **CLI 诊断覆盖追加：** Stage1 focused smoke 现在锁定无参数 usage、`-o`/`-t` 缺值、额外位置参数和不支持的 `--show-ast` 的 exit code 2 与精确 stderr；已有用例仍覆盖 `--source-root` 缺值、help 和 unsupported target。focused emitter smoke **1/1** 通过，仅添加回归断言与说明。
 
 - **CLI 输出链接覆盖追加：** emitter focused smoke 将目标 `.py` 预置为指向输出目录外部文件的 symlink，确认 Stage1 通过原子替换移除链接、不改外部文件内容，生成程序仍与预期一致；focused smoke **1/1** 通过。仅增加测试与文档。
+
+- **CLI 输入诊断追加：** 对非法 UTF-8 源文件，Stage1 CLI 必须返回精确 `input error: invalid-utf8`、exit code 1，并且不创建输出目录；emitter focused smoke **1/1** 通过。只增加输入诊断回归与文档。
