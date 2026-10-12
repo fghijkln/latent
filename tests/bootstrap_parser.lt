@@ -97,6 +97,54 @@ fn main():
     assert_equal(interop[1]["value"]["class_expr"]["value"], "java.lang.String", "java class expression")
     assert_equal(interop[2]["value"]["func"]["obj"]["type"], "Super", "super receiver")
 
+    source = "import \"support.lt\" as support\nglobal shared, cache\nnonlocal outer\nclass Child(support.Base):\n  fn run(self, value):\n    try:\n      throw value\n    catch error:\n      say error\n"
+    result = parser.parse(source, "bootstrap/parser-fixture.lt")
+    if not result["ok"]:
+        throw "declaration/class/exception source did not parse: " + result["error"]
+    tree = result["tree"]
+    statements = tree["stmts"]
+    assert_equal(tree["source_id"], "bootstrap/parser-fixture.lt", "program logical source id")
+    assert_equal(statements[0]["type"], "ImportStmt", "import statement node")
+    assert_equal(statements[0]["line"], 1, "import line")
+    assert_equal(statements[0]["col"], 1, "import column")
+    assert_equal(statements[0]["module_path"], "support.lt", "import path")
+    assert_equal(statements[0]["alias"], "support", "import alias")
+    assert_equal(statements[0]["source_id"], tree["source_id"], "import source id")
+    assert_equal(statements[1]["type"], "GlobalStmt", "global declaration node")
+    assert_equal(statements[1]["line"], 2, "global line")
+    assert_equal(statements[1]["names"][1], "cache", "global names")
+    assert_equal(statements[2]["type"], "NonlocalStmt", "nonlocal declaration node")
+    assert_equal(statements[2]["line"], 3, "nonlocal line")
+    assert_equal(statements[2]["names"][0], "outer", "nonlocal names")
+    class_node = statements[3]
+    assert_equal(class_node["type"], "ClassDef", "class definition node")
+    assert_equal(class_node["name"], "Child", "class name")
+    assert_equal(class_node["source_name"], "Child", "class source name")
+    assert_equal(class_node["line"], 4, "class line")
+    assert_equal(class_node["col"], 1, "class column")
+    assert_equal(class_node["parent"]["type"], "ClassRef", "parent reference node")
+    assert_equal(class_node["parent"]["name"], "Base", "parent class name")
+    assert_equal(class_node["parent"]["alias"], "support", "parent module alias")
+    assert_equal(class_node["parent"]["display"], "support.Base", "parent display name")
+    assert_equal(class_node["parent"]["line"], 4, "parent reference line")
+    assert_equal(class_node["parent"]["col"], 21, "parent reference column")
+    assert_equal(class_node["parent"]["source_id"], tree["source_id"], "parent source id")
+    method = class_node["methods"][0]
+    assert_equal(method["type"], "FnDef", "class method node")
+    assert_equal(method["source_name"], "run", "method source name")
+    assert_equal(method["param_specs"][0]["source_id"], tree["source_id"], "parameter source id")
+    try_node = method["body"][0]
+    assert_equal(try_node["type"], "Try", "try statement node")
+    assert_equal(try_node["line"], 6, "try line")
+    assert_equal(try_node["col"], 5, "try column")
+    assert_equal(try_node["var"], "error", "catch variable")
+    assert_equal(try_node["body"][0]["type"], "Throw", "throw statement node")
+    assert_equal(try_node["body"][0]["line"], 7, "throw line")
+    assert_equal(try_node["body"][0]["col"], 7, "throw column")
+    assert_equal(try_node["body"][0]["value"]["source_id"], tree["source_id"], "throw expression source id")
+    assert_equal(try_node["handler"][0]["type"], "Say", "catch handler node")
+    assert_equal(try_node["handler"][0]["source_id"], tree["source_id"], "handler source id")
+
     result = parser.parse("say 1 +\n")
     if result["ok"]:
         throw "incomplete expression should fail"

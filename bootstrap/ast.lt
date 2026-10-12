@@ -1,6 +1,6 @@
-# P15 M4 mapping-form AST. Nodes are plain Latent maps with stable type/line/col keys.
+# P15 M4 mapping-form AST. Nodes carry stable logical source identity, never a physical path.
 fn make(kind, line, col):
-    return {"type": kind, "line": line, "col": col}
+    return {"type": kind, "line": line, "col": col, "source_id": nil}
 
 fn program(statements):
     root = make("Program", 1, 1)

@@ -167,6 +167,7 @@ fn parse_function(p):
     formal = parse_formal_parameters(p)
     result = node("FnDef", token)
     result["name"] = name["value"]
+    result["source_name"] = name["value"]
     result["params"] = formal["params"]
     result["param_specs"] = formal["specs"]
     if match(p, "=>") != nil:
@@ -180,10 +181,94 @@ fn parse_function(p):
         result["body"] = parse_block(p)
     return result
 
+fn parse_import(p):
+    token = expect(p, "IMPORT")
+    module = expect(p, "STR")
+    expect(p, "AS")
+    alias = expect(p, "NAME")
+    expect(p, "NEWLINE")
+    result = node("ImportStmt", token)
+    result["module_path"] = module["value"]
+    result["alias"] = alias["value"]
+    return result
+
+fn parse_binding_declaration(p, token, kind):
+    names = [expect(p, "NAME")["value"]]
+    while match(p, ",") != nil:
+        names = names + [expect(p, "NAME")["value"]]
+    expect(p, "NEWLINE")
+    result = node(kind, token)
+    result["names"] = names
+    return result
+
+fn parse_class(p):
+    token = expect(p, "CLASS")
+    name = expect(p, "NAME")
+    parent = nil
+    if match(p, "(") != nil:
+        parent_name = expect(p, "NAME")
+        alias = nil
+        if match(p, ".") != nil:
+            alias = parent_name["value"]
+            parent_name = expect(p, "NAME")
+        parent = node("ClassRef", parent_name)
+        parent["name"] = parent_name["value"]
+        parent["alias"] = alias
+        if alias == nil:
+            parent["display"] = parent_name["value"]
+        else:
+            parent["display"] = alias + "." + parent_name["value"]
+        expect(p, ")")
+    expect(p, ":")
+    expect(p, "NEWLINE")
+    expect(p, "INDENT")
+    methods = []
+    skip_newlines(p)
+    while current(p)["kind"] != "DEDENT":
+        if current(p)["kind"] != "FN":
+            fail(p, "only fn definitions allowed in class body")
+        methods = methods + [parse_function(p)]
+        skip_newlines(p)
+    expect(p, "DEDENT")
+    if len(methods) == 0:
+        fail_at(p, "class '" + name["value"] + "' has no methods", token)
+    result = node("ClassDef", token)
+    result["name"] = name["value"]
+    result["source_name"] = name["value"]
+    result["methods"] = methods
+    result["parent"] = parent
+    return result
+
+fn parse_try(p):
+    token = expect(p, "TRY")
+    expect(p, ":")
+    body = parse_block(p)
+    expect(p, "CATCH")
+    variable = expect(p, "NAME")
+    expect(p, ":")
+    handler = parse_block(p)
+    result = node("Try", token)
+    result["body"] = body
+    result["var"] = variable["value"]
+    result["handler"] = handler
+    return result
+
 fn parse_statement(p):
     token = current(p)
+    if token["kind"] == "IMPORT":
+        return parse_import(p)
+    if token["kind"] == "GLOBAL":
+        advance(p)
+        return parse_binding_declaration(p, token, "GlobalStmt")
+    if token["kind"] == "NONLOCAL":
+        advance(p)
+        return parse_binding_declaration(p, token, "NonlocalStmt")
     if token["kind"] == "FN":
         return parse_function(p)
+    if token["kind"] == "CLASS":
+        return parse_class(p)
+    if token["kind"] == "TRY":
+        return parse_try(p)
     if token["kind"] == "IF":
         return parse_if(p)
     if token["kind"] == "WHILE":
@@ -218,6 +303,12 @@ fn parse_statement(p):
             result["value"] = nil
         else:
             result["value"] = parse_expression(p)
+        expect(p, "NEWLINE")
+        return result
+    if token["kind"] == "THROW":
+        advance(p)
+        result = node("Throw", token)
+        result["value"] = parse_expression(p)
         expect(p, "NEWLINE")
         return result
     if token["kind"] == "BREAK" or token["kind"] == "CONTINUE":
@@ -322,7 +413,7 @@ fn parse_multiplicative(p):
     return left
 
 fn parse_factor(p):
-    if current(p)["kind"] == "-" or current(p)["kind"] == "+":
+    if current(p)["kind"] == "-":
         operator = advance(p)
         result = node("UnOp", operator)
         result["op"] = operator["kind"]
@@ -490,7 +581,73 @@ fn parse_map_pair(p):
     pair = {"key": key, "value": parse_expression(p)}
     return pair
 
-fn parse_tokens(tokens):
+fn tag_source_nodes(nodes, source_id):
+    if nodes == nil:
+        return
+    for child in nodes:
+        tag_source_node(child, source_id)
+
+fn tag_source_node(value, source_id):
+    if value == nil:
+        return
+    value["source_id"] = source_id
+    kind = value["type"]
+    if kind == "Program":
+        tag_source_nodes(value["stmts"], source_id)
+    elif kind == "FnDef":
+        tag_source_nodes(value["param_specs"], source_id)
+        tag_source_nodes(value["body"], source_id)
+    elif kind == "ClassDef":
+        tag_source_node(value["parent"], source_id)
+        tag_source_nodes(value["methods"], source_id)
+    elif kind == "If":
+        tag_source_node(value["cond"], source_id)
+        tag_source_nodes(value["then_body"], source_id)
+        tag_source_nodes(value["else_body"], source_id)
+    elif kind == "While":
+        tag_source_node(value["cond"], source_id)
+        tag_source_nodes(value["body"], source_id)
+    elif kind == "For":
+        tag_source_node(value["iter"], source_id)
+        tag_source_nodes(value["body"], source_id)
+    elif kind == "Try":
+        tag_source_nodes(value["body"], source_id)
+        tag_source_nodes(value["handler"], source_id)
+    elif kind == "Say" or kind == "Return" or kind == "Throw":
+        tag_source_node(value["value"], source_id)
+    elif kind == "ExprStmt":
+        tag_source_node(value["expr"], source_id)
+    elif kind == "Assign":
+        tag_source_node(value["target"], source_id)
+        tag_source_node(value["value"], source_id)
+    elif kind == "BinOp":
+        tag_source_node(value["left"], source_id)
+        tag_source_node(value["right"], source_id)
+    elif kind == "UnOp":
+        tag_source_node(value["operand"], source_id)
+    elif kind == "List":
+        tag_source_nodes(value["elts"], source_id)
+    elif kind == "Map":
+        for pair in value["pairs"]:
+            tag_source_node(pair["value"], source_id)
+    elif kind == "Call":
+        tag_source_node(value["func"], source_id)
+        tag_source_nodes(value["args"], source_id)
+    elif kind == "Dot":
+        tag_source_node(value["obj"], source_id)
+    elif kind == "Subscript":
+        tag_source_node(value["obj"], source_id)
+        tag_source_node(value["index"], source_id)
+    elif kind == "PyImport":
+        tag_source_node(value["module_expr"], source_id)
+    elif kind == "JavaImport":
+        tag_source_node(value["class_expr"], source_id)
+    elif kind == "DefaultParam" or kind == "KeywordOnlyParam":
+        tag_source_node(value["default"], source_id)
+    elif kind == "NamedArg" or kind == "StarArg" or kind == "StarStarArg":
+        tag_source_node(value["value"], source_id)
+
+fn parse_tokens(tokens, source_id=nil):
     parser = {"tokens": tokens, "pos": 0, "error": "", "line": 0, "col": 0}
     try:
         statements = []
@@ -498,12 +655,14 @@ fn parse_tokens(tokens):
         while current(parser)["kind"] != "EOF":
             statements = statements + [parse_statement(parser)]
             skip_newlines(parser)
-        return {"ok": true, "tree": ast.program(statements), "error": nil, "line": 0, "col": 0}
+        tree = ast.program(statements)
+        tag_source_node(tree, source_id)
+        return {"ok": true, "tree": tree, "error": nil, "line": 0, "col": 0}
     catch ignored:
         return {"ok": false, "tree": nil, "error": parser["error"], "line": parser["line"], "col": parser["col"]}
 
-fn parse(source):
+fn parse(source, source_id=nil):
     tokenized = lexer.lex(source)
     if not tokenized["ok"]:
         return {"ok": false, "tree": nil, "error": tokenized["error"], "line": tokenized["line"], "col": tokenized["col"]}
-    return parse_tokens(tokenized["tokens"])
+    return parse_tokens(tokenized["tokens"], source_id)

@@ -27,6 +27,14 @@ PARSER_CASES = (
      "say f(**first, flag=2, **last)\n"),
     ("py/java/super prefixes",
      "say py \"math\".sqrt(4)\nsay java \"java.lang.String\"\nsay super.method(self)\n"),
+    ("local import and binding declarations",
+     "import \"lib.lt\" as lib\nglobal first, second\nnonlocal outer\n"),
+    ("class with local parent and methods",
+     "class Child(Base):\n  fn init(self):\n    return nil\n"),
+    ("class with aliased parent and try/catch/throw",
+     "class Child(lib.Base):\n  fn run(self, value):\n    try:\n      throw value\n    catch error:\n      say error\n"),
+    ("try/catch statement",
+     "try:\n  say \"work\"\ncatch problem:\n  say problem\n"),
     ("required positional after default",
      "fn f(optional=1, required):\n  return required\n"),
     ("bare star without keyword-only parameter",
@@ -39,6 +47,15 @@ PARSER_CASES = (
     ("positional unpack after named argument", "say f(flag=1, *items)\n"),
     ("trailing comma in parameter list", "fn f(value,):\n  return value\n"),
     ("trailing comma in call", "say f(1,)\n"),
+    ("unary plus is not part of Latent grammar", "say +1\n"),
+    ("import requires alias", "import \"lib.lt\"\n"),
+    ("global requires a name", "global\n"),
+    ("nonlocal rejects missing name after comma", "nonlocal outer,\n"),
+    ("class body only accepts methods", "class Empty:\n  say 1\n"),
+    ("class body must have a method", "class Empty:\n  \n"),
+    ("try requires catch", "try:\n  say 1\nsay 2\n"),
+    ("catch requires a binding name", "try:\n  say 1\ncatch:\n  say 2\n"),
+    ("throw requires an expression", "throw\n"),
 )
 
 
@@ -125,7 +142,47 @@ class BootstrapParserTests(unittest.TestCase):
             finally:
                 generated_source.unlink(missing_ok=True)
 
-    def _stage0_expectations(self, stage0: Path):
+    def test_repository_latent_sources_match_fixed_stage0_parser(self):
+        roots = (ROOT / "bootstrap", ROOT / "tests", ROOT / "cookbook")
+        sources = []
+        for base in roots:
+            for path in sorted(base.rglob("*.lt")):
+                sources.append((path.relative_to(ROOT).as_posix(),
+                                path.read_text(encoding="utf-8")))
+        self.assertGreater(len(sources), 250)
+        with tempfile.TemporaryDirectory(prefix="p15-parser-corpus-") as temporary:
+            temporary = Path(temporary)
+            stage0 = temporary / "stage0"
+            extract_stage0(stage0)
+            expectations = self._stage0_expectations(stage0, sources)
+            output = temporary / "output"
+            output.mkdir()
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", prefix="p15-parser-corpus-",
+                    suffix=".lt", dir=ROOT / "tests", delete=False) as source_file:
+                generated_source = Path(source_file.name)
+                source_file.write(self._differential_fixture(expectations))
+            try:
+                compiled = subprocess.run(
+                    [sys.executable, str(stage0 / "latent.py"),
+                     str(generated_source), "-t", "py", "-o", str(output)],
+                    cwd=ROOT, text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                self.assertEqual(compiled.returncode, 0,
+                                 compiled.stdout + compiled.stderr)
+                executed = subprocess.run(
+                    [sys.executable,
+                     str(output / (generated_source.stem + ".py"))],
+                    cwd=ROOT, text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                self.assertEqual(executed.returncode, 0,
+                                 executed.stdout + executed.stderr)
+                self.assertEqual(executed.stdout, "parser differential ok\n")
+                self.assertEqual(executed.stderr, "")
+            finally:
+                generated_source.unlink(missing_ok=True)
+
+    def _stage0_expectations(self, stage0: Path, cases=PARSER_CASES):
         module_names = ("nodes", "lex", "parse")
         previous_modules = {name: sys.modules.pop(name, None)
                             for name in module_names}
@@ -136,7 +193,7 @@ class BootstrapParserTests(unittest.TestCase):
             reference_lexer = importlib.import_module("lex")
             reference_parser = importlib.import_module("parse")
             expectations = []
-            for label, source in PARSER_CASES:
+            for label, source in cases:
                 try:
                     reference_parser.parse(reference_lexer.lex(source))
                     expectations.append((label, source, True, 0, 0, None))
@@ -156,7 +213,8 @@ class BootstrapParserTests(unittest.TestCase):
 
     def _differential_fixture(self, expectations):
         def latent_string(value: str) -> str:
-            value = (value.replace("\\", "\\\\").replace('"', '\\"')
+            value = (value.replace("$", "$$").replace("\\", "\\\\")
+                     .replace('"', '\\"')
                      .replace("\n", "\\n").replace("\t", "\\t")
                      .replace("\r", "\\r").replace("\0", "\\0"))
             return '"' + value + '"'
@@ -169,9 +227,11 @@ class BootstrapParserTests(unittest.TestCase):
             '        throw message + ": got " + str(actual)',
             "",
             "fn check_case(source, expected_ok, expected_line, expected_col, expected_error, label):",
-            "    result = parser.parse(source)",
+            "    result = parser.parse(source, label)",
             '    if result["ok"] != expected_ok:',
             '        throw label + ": accepted/rejected differently"',
+            '    if expected_ok and result["tree"]["source_id"] != label:',
+            '        throw label + ": logical source id was not preserved"',
             "    if not expected_ok:",
             '        assert_equal(result["line"], expected_line, label + " line")',
             '        assert_equal(result["col"], expected_col, label + " column")',
