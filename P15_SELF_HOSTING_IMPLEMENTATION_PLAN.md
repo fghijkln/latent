@@ -1,6 +1,6 @@
 # Latent 自托管编译器实施计划（P15）
 
-> **状态：** M13/M15 已在完整 clean checkout 上验证。双根快照现以 POSIX `ctime_ns` 检测“写入再还原”，只排除 checkout 根 `.git`，并保留嵌套 `.git` 路径；本机 bootstrap smoke 14/14、全 suite 28/28、ledger 3/3、Stage0 双后端 259/259 通过。代码提交 `4fa00c8` 与 `352ab45` 的 Tests/DevSkim/CodeQL 均 success；`352ab45` artifact 确认 372 tracked paths / 432 entries、clean/write-free、Stage2/3 双根字节相等及 projection 243/244/505 零差异。最新文档 HEAD `080a560` 的 Tests/DevSkim/CodeQL 也全 success。runner 固定 `ubuntu-24.04`；范围仍限 Python-hosted bootstrap，不涉及 native/host-independent、tag/Release 或分支保护变更。
+> **状态：** M13/M15 已在完整 clean checkout 上验证。双根快照现以 POSIX `ctime_ns` 检测“写入再还原”，只排除 checkout 根 `.git`，并保留嵌套 `.git` 路径；本机 bootstrap smoke 14/14、全 suite 28/28、ledger 3/3、Stage0 双后端 259/259 通过。代码提交 `4fa00c8` 与 `352ab45` 的 Tests/DevSkim/CodeQL 均 success；`352ab45` artifact 确认 372 tracked paths / 432 entries、clean/write-free、Stage2/3 双根字节相等及 projection 243/244/505 零差异。摘要提交 `a2ce66b` 的 Tests/DevSkim/CodeQL 均 success（run 38313322736/38313322747/38313324111）。runner 固定 `ubuntu-24.04`；范围仍限 Python-hosted bootstrap，不涉及 native/host-independent、tag/Release 或分支保护变更。
 > **历史说明：** 本文后续按轮次保留开发快照；早期章节中关于 M4–M15“未完成/未通过”的描述仅反映各轮当时状态，已由更晚的验收和审计记录取代。当前状态以本摘要及文末最新验收记录为准。
 >
 > **依据：** [P15 自举设计提案](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md)。本计划落实该提案已批准的首期范围，不重新扩大或缩小范围。
