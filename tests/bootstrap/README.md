@@ -105,3 +105,4 @@ On Windows, `os.path.relpath` cannot form a relative path across drive letters; 
 Host contract tests also isolate their own runner environment because `latent_host.run_python` intentionally inherits its caller's environment; product `--run` behavior is unchanged.
 The Stage1 emitter smoke also invokes `--run` for `java_basic.lt` from a cwd outside the output directory, checks automatic `javac` sidecar compilation there, and compares its stdout/stderr with directly running the emitted Python file from the same cwd.
 Host contract tests also lock `read_utf8` errors for invalid UTF-8 and, on POSIX, a non-directory parent path (`not-a-directory`).
+The Stage1 CLI smoke asserts exact exit code 2 and stderr for no arguments, missing `-o`/`-t` values, an unexpected extra argument, and unsupported `--show-ast`; existing assertions cover help, missing `--source-root`, and unsupported targets.

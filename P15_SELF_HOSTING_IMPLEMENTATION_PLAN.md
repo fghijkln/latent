@@ -327,3 +327,5 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **验证：** Host contract **14/14**；ledger/projection checker **8/8**；fixed-Stage0 parser **4/4**；emitter/CLI/standalone/Java-sidecar focused smoke **1/1**；完整 Stage0 双后端 **259/259**；单根 Stage0→Stage3 projection 为 **243 case IDs、244/244 fixtures、505/505 properties、0 mismatch**，且 Stage2/Stage3 bytes 相等。Python compileall、`git diff --check` 与全量父环境展开扫描均通过。此前 34 个 bootstrap_* 测试也通过；需要说明：当时筛除 dual-root 测试的过滤器误带了 `tests.` 前缀，unittest 实际 ID 不含该前缀，因此该 34 项中包含并意外重跑了已完成的 dual-root 用例。发现后已即时告知用户，之后没有再次执行双根 clone 测试；本轮投影为单根构建。
 
 - **诊断覆盖追加：** Host contract 新增 invalid UTF-8 → `invalid-utf8` 与 POSIX 文件作为父路径 → `not-a-directory` 回归；运行结果 **16/16**。这是仅补测试/文档的后续小提交，不改生产逻辑或重新运行 bootstrap/dual-root gate。
+
+- **CLI 诊断覆盖追加：** Stage1 focused smoke 现在锁定无参数 usage、`-o`/`-t` 缺值、额外位置参数和不支持的 `--show-ast` 的 exit code 2 与精确 stderr；已有用例仍覆盖 `--source-root` 缺值、help 和 unsupported target。focused emitter smoke **1/1** 通过，仅添加回归断言与说明。

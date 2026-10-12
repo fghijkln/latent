@@ -310,6 +310,25 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertIn("--source-root ROOT", help_result.stdout)
             self.assertEqual(help_result.stderr, "")
 
+            argument_errors = (
+                ([], "usage: latent source.lt [-t py] [-o OUTDIR] "
+                     "[--source-root ROOT] [--run]\n"),
+                ([str(fixture), "-o"], "error: -o requires a directory\n"),
+                ([str(fixture), "-t"], "error: -t requires a target\n"),
+                ([str(fixture), "extra.lt"],
+                 "error: unexpected argument extra.lt\n"),
+                ([str(fixture), "--show-ast"],
+                 "error: diagnostic options are not supported by the bootstrap compiler\n"),
+            )
+            for arguments, expected_error in argument_errors:
+                argument_result = subprocess.run(
+                    [sys.executable, str(compiler_a)] + arguments,
+                    cwd=root, env=clean_env, text=True, encoding="utf-8",
+                    capture_output=True, check=False)
+                self.assertEqual(argument_result.returncode, 2)
+                self.assertEqual(argument_result.stdout, "")
+                self.assertEqual(argument_result.stderr, expected_error)
+
             missing_root = subprocess.run(
                 [sys.executable, str(compiler_a), str(fixture),
                  "--source-root"], cwd=root, env=clean_env,
