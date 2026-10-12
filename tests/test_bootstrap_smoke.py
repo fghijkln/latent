@@ -472,6 +472,21 @@ class BootstrapEmitterTests(unittest.TestCase):
                 run_stage_program(output_dirs[0] / "main.py", invocation_dirs[0]),
                 (0, "standalone module\n", ""))
 
+            if os.name == "posix":
+                source_root_alias = root / "standalone-root-alias"
+                source_root_alias.symlink_to(
+                    standalone_project, target_is_directory=True)
+                alias_out = root / "standalone-root-alias-out"
+                checked(
+                    [sys.executable, str(compiler_a),
+                     str(source_root_alias / "main.lt"),
+                     "--source-root", str(source_root_alias),
+                     "-o", str(alias_out)],
+                    cwd=invocation_dirs[0], env=clean_env)
+                self.assertEqual(
+                    run_stage_program(alias_out / "main.py", invocation_dirs[0]),
+                    (0, "standalone module\n", ""))
+
             java_run_out = root / "java-run-out"
             java_run_source = ROOT / "tests" / "java_basic.lt"
             java_run_result = subprocess.run(
