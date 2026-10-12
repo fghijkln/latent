@@ -1,12 +1,12 @@
-"""End-to-end M2 smoke test for the fixed-seed self-hosting slice.
+"""Fixed-Stage0 smoke test for the first Latent Python-emitter slice.
 
-The fixture is deliberately restricted and is not the full v0.13.5 Python
-projection. This test demonstrates the stage mechanics only; later P15 gates
-must broaden the compiler and its differential fixture projection.
+The compiler subset is intentionally limited to the current M4 parser/AST. The
+module source root is fixed for this slice because current module identities
+and source maps include normalized absolute paths. Stage1-to-Stage2 self-hosting
+is deferred until the Latent compiler can parse and resolve its own modules.
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import os
 import subprocess
@@ -18,7 +18,33 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
-FIXTURE = 'say "bootstrap smoke"\nsay 40 + 2\n'
+COMPILER_SOURCE = ROOT / "bootstrap" / "compiler.lt"
+FIXTURE = r'''fn add(a, b):
+    return a + b
+
+fn sum_positive(values):
+    total = 0
+    for value in values:
+        if value > 0:
+            total = total + value
+    return total
+
+say "bootstrap smoke"
+say add(40, 2)
+say sum_positive([-2, 3, 6])
+say 1 / 2
+say [true, nil, "line\nnext"]
+say ["quote: \"x\""]
+say {"items": [1, 2]}
+'''
+EXPECTED_STDOUT = r'''bootstrap smoke
+42
+9
+0.5
+[true, nil, "line\nnext"]
+["quote: \"x\""]
+{"items": [1, 2]}
+'''
 
 
 def checked(command: list[str], *, cwd: Path, env: dict[str, str] | None = None):
@@ -65,102 +91,75 @@ def run_stage_program(script: Path, cwd: Path) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
-def build_chain(root: Path) -> dict[str, bytes]:
-    checkout = root / "checkout"
-    checkout.mkdir(parents=True)
-    (checkout / "compiler.lt").write_bytes(
-        (ROOT / "bootstrap" / "compiler.lt").read_bytes())
-    (checkout / "fixture.lt").write_text(FIXTURE, encoding="utf-8", newline="\n")
-    stage0 = root / "stage0"
-    extract_stage0(stage0)
+class BootstrapEmitterTests(unittest.TestCase):
+    def test_stage0_generates_deterministic_stage1_python_emitter(self):
+        with tempfile.TemporaryDirectory(prefix="p15-emitter-") as temporary:
+            root = Path(temporary)
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            clean_env = {**os.environ, "PYTHONPATH": ""}
 
-    outputs: dict[str, bytes] = {}
-    stage_dirs = {name: root / name for name in ("stage1", "stage2", "stage3")}
-    for path in stage_dirs.values():
-        path.mkdir()
+            # Keep the normalized module root fixed, but build into two fresh
+            # directories. Cross-checkout path independence is not claimed yet.
+            stage_dirs = [root / "stage1-a", root / "stage1-b"]
+            for stage_dir in stage_dirs:
+                stage_dir.mkdir()
+                checked([sys.executable, str(stage0 / "latent.py"),
+                         str(COMPILER_SOURCE), "-t", "py", "-o",
+                         str(stage_dir)], cwd=root)
+                (stage_dir / "latent_host.py").write_bytes(
+                    (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            compiler_a = stage_dirs[0] / "compiler.py"
+            compiler_b = stage_dirs[1] / "compiler.py"
+            self.assertEqual(compiler_a.read_bytes(), compiler_b.read_bytes())
 
-    # Fixed Stage0 compiles the Latent compiler source into a separate Stage1.
-    checked([sys.executable, str(stage0 / "latent.py"),
-             str(checkout / "compiler.lt"), "-t", "py", "-o",
-             str(stage_dirs["stage1"])], cwd=root)
-    (stage_dirs["stage1"] / "latent_host.py").write_bytes(
-        (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            compiler_source = compiler_a.read_text(encoding="utf-8")
+            self.assertIn(str(ROOT / "bootstrap"), compiler_source)
+            self.assertNotIn("import lex", compiler_source)
 
-    clean_env = {**os.environ, "PYTHONPATH": ""}
-    # Stage1, Stage2, and Stage3 compile the exact same Latent compiler source;
-    # no stage output directory is reused.
-    for stage_name, next_name in (("stage1", "stage2"),
-                                  ("stage2", "stage3")):
-        compiler = stage_dirs[stage_name] / "compiler.py"
-        checked([sys.executable, str(compiler), str(checkout / "compiler.lt"),
-                 "-o", str(stage_dirs[next_name])], cwd=root, env=clean_env)
-        (stage_dirs[next_name] / "latent_host.py").write_bytes(
-            (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            fixture = root / "fixture.lt"
+            fixture.write_text(FIXTURE, encoding="utf-8", newline="\n")
+            stage0_target = root / "stage0-target"
+            stage1_target = root / "stage1-target"
+            stage1_target_repeat = root / "stage1-target-repeat"
+            stage0_target.mkdir()
+            stage1_target_repeat.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"), str(fixture),
+                     "-t", "py", "-o", str(stage0_target)], cwd=root)
+            checked([sys.executable, str(compiler_a), str(fixture),
+                     "-o", str(stage1_target)], cwd=root, env=clean_env)
+            checked([sys.executable, str(compiler_a), str(fixture),
+                     "-o", str(stage1_target_repeat)], cwd=root, env=clean_env)
 
-    # Verify Stage1 can compile a fixture in an environment that has only the
-    # generated compiler's own directory on sys.path (PYTHONPATH is empty).
-    fixture_outputs: dict[str, tuple[int, str, str]] = {}
-    stage0_target = root / "stage0-target"
-    stage0_target.mkdir()
-    checked([sys.executable, str(stage0 / "latent.py"),
-             str(checkout / "fixture.lt"), "-t", "py", "-o",
-             str(stage0_target)], cwd=root)
-    fixture_outputs["stage0"] = run_stage_program(stage0_target / "fixture.py", root)
-    for name in ("stage1", "stage2", "stage3"):
-        target = root / (name + "-target")
-        target.mkdir()
-        checked([sys.executable, str(stage_dirs[name] / "compiler.py"),
-                 str(checkout / "fixture.lt"), "-o", str(target)],
-                cwd=root, env=clean_env)
-        fixture_outputs[name] = run_stage_program(target / "fixture.py", root)
+            stage0_result = run_stage_program(stage0_target / "fixture.py", root)
+            stage1_result = run_stage_program(stage1_target / "fixture.py", root)
+            self.assertEqual(stage0_result, (0, EXPECTED_STDOUT, ""))
+            self.assertEqual(stage1_result, stage0_result)
+            self.assertEqual(
+                (stage1_target / "fixture.py").read_bytes(),
+                (stage1_target_repeat / "fixture.py").read_bytes())
 
-    missing_dir = root / "missing-target"
-    failed = subprocess.run(
-        [sys.executable, str(stage_dirs["stage1"] / "compiler.py"),
-         str(checkout / "missing.lt"), "-o", str(missing_dir)],
-        cwd=root, env=clean_env, text=True, encoding="utf-8",
-        capture_output=True, check=False)
-    if failed.returncode == 0 or "input error: not-found" not in failed.stderr:
-        raise AssertionError(
-            f"missing source did not produce stable failure: {failed!r}")
-    if missing_dir.exists() or (missing_dir / "missing.py").exists():
-        raise AssertionError("failed Stage1 compile left a success-shaped output")
+            missing_out = root / "missing-out"
+            missing = subprocess.run(
+                [sys.executable, str(compiler_a), str(root / "missing.lt"),
+                 "-o", str(missing_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True, check=False)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("input error: not-found", missing.stderr)
+            self.assertFalse(missing_out.exists())
 
-    # Manifest consists only of the two explicitly declared compiler files.
-    for name in ("stage2", "stage3"):
-        for relative in ("compiler.py", "latent_host.py"):
-            data = (stage_dirs[name] / relative).read_bytes()
-            outputs[f"{name}/{relative}"] = data
-            outputs[f"{name}/{relative}.sha256"] = hashlib.sha256(data).hexdigest().encode()
-        actual = sorted(p.name for p in stage_dirs[name].iterdir()
-                        if p.name != "__pycache__" and p.suffix != ".pyc")
-        if actual != ["compiler.py", "latent_host.py"]:
-            raise AssertionError(f"unexpected {name} files: {actual}")
-
-    stage1_source = (stage_dirs["stage1"] / "compiler.py").read_text(
-        encoding="utf-8")
-    if "latent.py" in stage1_source or "import lex" in stage1_source:
-        raise AssertionError("Stage1 output unexpectedly references Stage0 modules")
-    return {**outputs, **{f"fixture/{name}": value
-                          for name, value in fixture_outputs.items()}}
-
-
-class BootstrapSmokeTests(unittest.TestCase):
-    def test_stage_chain_fixed_point_and_cross_root_reproducibility(self):
-        with tempfile.TemporaryDirectory(prefix="p15-left-") as left_raw, \
-                tempfile.TemporaryDirectory(prefix="p15-right-") as right_raw:
-            left = build_chain(Path(left_raw))
-            right = build_chain(Path(right_raw))
-            for stage in ("stage1", "stage2", "stage3"):
-                self.assertEqual(left[f"fixture/{stage}"], left["fixture/stage0"])
-                self.assertEqual(right[f"fixture/{stage}"], right["fixture/stage0"])
-            self.assertEqual(left["fixture/stage0"], (0, "bootstrap smoke\n42\n", ""))
-            self.assertEqual(left["stage2/compiler.py"], left["stage3/compiler.py"])
-            self.assertEqual(left["stage2/latent_host.py"], left["stage3/latent_host.py"])
-            self.assertEqual(left["stage2/compiler.py"], right["stage2/compiler.py"])
-            self.assertEqual(left["stage2/latent_host.py"], right["stage2/latent_host.py"])
-            self.assertEqual(left["stage2/compiler.py.sha256"],
-                             right["stage2/compiler.py.sha256"])
+            malformed = root / "malformed.lt"
+            malformed.write_text("say 1 +\n", encoding="utf-8", newline="\n")
+            malformed_out = root / "malformed-out"
+            rejected = subprocess.run(
+                [sys.executable, str(compiler_a), str(malformed), "-o",
+                 str(malformed_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True, check=False)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(
+                f"{malformed}:1:8: parse error: unexpected NEWLINE in expression",
+                rejected.stderr)
+            self.assertFalse(malformed_out.exists())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,228 @@
+# P15 first Python emitter slice. It covers only the current M4 parser/AST subset.
+# All traversal, ordering, target spelling, and literal escaping stay in Latent.
+fn result(code):
+    return {"ok": true, "code": code, "error": ""}
+
+fn failure(message):
+    return {"ok": false, "code": "", "error": message}
+
+fn quote_string(value):
+    output = "\""
+    for ch in value:
+        if ch == "\\":
+            output = output + "\\\\"
+        elif ch == "\"":
+            output = output + "\\\""
+        elif ch == "\n":
+            output = output + "\\n"
+        elif ch == "\t":
+            output = output + "\\t"
+        elif ch == "\r":
+            output = output + "\\r"
+        elif ch == "\0":
+            output = output + "\\0"
+        else:
+            output = output + ch
+    return output + "\""
+
+fn emit_expressions(expressions):
+    output = ""
+    first = true
+    for expression in expressions:
+        emitted = emit_expression(expression)
+        if not emitted["ok"]:
+            return emitted
+        if first:
+            first = false
+        else:
+            output = output + ", "
+        output = output + emitted["code"]
+    return result(output)
+
+fn emit_map_pairs(pairs):
+    output = ""
+    first = true
+    for pair in pairs:
+        emitted = emit_expression(pair["value"])
+        if not emitted["ok"]:
+            return emitted
+        if first:
+            first = false
+        else:
+            output = output + ", "
+        output = output + quote_string(pair["key"]) + ": " + emitted["code"]
+    return result(output)
+
+fn emit_expression(node):
+    kind = node["type"]
+    if kind == "Num":
+        return result(str(node["value"]))
+    if kind == "Str":
+        return result(quote_string(node["value"]))
+    if kind == "Bool":
+        if node["value"]:
+            return result("True")
+        return result("False")
+    if kind == "Nil":
+        return result("None")
+    if kind == "Name":
+        return result(node["id"])
+    if kind == "BinOp":
+        left = emit_expression(node["left"])
+        if not left["ok"]:
+            return left
+        right = emit_expression(node["right"])
+        if not right["ok"]:
+            return right
+        return result("(" + left["code"] + " " + node["op"] + " " + right["code"] + ")")
+    if kind == "UnOp":
+        operand = emit_expression(node["operand"])
+        if not operand["ok"]:
+            return operand
+        if node["op"] == "not":
+            return result("(not " + operand["code"] + ")")
+        return result("(" + node["op"] + operand["code"] + ")")
+    if kind == "Call":
+        function = emit_expression(node["func"])
+        if not function["ok"]:
+            return function
+        arguments = emit_expressions(node["args"])
+        if not arguments["ok"]:
+            return arguments
+        return result(function["code"] + "(" + arguments["code"] + ")")
+    if kind == "Dot":
+        object = emit_expression(node["obj"])
+        if not object["ok"]:
+            return object
+        return result(object["code"] + "." + node["attr"])
+    if kind == "Subscript":
+        object = emit_expression(node["obj"])
+        if not object["ok"]:
+            return object
+        index = emit_expression(node["index"])
+        if not index["ok"]:
+            return index
+        return result(object["code"] + "[" + index["code"] + "]")
+    if kind == "List":
+        elements = emit_expressions(node["elts"])
+        if not elements["ok"]:
+            return elements
+        return result("[" + elements["code"] + "]")
+    if kind == "Map":
+        pairs = emit_map_pairs(node["pairs"])
+        if not pairs["ok"]:
+            return pairs
+        return result("{" + pairs["code"] + "}")
+    return failure("unsupported expression node: " + kind)
+
+fn emit_block(statements, indent):
+    output = ""
+    for statement in statements:
+        emitted = emit_statement(statement, indent)
+        if not emitted["ok"]:
+            return emitted
+        output = output + emitted["code"]
+    if output == "":
+        output = indent + "pass\n"
+    return result(output)
+
+fn emit_statement(node, indent):
+    kind = node["type"]
+    if kind == "FnDef":
+        parameters = ""
+        first = true
+        for parameter in node["params"]:
+            if first:
+                first = false
+            else:
+                parameters = parameters + ", "
+            parameters = parameters + parameter
+        body = emit_block(node["body"], indent + "    ")
+        if not body["ok"]:
+            return body
+        return result(indent + "def " + node["name"] + "(" + parameters + "):\n" + body["code"])
+    if kind == "Assign":
+        target = emit_expression(node["target"])
+        if not target["ok"]:
+            return target
+        value = emit_expression(node["value"])
+        if not value["ok"]:
+            return value
+        return result(indent + target["code"] + " = " + value["code"] + "\n")
+    if kind == "ExprStmt":
+        expression = emit_expression(node["expr"])
+        if not expression["ok"]:
+            return expression
+        return result(indent + expression["code"] + "\n")
+    if kind == "Say":
+        expression = emit_expression(node["value"])
+        if not expression["ok"]:
+            return expression
+        return result(indent + "_lt_bootstrap_say(" + expression["code"] + ")\n")
+    if kind == "Return":
+        if node["value"] == nil:
+            return result(indent + "return None\n")
+        expression = emit_expression(node["value"])
+        if not expression["ok"]:
+            return expression
+        return result(indent + "return " + expression["code"] + "\n")
+    if kind == "If":
+        condition = emit_expression(node["cond"])
+        if not condition["ok"]:
+            return condition
+        then_body = emit_block(node["then_body"], indent + "    ")
+        if not then_body["ok"]:
+            return then_body
+        output = indent + "if " + condition["code"] + ":\n" + then_body["code"]
+        if node["else_body"] != nil:
+            else_body = emit_block(node["else_body"], indent + "    ")
+            if not else_body["ok"]:
+                return else_body
+            output = output + indent + "else:\n" + else_body["code"]
+        return result(output)
+    if kind == "While":
+        condition = emit_expression(node["cond"])
+        if not condition["ok"]:
+            return condition
+        body = emit_block(node["body"], indent + "    ")
+        if not body["ok"]:
+            return body
+        return result(indent + "while " + condition["code"] + ":\n" + body["code"])
+    if kind == "For":
+        iterable = emit_expression(node["iter"])
+        if not iterable["ok"]:
+            return iterable
+        body = emit_block(node["body"], indent + "    ")
+        if not body["ok"]:
+            return body
+        return result(indent + "for " + node["var"] + " in " + iterable["code"] + ":\n" + body["code"])
+    if kind == "Break":
+        return result(indent + "break\n")
+    if kind == "Continue":
+        return result(indent + "continue\n")
+    return failure("unsupported statement node: " + kind)
+
+fn runtime_prelude():
+    output = "def _lt_bootstrap_repr(value, quoted=False):\n"
+    output = output + "    if value is None:\n        return 'nil'\n"
+    output = output + "    if value is True:\n        return 'true'\n"
+    output = output + "    if value is False:\n        return 'false'\n"
+    output = output + "    if isinstance(value, float):\n        if value.is_integer():\n            return str(int(value))\n        return str(value)\n"
+    output = output + "    if isinstance(value, str):\n"
+    output = output + "        if not quoted:\n            return value\n"
+    output = output + "        text = value.replace('\\\\', '\\\\\\\\').replace('\\\"', '\\\\\\\"')\n"
+    output = output + "        text = text.replace('\\n', '\\\\n').replace('\\t', '\\\\t').replace('\\r', '\\\\r').replace('\\0', '\\\\0')\n"
+    output = output + "        return '\"' + text + '\"'\n"
+    output = output + "    if isinstance(value, list):\n        return '[' + ', '.join(_lt_bootstrap_repr(item, True) for item in value) + ']'\n"
+    output = output + "    if isinstance(value, dict):\n        return '{' + ', '.join(_lt_bootstrap_repr(key, True) + ': ' + _lt_bootstrap_repr(item, True) for key, item in value.items()) + '}'\n"
+    output = output + "    return str(value)\n"
+    output = output + "def _lt_bootstrap_say(value):\n    print(_lt_bootstrap_repr(value))\n\n"
+    return output
+
+fn generate(tree):
+    if tree["type"] != "Program":
+        return failure("unsupported root node: " + tree["type"])
+    body = emit_block(tree["stmts"], "")
+    if not body["ok"]:
+        return body
+    return result(runtime_prelude() + body["code"])

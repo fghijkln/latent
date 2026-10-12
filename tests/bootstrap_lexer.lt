@@ -101,6 +101,19 @@ fn main():
     assert_token(result["tokens"], 3, "INDENT", nil, 4, 1)
     assert_token(result["tokens"], 7, "DEDENT", nil, 5, 1)
 
+    result = lexer.lex("fn first():\n  if true:\n    say 1\nfn second():\n  say 2\n")
+    if not result["ok"]:
+        throw "sibling blocks after nested dedent should lex"
+    dedents_before_second = 0
+    found_second = false
+    for token in result["tokens"]:
+        if token["kind"] == "FN" and token["line"] == 4:
+            found_second = true
+        elif not found_second and token["kind"] == "DEDENT":
+            dedents_before_second = dedents_before_second + 1
+    if not found_second or dedents_before_second != 2:
+        throw "all nested blocks must dedent before a sibling definition"
+
     assert_error("\tname", "tab indentation is not allowed, use spaces", 1, 1)
     assert_error("if true:\n    say 1\n  say 2\n", "inconsistent indentation", 3, 1)
     assert_error("say 1.2.3", "bad number '1.2.3'", 1, 5)

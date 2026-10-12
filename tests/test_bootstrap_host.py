@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +55,35 @@ class HostContractTests(unittest.TestCase):
             rejected = host.copy_explicit_files(source, output, ["../secret"])
             self.assertFalse(rejected["ok"])
             self.assertEqual(rejected["error"], "invalid-name")
+
+    def test_temporary_build_directory_is_scoped_and_removable(self):
+        created = host.make_temp_dir()
+        self.assertTrue(created["ok"], created)
+        path = Path(created["value"])
+        self.assertTrue(path.is_dir())
+        self.assertEqual(path.parent, Path(tempfile.gettempdir()).resolve())
+        self.assertTrue(path.name.startswith("latent-build-"))
+
+        alias = path.parent / (path.name + "-alias")
+        alias.symlink_to(path, target_is_directory=True)
+        linked = host.remove_temp_dir(str(alias))
+        self.assertEqual(linked["error"], "invalid-temp-dir")
+        self.assertTrue(path.is_dir())
+        alias.unlink()
+
+        removed = host.remove_temp_dir(created["value"])
+        self.assertTrue(removed["ok"], removed)
+        self.assertFalse(path.exists())
+
+        foreign = Path(tempfile.mkdtemp(prefix="latent-build-"))
+        rejected_foreign = host.remove_temp_dir(str(foreign))
+        self.assertEqual(rejected_foreign["error"], "invalid-temp-dir")
+        self.assertTrue(foreign.is_dir())
+        shutil.rmtree(foreign)
+
+        rejected = host.remove_temp_dir(tempfile.gettempdir())
+        self.assertEqual(rejected, {
+            "ok": False, "value": "", "error": "invalid-temp-dir"})
 
     def test_run_python_captures_exit_and_streams(self):
         with tempfile.TemporaryDirectory() as root:

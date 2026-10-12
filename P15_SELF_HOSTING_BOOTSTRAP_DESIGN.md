@@ -177,3 +177,5 @@ Job 失败时保留差异 manifest 与最小复现信息作为 CI artifact，正
 - M4 Latent AST/parser 限定子集已通过固定 Stage0 测试，覆盖函数与控制流块、常用表达式优先级、调用/属性/下标/列表/map、解析失败位置与不匹配闭括号。类/继承、导入、异常、global/nonlocal、完整形参/调用参数、py/java/super 及插值等尚未实现。
 - 完整 v0.13.5 兼容、Stage1/2/3 完整自举、双根复现和最终 DoD 尚未完成；当前仅为可推送的阶段性基础，不构成 P15 首期验收完成。
 - 本次只授权推送代码，不创建 tag/Release；main 分支保护保持原状。
+- 2026-10-12：按用户重排后的第三步，新增 `bootstrap/gen_py.lt`，首个 Python emitter 只覆盖当前 Latent parser/AST 子集；`compiler.lt` 通过 Latent parser/emitter 流程生成输出，Python adapter 只执行宿主 I/O/路径/临时目录/生成程序进程服务。Stage0→Stage1 fixture 对拍和同一固定源码根重复生成检查通过；Stage1→Stage2→Stage3 仍因 parser 尚不支持 import/模块图而未覆盖，绝不作为完整自举声明。
+- 本步 smoke 发现并修复 M3 lexer 的 dedent 后缩进栈槽位复用缺陷；新增 case 与固定 Stage0 token 差分。路径身份/source map 的规范化绝对路径影响仍由固定仓库源码根规避，跨根字节可复现性继续留待后续。

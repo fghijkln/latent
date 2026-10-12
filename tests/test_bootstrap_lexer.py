@@ -186,6 +186,7 @@ class BootstrapLexerTests(unittest.TestCase):
 
             cases: list[tuple[str, bool]] = [
                 ("fn café_β9:\n  say ٣٢.٥\n", True),
+                ("fn first():\n  if true:\n    say 1\nfn second():\n  say 2\n", True),
                 ("变量²Ⅻ½ = 𝟠\nsay 𝒜\n", True),
                 ("say .٣\nsay 'é\\n東京'\n", True),
                 ("say ²\nsay 1²\n", True),

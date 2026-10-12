@@ -110,3 +110,11 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - M4 的 Latent 映射 AST/递归下降 parser 限定子集已通过固定 Stage0 fixture（结构块、常用表达式优先级、调用/属性/下标/列表/map 与解析位置诊断）。类/继承、导入、异常、global/nonlocal、完整形参与调用参数、py/java/super、插值等完整语法仍未实现，不构成完整 M4 验收。
 - 本轮 Stage0 Python-target 完整回归已通过：259 passed、0 failed；运行环境为 Python 3.12.3/JDK 25.0.4。bootstrap lexer/parser/host/smoke 聚焦套件 10 项通过；M3 lexer 三项 Unicode 差分/属性边界测试亦在 Python 3.11/UCD 14 和 Python 3.12/UCD 15 分别通过。新增 bootstrap CI 使用 Python 3.11/JDK 17，原有 Python 3.11/JDK 17、21 全量矩阵保留。
 - 本次不创建 tag/Release，不修改 main 分支保护。
+
+### 本步记录：Latent Python emitter 首个增量切片（未完成 M8）
+
+- 按用户本轮明确重排的顺序，先在 `bootstrap/gen_py.lt` 实现当前 AST 子集的 Python emitter，并将 `bootstrap/compiler.lt` 改为调用 Latent lexer/parser/emitter；宿主只处理 argv、路径、UTF-8 文件、原子写出、临时构建目录及生成 Python 程序进程服务。Java 后端未改动。
+- emitter 覆盖当前 M4 parser 实际产出的函数（必需位置形参）、赋值、表达式语句、say、return、if/elif/else、while、for、break/continue，以及数字、字符串、布尔、nil、名称、二元/一元运算、调用、属性、下标、列表和字符串键映射；它不实现完整 v0.13.5 脱糖、语义、模块图、interop 或运行时约定。
+- 端到端 smoke 已改为固定仓库 `bootstrap/` 源根下的 Stage0→Stage1 对拍；Stage1 对小型 fixture 的输出/退出状态匹配 Stage0，Stage1 生成物在同一源码根下重复生成字节一致。由于当前 parser 不支持 `import`/模块图，Stage1→Stage2→Stage3 暂不由本步覆盖；当前模块符号/source map 仍含规范化绝对路径，跨根复现明确延后。
+- 实现过程中回归测试发现 M3 lexer 在 `dedent` 后重新开启 sibling 缩进块时保留了旧栈槽位，导致后续 AST 块归属错误；已通过重用弹栈后的槽位修复，并增加固定 Stage0 token 差分案例。
+- 后续仍需完成完整 parser/AST、脱糖、静态语义、模块图/逻辑源 ID、完整 Python emitter 与 target runtime、CLI/`--run` 集成、Stage1→3 闭环、双根复现、Python-target 全量对拍及 CI 门禁。当前切片不代表 M4/M8 或 P15 DoD 完成。

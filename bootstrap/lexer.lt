@@ -246,7 +246,12 @@ fn lex(source):
             while indent < len(line) and line[indent] == " ":
                 indent = indent + 1
             if indent > indents[depth]:
-                indents = indents + [indent]
+                # A dedent lowers depth but keeps the backing list intact.
+                # Reuse that slot when a later sibling opens another block.
+                if depth + 1 < len(indents):
+                    indents[depth + 1] = indent
+                else:
+                    indents = indents + [indent]
                 depth = depth + 1
                 tokens = tokens + [token_at("INDENT", nil, lineno, 1)]
             else:

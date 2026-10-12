@@ -14,6 +14,10 @@ import sys
 import tempfile
 
 API_VERSION = 1
+# Temporary build directories created by this adapter use this fixed prefix;
+# remove_temp_dir rejects paths outside that explicit temp-root namespace.
+TEMP_DIR_PREFIX = "latent-build-"
+_TEMP_DIRS: set[str] = set()
 
 
 def _error_code(exc: BaseException) -> str:
@@ -122,6 +126,34 @@ def make_dirs(path: str) -> dict:
     try:
         os.makedirs(path, exist_ok=True)
         return {"ok": True, "value": path, "error": ""}
+    except OSError as exc:
+        return {"ok": False, "value": "", "error": _error_code(exc)}
+
+
+def make_temp_dir() -> dict:
+    """Create an isolated temporary build directory with a fixed prefix."""
+    try:
+        path = os.path.abspath(tempfile.mkdtemp(prefix=TEMP_DIR_PREFIX))
+        _TEMP_DIRS.add(path)
+        return {"ok": True, "value": path, "error": ""}
+    except OSError as exc:
+        return {"ok": False, "value": "", "error": _error_code(exc)}
+
+
+def remove_temp_dir(path: str) -> dict:
+    """Remove only a registered temp dir created by this adapter instance."""
+    if not isinstance(path, str):
+        return {"ok": False, "value": "", "error": "invalid-temp-dir"}
+    absolute = os.path.abspath(path)
+    expected_parent = os.path.abspath(tempfile.gettempdir())
+    if (absolute not in _TEMP_DIRS or os.path.islink(absolute) or
+            os.path.dirname(absolute) != expected_parent or
+            not os.path.basename(absolute).startswith(TEMP_DIR_PREFIX)):
+        return {"ok": False, "value": "", "error": "invalid-temp-dir"}
+    try:
+        shutil.rmtree(absolute)
+        _TEMP_DIRS.remove(absolute)
+        return {"ok": True, "value": absolute, "error": ""}
     except OSError as exc:
         return {"ok": False, "value": "", "error": _error_code(exc)}
 
