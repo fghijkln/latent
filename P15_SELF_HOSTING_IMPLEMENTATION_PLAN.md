@@ -1,6 +1,6 @@
 # Latent 自托管编译器实施计划（P15）
 
-> **状态：范围已获批准，实施进行中。** 用户已明确授权按本计划实施、测试并推送；此授权不包括创建 tag/Release 或修改 main 分支保护。最终完成仍以本计划全部 DoD 为准，阶段性切片不得冒充完整 v0.13.5 自举。
+> **状态：P15 首期 DoD 已完成（本地与远端 CI 全绿，2026-10-13；实现提交 `068ad81`）。** 用户已明确授权按本计划实施、测试并推送；此授权不包括创建 tag/Release 或修改 main 分支保护。完成范围是 Python 宿主上的可复现自托管 bootstrap，不声称 native 或 host-independent。
 >
 > **依据：** [P15 自举设计提案](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md)。本计划落实该提案已批准的首期范围，不重新扩大或缩小范围。
 >
@@ -269,15 +269,16 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - **下一阻塞与未完成项：** ledger 的 243 项 Stage0/Stage1 成功/编译拒绝/运行期错误全量差分仍未完成；完整 Python/Java interop（特别是 callback、负例诊断与 source location）、全部诊断/source map、全 CLI 兼容及 M10/M14/M15 CI 硬门仍未通过。必须继续按 ledger 找出并消除下一个差异；不得宣称“所有自举准备”或 P15 已完成。
 
 
-### 本轮最终本地门：控制流类型 join、完整投影与 M15 隔离检查（本地通过；远端 CI 待验）
+### 本轮最终验收：控制流类型 join、完整投影与 M15 隔离检查（本地及远端 CI 通过）
 
-> 本节更新并取代第 269 行关于 243 项全量投影仍未实现的历史状态；P15 仍不得在远端 CI 矩阵返回前标记完成。
+> 本节更新并取代第 269 行关于 243 项全量投影仍未实现的历史状态，并记录 M10–M15 与最终 DoD 的验收结果。
 
 - `bootstrap/semant.lt` 现对 `if`/`while`/`for`/`try` 的 `class_types` 做分支前快照、分支恢复和 join 后写入变量失效，匹配 Stage0 控制流类型追踪；修复 `p8_named_arguments.lt` 中 join 点后误保留单一分支类类型的误报。`tests/test_bootstrap_smoke.py` 及全量正例投影覆盖了该回归。
 - `bootstrap/module_graph.lt` 将源码文本、物理路径与逻辑 source ID 保留在诊断上下文；`bootstrap/compiler.lt` 生成带源码行与 caret 的编译诊断；`bootstrap/gen_py.lt` 输出语句级源码标记并映射 Latent runtime traceback；`bootstrap/java_runtime.lt` 的数值/内建调用规则继续与固定 Stage0 对齐。投影只将 Stage1 模块初始化器名按其逻辑源文件计算到 Stage0 的精确 SHA-1 后缀，不抹除对应源码路径/行号或其他 stderr 差异。
 - `tests/bootstrap/project_stage0.py` 已从固定 Stage0 构建 Stage1/2/3，并对账本所有 **243 included / 0 excluded / 291 inventoried paths** 执行 **244** 个 fixture 调用（**71** 正例、**88** 编译负例、**85** 运行负例）和 **505** 个固定种子性质用例；逐项比较 Stage0/1/2 的状态、stdout/stderr、编译诊断/源码位置及运行错误位置。最新报告为 **244/244 fixture 匹配、505/505 性质匹配、0 runner/property/artifact mismatch**；Stage1/2/3 均无缺少或额外产物，Stage2/Stage3 声明文件 bytes 相等。Stage1 初始 seed emission 仅临时隐藏 `javac`，避免固定 Stage0 的 eager `.class` 缓存进入清单；必需 Java `.java` sidecars 保留，JDK-backed interop fixtures 照常运行。
 - `bootstrap/latent_host.py` 显式声明精确 `__all__` API allowlist，host contract 新增对公开函数集合的断言。双根 fixed-point 测试删除 Stage0 seed 后再由 Stage1 编译 Stage2，设置空 `PYTHONPATH`，将各阶段放在独立临时目录，并对构建前后的仓库文件做只读快照比较（排除 VCS、依赖目录及解释器/测试缓存）。
 - 本机验证：`python3 tests/run_tests.py` **259 passed / 0 failed**；最新 host/smoke/lexer/parser bootstrap suite **28 passed / 0 failed**（含 Stage1→2→3 fixed point、双绝对根和源码树只读断言）；Stage0/1/2 projector **243 case IDs / 244 fixture invocations / 505 properties 全部零差异**，stage artifact mismatch **0**；ledger checker 与其 **3 项**测试、Python syntax checks、`git diff --check` 均通过。本机为 Python **3.12.3** / OpenJDK **25.0.4.1**。
-- **后续验收边界：** M14 的全量投影在本机已通过；新增 bootstrap CI job 与原有 Python 3.11/JDK 17、21 全量回归矩阵尚未对本轮提交运行。必须推送后确认远端 job 全绿，方可把 M15/P15 标为 Done；本机结果不能替代 CI 矩阵。
+- **远端最终验收：** GitHub `Tests` workflow run [38285571371](https://github.com/fghijkln/latent/actions/runs/38285571371) 对实现提交 `068ad81d417f779802d39a189f21b82394d9ed76` 返回 **success**；4 个 job（VS Code extension、Python 3.11/JDK 17、P15 bootstrap / Python 3.11/JDK 17、Python 3.11/JDK 21）全部完成并通过。P15 job 的账本分类、host contract、双根 Stage1→3、lexer/parser 和全量 Stage0/1/2 投影步骤均成功；normalized validation reports 已上传，未上传 Stage 编译产物。
+- **DoD 结论：** M10–M15 的本地与干净 checkout CI 门均通过；全量 Python-target 投影零差异、Stage2/3 固定点与双根复现逐字节一致、原有双后端回归保持通过、全部排除项具备范围理由。P15 首期可标记 **Done**；不扩大到 native、host-independent 或计划外功能。
 
 - **M14 账本报告补充（最终投影已验证）：** CI JSON 现分别列出 runner 用例 **243/0**（included/excluded）、fixture 路径 **285/6**（共 291 项）、辅助测试路径 **11/2**、P14 协议操作 **2/1**，并逐项记录全部 9 个明确排除项的理由。3 个 Java-only host helper 源文件虽不作为 Latent 输入 fixture 计入，但仍由纳入的 Python-target interop/property 用例编译和使用。报告 schema 扩展后的完整投影再次通过：244/244 fixture、505/505 property，Stage2→Stage3 及 artifact 门均零差异。
