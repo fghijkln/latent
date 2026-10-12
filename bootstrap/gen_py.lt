@@ -100,6 +100,8 @@ fn emit_expression(node):
     if kind == "Name":
         if node["id"] == "__say":
             return result("_lt_bootstrap_say")
+        if node["id"] == "range":
+            return result("_lt_bootstrap_range")
         if node["id"] == "str":
             return result("_lt_bootstrap_str")
         if node["id"] == "__wgetattr":
@@ -268,6 +270,65 @@ fn names_have(names, wanted):
             return true
     return false
 
+fn append_name(names, name):
+    if names_have(names, name):
+        return names
+    return names + [name]
+
+fn collect_scope_names(statements, wanted_kind, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == wanted_kind:
+            for name in statement["names"]:
+                names = append_name(names, name)
+        elif kind == "FnDef" or kind == "ClassDef":
+            continue
+        elif kind == "If":
+            names = collect_scope_names(statement["then_body"], wanted_kind, names)
+            if statement["else_body"] != nil:
+                names = collect_scope_names(statement["else_body"], wanted_kind, names)
+        elif kind == "While" or kind == "For":
+            names = collect_scope_names(statement["body"], wanted_kind, names)
+        elif kind == "Try":
+            names = collect_scope_names(statement["body"], wanted_kind, names)
+            names = collect_scope_names(statement["handler"], wanted_kind, names)
+    return names
+
+fn collect_function_locals(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "Assign" and statement["target"]["type"] == "Name":
+            names = append_name(names, statement["target"]["id"])
+        elif kind == "ImportStmt":
+            names = append_name(names, statement["alias"])
+        elif kind == "FnDef" or kind == "ClassDef":
+            names = append_name(names, statement["name"])
+        elif kind == "If":
+            names = collect_function_locals(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_function_locals(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_function_locals(statement["body"], names)
+        elif kind == "For":
+            names = append_name(names, statement["var"])
+            names = collect_function_locals(statement["body"], names)
+        elif kind == "Try":
+            names = append_name(names, statement["var"])
+            names = collect_function_locals(statement["body"], names)
+            names = collect_function_locals(statement["handler"], names)
+    return names
+
+fn join_names(names):
+    output = ""
+    first = true
+    for name in names:
+        if first:
+            first = false
+        else:
+            output = output + ", "
+        output = output + name
+    return output
+
 fn order_classes(statements):
     pending = []
     for statement in statements:
@@ -293,6 +354,8 @@ fn order_classes(statements):
 
 fn emit_statement(node, indent):
     kind = node["type"]
+    if kind == "GlobalStmt" or kind == "NonlocalStmt":
+        return result("")
     if kind == "FnDef":
         specs = node["param_specs"]
         fixed_names = []
@@ -322,6 +385,18 @@ fn emit_statement(node, indent):
                 elif parameter_kind == "KeywordOnlyParam" and parameter["default"] == nil:
                     required_keyword_only = required_keyword_only + [parameter["name"]]
         python_names = fixed_names + collectors
+        local_names = collect_function_locals(node["body"], [])
+        global_names = collect_scope_names(node["body"], "GlobalStmt", [])
+        nonlocal_names = collect_scope_names(node["body"], "NonlocalStmt", [])
+        scope_declarations = ""
+        if len(global_names) > 0:
+            scope_declarations = scope_declarations + indent + "    global " + join_names(global_names) + "\n"
+        if len(nonlocal_names) > 0:
+            scope_declarations = scope_declarations + indent + "    nonlocal " + join_names(nonlocal_names) + "\n"
+        local_initializers = ""
+        for local_name in local_names:
+            if not names_have(python_names, local_name) and not names_have(global_names, local_name) and not names_have(nonlocal_names, local_name):
+                local_initializers = local_initializers + indent + "    " + local_name + " = None\n"
         parameters = ""
         first = true
         for parameter in python_names:
@@ -363,7 +438,7 @@ fn emit_statement(node, indent):
         wrapper = indent + node["name"] + " = _LtBootstrapFunction(" + node["name"] + ", " + names_code + ", " + quote_string(node["name"])
         wrapper = wrapper + ", required_count=" + str(required_count) + ", positional_count=" + str(positional_count)
         wrapper = wrapper + ", required_keyword_only=" + keyword_code + ", rest_name=" + rest_name + ", extra_name=" + extra_name + ")\n"
-        return result(indent + "def " + node["name"] + "(" + parameters + "):\n" + initializers + body["code"] + wrapper)
+        return result(indent + "def " + node["name"] + "(" + parameters + "):\n" + scope_declarations + local_initializers + initializers + body["code"] + wrapper)
     if kind == "ClassDef":
         return failure("nested class declarations are not supported by the bootstrap emitter")
     if kind == "Assign":
@@ -461,6 +536,7 @@ fn runtime_prelude():
     output = output + "    if isinstance(value, list):\n        return '[' + ', '.join(_lt_bootstrap_repr(item, True) for item in value) + ']'\n"
     output = output + "    if isinstance(value, dict):\n        return '{' + ', '.join(_lt_bootstrap_repr(key, True) + ': ' + _lt_bootstrap_repr(item, True) for key, item in value.items()) + '}'\n"
     output = output + "    if isinstance(value, _LtBootstrapFunction):\n        if value._display is not None:\n            return value._display\n        return '<function ' + value._name + '>'\n"
+    output = output + "    if isinstance(value, tuple):\n        return '[' + ', '.join(_lt_bootstrap_repr(item, True) for item in value) + ']'\n"
     output = output + "    return str(value)\n"
     output = output + "class _LtBootstrapArgumentError(RuntimeError):\n    pass\n\n"
     output = output + "class _LtBootstrapNamedArg:\n    def __init__(self, name, value):\n        self.name = name\n        self.value = value\n\n"
@@ -478,7 +554,7 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_supercall(receiver, owner, attr, *args):\n    if not isinstance(receiver, _LtBootstrapInstance) or not isinstance(owner, _LtBootstrapClass):\n        raise TypeError('super call requires a Latent instance and class')\n    current = receiver._lt_class\n    while current is not None and current is not owner:\n        current = current._parent\n    if current is None or owner._parent is None:\n        raise TypeError('super call owner is not in the instance inheritance chain')\n    method = owner._parent._find_method(attr)\n    if method is None:\n        raise AttributeError('no parent method %r on class %s' % (attr, owner._name))\n    return _lt_bootstrap_bound_method(method, receiver)(*args)\n\n"
     output = output + "def _lt_bootstrap_no_arg_constructor(name, args):\n    for argument in _lt_bootstrap_expand_args(args):\n        if isinstance(argument, _LtBootstrapNamedArg):\n            raise _LtBootstrapArgumentError('%s() got unexpected named argument %r' % (name, argument.name))\n        raise _LtBootstrapArgumentError('%s() takes 0 args, got 1' % name)\n\n"
     output = output + "_lt_bootstrap_missing = _LtBootstrapFunction.MISSING\n"
-    output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
+    output = output + "def _lt_bootstrap_call(function, *args):\n    if isinstance(function, _LtBootstrapFunction):\n        return function(*args)\n    if not callable(function):\n        raise _LtBootstrapArgumentError('call on non-function value')\n    if any(isinstance(arg, _LtBootstrapNamedArg) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments are not supported for non-Latent calls')\n    if any(isinstance(arg, (_LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('argument unpacking is not supported for non-Latent calls')\n    return function(*args)\n\n"
     output = output + "def _lt_bootstrap_wgetattr(value, name):\n    if isinstance(value, _LtBootstrapInstance):\n        if name in value._lt_fields:\n            return value._lt_fields[name]\n        method = value._lt_class._find_method(name)\n        if method is not None:\n            display = '<bound method ' + value._lt_class._name + '.' + name + '>'\n            return _lt_bootstrap_bound_method(method, value, display=display)\n        raise AttributeError('no field %r' % name)\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('class %s has no fields' % value._name)\n    return getattr(value, name)\n\n"
     output = output + "def _lt_bootstrap_wcall(value, name, *args):\n    if isinstance(value, _LtBootstrapClass):\n        if name == 'new':\n            return value._new(*args)\n        raise AttributeError('no class-level method %r' % name)\n    if isinstance(value, _LtBootstrapInstance):\n        method = value._lt_class._find_method(name)\n        if method is None:\n            raise AttributeError('no method %r' % name)\n        return _lt_bootstrap_bound_method(method, value)(*args)\n    if any(isinstance(arg, (_LtBootstrapNamedArg, _LtBootstrapStarArg, _LtBootstrapStarStarArg)) for arg in args):\n        raise _LtBootstrapArgumentError('named arguments and unpacking are not yet supported for Python/Java interop calls')\n    return getattr(value, name)(*args)\n\n"
     output = output + "def _lt_bootstrap_wsetattr(value, name, item):\n    if isinstance(value, _LtBootstrapInstance):\n        value._lt_fields[name] = item\n        return None\n    if isinstance(value, _LtBootstrapClass):\n        raise AttributeError('cannot set attribute on a class')\n    if isinstance(value, _LtBootstrapModule):\n        raise AttributeError('cannot set attribute on a module')\n    raise AttributeError('attribute assignment on non-Latent objects is not supported')\n\n"
@@ -498,6 +574,7 @@ fn runtime_prelude():
     output = output + "def _lt_bootstrap_py_import(name):\n    if not isinstance(name, str):\n        raise TypeError('py module name must be a string')\n    return _LtBootstrapModule(name)\n\n"
     output = output + "def _lt_bootstrap_keys(value):\n    if not isinstance(value, dict):\n        raise TypeError('keys() expects a map')\n    return list(value.keys())\n\n"
     output = output + "def _lt_bootstrap_push(values, item):\n    if not isinstance(values, list):\n        raise TypeError('push() expects a list')\n    values.append(item)\n    return None\n\n"
+    output = output + "def _lt_bootstrap_range(*args):\n    return list(range(*args))\n\n"
     output = output + "def _lt_bootstrap_current_exception_message():\n    error = __import__('sys').exc_info()[1]\n    if error.args and isinstance(error.args[0], str):\n        return error.args[0]\n    return str(error)\n\n"
     output = output + "__say = _lt_bootstrap_say\n__index = _lt_bootstrap_index\n__wsetindex = _lt_bootstrap_wsetindex\n"
     return output

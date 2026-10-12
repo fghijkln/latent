@@ -49,3 +49,8 @@ python3 tests/bootstrap/test_checker.py
 ```
 
 The focused tests verify that the existing repository passes and that a synthetic new unclassified `POSITIVE` case is rejected.
+
+
+## M6 single-file function scope and runtime slice
+
+The single-file Python emitter collects local assignments across control flow without entering nested function bodies, initializes unbound Latent locals to `nil`, and hoists `global`/`nonlocal` declarations so Python closure cells preserve the language's binding behavior. A pinned Stage0 differential test covers 20 repository programs spanning conditional locals, P5 closures/global, P6 nonlocal, P8–P11 calls, `range`, dynamic calls of non-functions, host tuple display, and cookbook helpers. In this bounded slice, `range(...)` produces a Latent list, host tuples display as Latent lists, and calling a non-function reports the Latent runtime error. This does not imply complete built-in adaptation, full interop semantics, multi-module global/nonlocal support, or full Python-target projection; those remain explicit P15 blockers.

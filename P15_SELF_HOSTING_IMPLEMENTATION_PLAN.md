@@ -228,3 +228,12 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - `tests/test_bootstrap_smoke.py` 增加固定 Stage0/Stage1 的 `inheritance.lt` 与 `p12_override_compatibility.lt` 输出/退出状态差分；另对比 **21** 个继承/override/构造器/`super` 编译负例的退出状态、诊断首行和失败不落盘。原有“无父类 `super` 的 emitter 失败”断言已更新为准确的 M6 语义错误。`tests/bootstrap/README.md` 更新支持范围与未实现边界；未增加 ledger 路径或 Stage0 测试用例。
 - 验证：`python -m unittest tests.test_bootstrap_host tests.test_bootstrap_smoke tests.test_bootstrap_lexer tests.test_bootstrap_parser -v` **22 passed**（含 Stage1→2→3 fixed point 与双根 bytes 复现）；固定 Stage0 `python3 tests/run_tests.py` **259 passed / 0 failed**（505 个固定种子性质案例）；`compileall`、`git diff --check`、ledger checker 与 ledger 单测 **3 passed**，账本为 **243 included / 0 excluded / 291 inventoried paths**。本机为 Python 3.12 / OpenJDK 25；未因此宣称 CI 的 Python 3.11/JDK 17 门通过。
 - **下一阻塞与未完成项：** 首要门槛仍是把 ledger 的 **243 个适用 runner case** 做成逐项 Stage0/Stage1 成功行为、编译诊断、运行错误、stdout/stderr/退出码差分；该全量投影尚未实现。随后还需扩展多模块 class/inheritance、可静态推导类型的直接方法实参检查、完整 Python/Java interop 与回调、诊断/source map/CLI 完整兼容，并通过 M10–M15 的所有硬门。M4/M5/M6/M7/M8/M9 及完整 P15 DoD 仍未完成，不得宣称“所有自举准备工作已完成”。
+
+
+### 本轮增量：单文件函数作用域、闭包与 Python runtime 兼容切片（M6/M8 仍未完成）
+
+- `bootstrap/gen_py.lt` 现为每个函数收集本地赋值、循环变量、try/catch 名与嵌套定义名；将 `global`/`nonlocal` 声明提升至生成函数开头，并为未赋值的局部名初始化 `nil`，保持 Latent 对条件分支未赋值读取的行为，同时支持 Python 闭包 cell。作用域收集不进入内层函数体，避免污染外层绑定。
+- 同一有界 runtime 切片将 `range(...)` 映射为 Latent 列表，对宿主 tuple 递归采用 Latent list 表示，并将动态调用非函数的运行错误映射为 Latent 的 `call on non-function value`。这些不是完整 builtin/interop 适配。
+- `tests/test_bootstrap_smoke.py` 新增固定 Stage0/Stage1 差分，覆盖 **20 个单文件/ cookbook 程序**：`scope`、P5 closure/global、P6 nonlocal、P8–P11 参数/闭包、range 循环、动态非函数错误，以及 `py_math`、`py_os` 和 cookbook functions。stdout、stderr 与退出码逐项相等。
+- 本轮最终完整 bootstrap 门禁 `python3 -m unittest tests.test_bootstrap_host tests.test_bootstrap_smoke tests.test_bootstrap_lexer tests.test_bootstrap_parser -v` **23 passed / 0 failed**，包含 Stage1→Stage2→Stage3 fixed point 和双根原始字节一致；作用域/runtime 差分专项 **1 passed**（内含 20 个程序）；`git diff --check` 通过。Stage0 源码未修改，本轮没有重跑 `tests/run_tests.py`；此前 Stage0 259/259 仍仅是此前一次基线，不作为本轮后的新运行结果。
+- **下一阻塞与未完成项：** 243-case Stage0/Stage1 完整 Python-target 投影仍未实现。71 个成功用例的早期普查在本切片前只有 28 项完全匹配，结果已因本轮作用域/runtime 修复而过期，不用于宣称当前通过率。多模块入口当前把 entry 文件父目录固定作 source root，导致需从 entry 向上导入同一模块树内文件的有效图误报 root escape；下一步应提供明确、可差分的 source-root 选择，同时保留 realpath/symlink escape 拒绝，再扩大多模块 class/nested function 与 interop 覆盖。Java interop、全量诊断/source map、M10–M15 和完整 P15 DoD 仍未完成，不能声称所有自举准备工作已完成。

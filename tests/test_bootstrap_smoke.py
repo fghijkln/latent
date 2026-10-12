@@ -805,6 +805,52 @@ say _lt_bootstrap_make_class_Point()
                 self.assertFalse(stage0_out.exists())
                 self.assertFalse(stage1_out.exists())
 
+    def test_function_scope_global_nonlocal_and_closures_match_fixed_stage0(self):
+        with tempfile.TemporaryDirectory(prefix="p15-function-scope-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root, env=clean_env)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+
+            fixtures = [ROOT / "tests" / f"{name}.lt" for name in (
+                "scope", "p5_global", "p5_closure_capture",
+                "p5_shared_capture", "p5_recursion", "p5_shadowing",
+                "p6_nonlocal_nearest", "p6_nonlocal_skip",
+                "p6_nonlocal_shared", "p6_nonlocal_returned",
+                "p6_nonlocal_nested_scope", "p8_named_arguments",
+                "p9_default_parameters", "p10_variadic_arguments",
+                "p11_keyword_only_parameters", "loop", "p5_invalid_calls")]
+            fixtures.extend((ROOT / "cookbook" / "py_math.lt",
+                             ROOT / "cookbook" / "py_os.lt"))
+            fixtures.append(ROOT / "cookbook" / "functions.lt")
+            for fixture in fixtures:
+                label = fixture.relative_to(ROOT).as_posix().replace(
+                    "/", "_").removesuffix(".lt")
+                stage0_out = root / f"{label}-stage0"
+                stage1_out = root / f"{label}-stage1"
+                checked([sys.executable, str(stage0 / "latent.py"),
+                         str(fixture), "-t", "py", "-o", str(stage0_out)],
+                        cwd=root, env=clean_env)
+                checked([sys.executable, str(stage1_dir / "compiler.py"),
+                         str(fixture), "-o", str(stage1_out)], cwd=root,
+                        env=clean_env)
+                stage0_result = run_stage_program(
+                    stage0_out / f"{fixture.stem}.py", root)
+                stage1_result = run_stage_program(
+                    stage1_out / f"{fixture.stem}.py", root)
+                self.assertEqual(stage0_result[0], 0,
+                                 stage0_result[1] + stage0_result[2])
+                self.assertEqual(stage1_result, stage0_result,
+                                 stage1_result[2] or stage1_result[1])
+
     def test_stage1_compiles_stage2_and_stage3_to_a_dual_root_fixed_point(self):
         with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:
             root = Path(temporary)
