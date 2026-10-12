@@ -7,8 +7,10 @@ is deferred until the Latent compiler can parse and resolve its own modules.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -339,16 +341,10 @@ say invoke(describe, {"value": 70, "required": 71})
             self.assertIn("target() missing required argument 'value'",
                           invalid_stage1_result[2])
 
-    def test_unimplemented_interop_and_super_nodes_fail_closed(self):
+    def test_remaining_unimplemented_interop_and_super_nodes_fail_closed(self):
         cases = (
-            ('say py "math"\n', True,
-             "Python interop requires the unavailable target runtime"),
             ('say java "java.lang.String"\n', True,
              "Java interop requires the unavailable target runtime"),
-            ("fn read(obj):\n    return obj.field\n", True,
-             "attribute access requires the unavailable target runtime"),
-            ("fn call(obj):\n    return obj.method()\n", True,
-             "attribute access requires the unavailable target runtime"),
             ("fn write(obj):\n    obj.field = 1\n", True,
              "attribute access requires the unavailable target runtime"),
             ("say super.method(self)\n", False,
@@ -491,19 +487,24 @@ say invoke(describe, {"value": 70, "required": 71})
                 '        return core.label()\n'
                 '    catch error:\n'
                 '        return "fallback"\n'
-                'say guarded()\n',
+                'say guarded()\n'
+                'try:\n'
+                '    throw "module failure"\n'
+                'catch error:\n'
+                '    say error\n',
                 encoding="utf-8", newline="\n")
+            try_stage0_out = root / "try-stage0-out"
             try_out = root / "try-module-out"
-            try_result = subprocess.run(
-                [sys.executable, str(compiler), str(try_module), "-o",
-                 str(try_out)], cwd=root, env=clean_env,
-                text=True, encoding="utf-8", capture_output=True, check=False)
-            self.assertEqual(try_result.returncode, 1,
-                             try_result.stdout + try_result.stderr)
-            self.assertIn(
-                "try/catch statements are not yet supported by bootstrap module linking",
-                try_result.stderr)
-            self.assertFalse(try_out.exists())
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(try_module), "-t", "py", "-o",
+                     str(try_stage0_out)], cwd=root, env=clean_env)
+            checked([sys.executable, str(compiler), str(try_module), "-o",
+                     str(try_out)], cwd=root, env=clean_env)
+            try_stage0_result = run_stage_program(try_stage0_out / "try-module.py", root)
+            try_stage1_result = run_stage_program(try_out / "try-module.py", root)
+            self.assertEqual(try_stage0_result,
+                             (0, "core init\ncore-label\nmodule failure\n", ""))
+            self.assertEqual(try_stage1_result, try_stage0_result)
 
             generated = []
             for label in ("checkout-a", "checkout-b"):
@@ -518,6 +519,114 @@ say invoke(describe, {"value": 70, "required": 71})
                 generated.append((out_dir / "portable.py").read_bytes())
             self.assertEqual(generated[0], generated[1])
             self.assertNotIn(str(root).encode("utf-8"), generated[0])
+
+    def test_python_interop_and_try_match_fixed_stage0(self):
+        source = (
+            'math = py "math"\n'
+            'say math\n'
+            'say math.sqrt(9)\n'
+            'host = py "latent_host"\n'
+            'say host.path_basename("root/leaf")\n'
+            'try:\n'
+            '    throw "expected"\n'
+            'catch problem:\n'
+            '    say "caught: $problem"\n'
+            'try:\n'
+            '    say "normal"\n'
+            'catch untouched:\n'
+            '    say "unreachable"\n'
+            'say untouched\n')
+        with tempfile.TemporaryDirectory(prefix="p15-interop-try-") as temporary:
+            root = Path(temporary)
+            stage0 = root / "stage0"
+            extract_stage0(stage0)
+            stage1_dir = root / "stage1"
+            stage1_dir.mkdir()
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(COMPILER_SOURCE), "-t", "py", "-o",
+                     str(stage1_dir)], cwd=root)
+            (stage1_dir / "latent_host.py").write_bytes(
+                (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            fixture = root / "interop-try.lt"
+            fixture.write_text(source, encoding="utf-8", newline="\n")
+            stage0_out = root / "stage0-out"
+            stage1_out = root / "stage1-out"
+            checked([sys.executable, str(stage0 / "latent.py"),
+                     str(fixture), "-t", "py", "-o", str(stage0_out)],
+                    cwd=root, env=clean_env)
+            checked([sys.executable, str(stage1_dir / "compiler.py"),
+                     str(fixture), "-o", str(stage1_out)], cwd=root,
+                    env=clean_env)
+            for output in (stage0_out, stage1_out):
+                (output / "latent_host.py").write_bytes(
+                    (ROOT / "bootstrap" / "latent_host.py").read_bytes())
+            stage0_result = run_stage_program(stage0_out / "interop-try.py", root)
+            stage1_result = run_stage_program(stage1_out / "interop-try.py", root)
+            self.assertEqual(stage0_result,
+                             (0, "<module math>\n3\nleaf\ncaught: expected\nnormal\nnil\n", ""))
+            self.assertEqual(stage1_result, stage0_result)
+
+    def test_stage1_compiles_stage2_and_stage3_to_a_dual_root_fixed_point(self):
+        with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:
+            root = Path(temporary)
+            clean_env = {**os.environ, "PYTHONPATH": "",
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+            adapter = (ROOT / "bootstrap" / "latent_host.py").read_bytes()
+            declared = ("compiler.py", "latent_host.py")
+
+            def manifest(stage: Path) -> tuple[tuple[str, str], ...]:
+                self.assertEqual(sorted(path.name for path in stage.iterdir()),
+                                 sorted(declared))
+                return tuple(
+                    (name, hashlib.sha256((stage / name).read_bytes()).hexdigest())
+                    for name in sorted(declared))
+
+            def build_chain(label: str, source_root: Path) -> tuple[tuple[tuple[str, str], ...], ...]:
+                stage0 = root / (label + "-stage0")
+                extract_stage0(stage0)
+                stage1 = root / (label + "-stage1")
+                stage1.mkdir()
+                source = source_root / "bootstrap" / "compiler.lt"
+                checked([sys.executable, str(stage0 / "latent.py"),
+                         str(source), "-t", "py", "-o", str(stage1)],
+                        cwd=root, env=clean_env)
+                (stage1 / "latent_host.py").write_bytes(adapter)
+
+                # Stage1 must compile with no Stage0 files or Python compiler
+                # modules present in its environment.
+                shutil.rmtree(stage0)
+                stage2 = root / (label + "-stage2")
+                checked([sys.executable, str(stage1 / "compiler.py"),
+                         str(source), "-o", str(stage2)], cwd=root,
+                        env=clean_env)
+                (stage2 / "latent_host.py").write_bytes(adapter)
+                stage3 = root / (label + "-stage3")
+                checked([sys.executable, str(stage2 / "compiler.py"),
+                         str(source), "-o", str(stage3)], cwd=root,
+                        env=clean_env)
+                (stage3 / "latent_host.py").write_bytes(adapter)
+
+                stage2_manifest = manifest(stage2)
+                stage3_manifest = manifest(stage3)
+                self.assertEqual(stage2_manifest, stage3_manifest)
+                stage2_bytes = tuple((stage2 / name).read_bytes()
+                                     for name in declared)
+                stage3_bytes = tuple((stage3 / name).read_bytes()
+                                     for name in declared)
+                self.assertEqual(stage2_bytes, stage3_bytes)
+                return (stage2_manifest, stage3_manifest,
+                        stage2_bytes, stage3_bytes)
+
+            source_a = ROOT
+            source_b = root / "checkout-b"
+            source_b.mkdir()
+            shutil.copytree(ROOT / "bootstrap", source_b / "bootstrap",
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            first = build_chain("checkout-a", source_a)
+            second = build_chain("checkout-b", source_b)
+            self.assertEqual(first, second)
 
 
 if __name__ == "__main__":

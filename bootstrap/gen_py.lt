@@ -100,8 +100,16 @@ fn emit_expression(node):
     if kind == "Name":
         if node["id"] == "str":
             return result("_lt_bootstrap_str")
-        if node["id"] == "__wgetattr" or node["id"] == "__wcall" or node["id"] == "__wsetattr":
+        if node["id"] == "__wgetattr":
+            return result("_lt_bootstrap_wgetattr")
+        if node["id"] == "__wcall":
+            return result("_lt_bootstrap_wcall")
+        if node["id"] == "__wsetattr":
             return failure("attribute access requires the unavailable target runtime")
+        if node["id"] == "keys":
+            return result("_lt_bootstrap_keys")
+        if node["id"] == "push":
+            return result("_lt_bootstrap_push")
         return result(node["id"])
     if kind == "BinOp":
         left = emit_expression(node["left"])
@@ -153,7 +161,10 @@ fn emit_expression(node):
             return pairs
         return result("{" + pairs["code"] + "}")
     if kind == "PyImport":
-        return failure("Python interop requires the unavailable target runtime")
+        module = emit_expression(node["module_expr"])
+        if not module["ok"]:
+            return module
+        return result("_lt_bootstrap_py_import(" + module["code"] + ")")
     if kind == "JavaImport":
         return failure("Java interop requires the unavailable target runtime")
     if kind == "Super":
@@ -301,6 +312,23 @@ fn emit_statement(node, indent):
         if not body["ok"]:
             return body
         return result(indent + "for " + node["var"] + " in " + iterable["code"] + ":\n" + body["code"])
+    if kind == "Try":
+        body = emit_block(node["body"], indent + "    ")
+        if not body["ok"]:
+            return body
+        handler = emit_block(node["handler"], indent + "    ")
+        if not handler["ok"]:
+            return handler
+        output = indent + node["var"] + " = None\n"
+        output = output + indent + "try:\n" + body["code"]
+        output = output + indent + "except Exception:\n"
+        output = output + indent + "    " + node["var"] + " = _lt_bootstrap_current_exception_message()\n"
+        return result(output + handler["code"])
+    if kind == "Throw":
+        value = emit_expression(node["value"])
+        if not value["ok"]:
+            return value
+        return result(indent + "raise Exception(_lt_bootstrap_str(" + value["code"] + "))\n")
     if kind == "Break":
         return result(indent + "break\n")
     if kind == "Continue":
@@ -313,6 +341,7 @@ fn runtime_prelude():
     output = output + "    if value is True:\n        return 'true'\n"
     output = output + "    if value is False:\n        return 'false'\n"
     output = output + "    if isinstance(value, float):\n        if value.is_integer():\n            return str(int(value))\n        return str(value)\n"
+    output = output + "    if isinstance(value, _LtBootstrapModule):\n        return '<module ' + value._name + '>'\n"
     output = output + "    if isinstance(value, str):\n"
     output = output + "        if not quoted:\n            return value\n"
     output = output + "        text = value.replace('\\\\', '\\\\\\\\').replace('\\\"', '\\\\\\\"')\n"
@@ -346,6 +375,13 @@ fn runtime_prelude():
     output = output + "    if isinstance(value, list):\n        if isinstance(key, bool) or not isinstance(key, (int, float)) or int(key) != key:\n            raise TypeError('index must be an integer')\n        index = int(key)\n        if index < 0:\n            index += len(value)\n        if index < 0 or index >= len(value):\n            raise IndexError('index out of range: ' + str(int(key)))\n        value[index] = item\n        return None\n"
     output = output + "    if isinstance(value, dict):\n        value[key] = item\n        return None\n"
     output = output + "    raise TypeError('cannot index-assign ' + _lt_bootstrap_repr(value))\n\n"
+    output = output + "class _LtBootstrapModule:\n    def __init__(self, name):\n        self._name = name\n        self._module = None\n    def _load(self):\n        if self._module is None:\n            import importlib\n            self._module = importlib.import_module(self._name)\n        return self._module\n    def __getattr__(self, name):\n        if name.startswith('__'):\n            raise AttributeError(name)\n        return getattr(self._load(), name)\n\n"
+    output = output + "def _lt_bootstrap_py_import(name):\n    if not isinstance(name, str):\n        raise TypeError('py module name must be a string')\n    return _LtBootstrapModule(name)\n\n"
+    output = output + "def _lt_bootstrap_wgetattr(value, name):\n    return getattr(value, name)\n\n"
+    output = output + "def _lt_bootstrap_wcall(value, name, *args):\n    return getattr(value, name)(*args)\n\n"
+    output = output + "def _lt_bootstrap_keys(value):\n    if not isinstance(value, dict):\n        raise TypeError('keys() expects a map')\n    return list(value.keys())\n\n"
+    output = output + "def _lt_bootstrap_push(values, item):\n    if not isinstance(values, list):\n        raise TypeError('push() expects a list')\n    values.append(item)\n    return None\n\n"
+    output = output + "def _lt_bootstrap_current_exception_message():\n    error = __import__('sys').exc_info()[1]\n    if error.args and isinstance(error.args[0], str):\n        return error.args[0]\n    return str(error)\n\n"
     output = output + "__say = _lt_bootstrap_say\n__index = _lt_bootstrap_index\n__wsetindex = _lt_bootstrap_wsetindex\n"
     return output
 

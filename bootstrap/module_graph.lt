@@ -292,7 +292,14 @@ fn validate_linked_statement(statement, module_top):
             if not checked["ok"]:
                 return checked
     elif kind == "Try":
-        return linked_failure("module", statement, "try/catch statements are not yet supported by bootstrap module linking")
+        for child in statement["body"]:
+            checked = validate_linked_statement(child, false)
+            if not checked["ok"]:
+                return checked
+        for child in statement["handler"]:
+            checked = validate_linked_statement(child, false)
+            if not checked["ok"]:
+                return checked
     return linked_success(nil)
 
 fn make_symbol_name(module_index, name, reserved):
@@ -515,7 +522,22 @@ fn rewrite_linked_statement(statement, unit, locals, module_top):
             body = body + [result["value"]]
         statement["body"] = body
     elif kind == "Try":
-        return validate_linked_statement(statement, false)
+        if not has(locals, statement["var"]) and module_symbol(unit, statement["var"]) != nil:
+            statement["var"] = module_symbol(unit, statement["var"])["name"]
+        body = []
+        for child in statement["body"]:
+            result = rewrite_linked_statement(child, unit, locals, false)
+            if not result["ok"]:
+                return result
+            body = body + [result["value"]]
+        statement["body"] = body
+        handler = []
+        for child in statement["handler"]:
+            result = rewrite_linked_statement(child, unit, locals, false)
+            if not result["ok"]:
+                return result
+            handler = handler + [result["value"]]
+        statement["handler"] = handler
     elif kind == "Say" or kind == "Throw" or kind == "Return":
         value = rewrite_linked_expression(statement["value"], unit, locals)
         if not value["ok"]:

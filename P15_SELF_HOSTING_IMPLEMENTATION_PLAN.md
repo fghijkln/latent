@@ -193,3 +193,15 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 - 实际 Stage0→Stage1 构建成功；尝试 Stage1 编译自身完整 `bootstrap/compiler.lt` 到 Stage2 时，当前首个明确阻塞为 `parser.lt:652:5: module error: try/catch statements are not yet supported by bootstrap module linking`。即使补齐该处，bootstrap 源码中的 `py "latent_host"` 仍需要 emitter 的 Python host interop 支持；因此本轮没有 Stage2/Stage3、fixed-point 或双根复现证据。
 - 最终验证（本机 Python 3.12 / JDK 25）：`python3 -m compileall -q bootstrap tests`、`git diff --check` 通过；bootstrap 专项 **17 passed**；ledger checker **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**；固定 Stage0 全量双后端回归 **259 passed / 0 failed**（含 505 个固定种子性质案例）。未重跑 CI 规划的 Python 3.11/JDK 17、21 矩阵。
 - 本轮只完成可用的早期多模块切片，未完成 M7/M8，也未通过 M10–M15、Stage1→2→3 或 P15 最终 DoD；下一步的直接阻塞是模块内 `try/catch` 脱糖/语义/emitter 一致性及 `py "latent_host"` 的 Latent emitter/runtime 支持，之后还需持续做 Stage0 对拍、Stage2/3 fixed-point 与双根复现。
+
+
+### 本轮增量：异常与 Python host interop 接线、真实自举固定点/双根门（P15 仍未完成）
+
+> 本节更新上一节记录的直接阻塞。该增量证明当前 self-host compiler 源码可以经 Stage0→Stage1→Stage2→Stage3 编译并达到受限产物固定点；不代表 v0.13.5 Python-target 全语义或 P15 DoD 完成。
+
+- `bootstrap/module_graph.lt` 现在由 Latent 递归验证、改写 try/catch 的 body 与 handler；catch 名按当前模块/函数绑定改写到对应的稳定符号。`bootstrap/gen_py.lt` 在 Latent emitter/runtime 中实现 `try/catch`、`throw`、惰性 Python 模块对象、属性读取/方法调用，以及 self-host compiler 所用的 `keys`/`push` 支持。`bootstrap/latent_host.py` 未增加编译器逻辑或扩展 OS API；`py "latent_host"` 仅通过原有 Python import 能力访问既有文件/路径/stdio/子进程服务。
+- 固定 Stage0 对拍新增 Python `py` module repr/属性/函数调用、host 路径调用、throw/catch 字符串和成功 try 后 nil catch 变量；已有多模块案例再对拍模块初始化、函数内 catch、模块顶层 catch 符号链接。Java interop、属性赋值和 super 继续明确 fail-closed。
+- 新固定点用例以固定 Stage0 编译完整 `bootstrap/compiler.lt` 为 Stage1；两个不同绝对源码根各自从独立 Stage0 archive 开始，随后删除该 Stage0 目录，并以空 `PYTHONPATH` 运行 Stage1→Stage2→Stage3。第二根复制的是完整 `bootstrap/` 源树（排除 `__pycache__`），不是完整仓库 checkout。每阶段只声明 `compiler.py` 和固定 `latent_host.py`；测试检查精确目录文件集合、相对路径排序的 SHA-256 manifest，且 Stage2/3 与两根之间逐文件比较原始 bytes。
+- `.github/workflows/tests.yml` 的 Python 3.11/JDK 17 bootstrap job 已改为显式运行 `python -m unittest tests.test_bootstrap_smoke -v`，其中包含 Stage0/1 行为差分、Stage1→2→3 fixed point 与双根 manifest/字节复现门；原 Stage0 lexer/parser、host 与 projection ledger 检查保留。
+- **仍未完成的范围/门：** 这些行为对拍是有界自举切片，不是 Python-target ledger 的 243 个 runner case 全量 Stage0/Stage1 对拍。Stage1 仍未实现/验证完整 class/inheritance/super、完整 Python/Java interop 及互操作值/回调、属性写入、完整静态语义/诊断/source map、全量 CLI 与负运行期用例；Stage2/3 清单当前仅含单一 compiler entry 和固定 adapter，CI 未产出受限诊断 artifacts。本轮本机也未运行 Python 3.11/JDK 17 CI 环境。故 M7/M8、M10/M14/M15 的完整验收与最终 P15 DoD 仍未通过，不能宣称完整自托管兼容已完成。
+- 本轮最后一次代码/测试变更后的验证（本机 Python 3.12 / JDK 25）：`python -m compileall -q bootstrap tests` 与 `git diff --check` 通过；projection ledger 为 **243 included / 0 excluded / 291 inventoried paths**，ledger 单测 **3 passed**，host 契约 **6 passed**；lexer、parser 与 smoke 合计 **13 passed**，含 **286 个仓库 `.lt` 输入**的 Stage0 parser 接受/拒绝对拍。固定点用例通过：Stage0 删除、空 `PYTHONPATH` 下 Stage1→2→3 成功，Stage2==Stage3 manifest 及原始 bytes 相等，另一个独立 Stage0 在另一绝对 bootstrap 源根上生成完全相同的 Stage2/3 bytes。最后一次完整 Stage0 `python tests/run_tests.py` **259 passed / 0 failed**，含 **505** 个固定种子性质案例。未在本机运行 Python 3.11/JDK 17 CI 矩阵；P15 全语义/全投影的未完成项仍如上列明。
