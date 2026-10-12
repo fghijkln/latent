@@ -404,6 +404,23 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertTrue(run_result.stdout.endswith(EXPECTED_STDOUT))
             self.assertEqual(run_result.stderr, "")
 
+            runtime_failure = root / "runtime-failure.lt"
+            runtime_failure.write_text("say 1 / 0\n", encoding="utf-8",
+                                       newline="\n")
+            runtime_out = root / "runtime-failure-out"
+            runtime_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(runtime_failure),
+                 "--run", "-o", str(runtime_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(runtime_result.returncode, 1)
+            self.assertEqual(
+                runtime_result.stdout,
+                f"wrote {runtime_out / 'runtime-failure.py'}\n")
+            self.assertIn("ZeroDivisionError", runtime_result.stderr)
+            self.assertIn("division by zero", runtime_result.stderr)
+            self.assertTrue((runtime_out / "runtime-failure.py").is_file())
+
             bad_source = root / "compile-failure.lt"
             bad_source.write_text("say missing\n", encoding="utf-8",
                                   newline="\n")

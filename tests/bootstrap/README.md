@@ -110,3 +110,4 @@ The Stage1 CLI smoke seeds the main `.py` output path as a symlink to an externa
 A malformed UTF-8 source is also checked at the Stage1 CLI boundary: it returns `input error: invalid-utf8` with exit code 1 and does not create the requested output directory.
 Mocked `PermissionError` and generic `OSError` cases also lock the `permission-denied` and `io-error` mappings without relying on filesystem permissions of the test runner.
 A Stage1 `-o` path that already names a regular file now returns `output error: not-a-directory` and preserves that file; the Host adapter maps the underlying `FileExistsError` specifically instead of misreporting `io-error`.
+A `--run` fixture that raises `ZeroDivisionError` confirms the Stage1 CLI propagates the generated program's exit code 1 and stderr while retaining the successfully compiled `.py` artifact.
