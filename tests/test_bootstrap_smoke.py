@@ -1169,7 +1169,9 @@ say _lt_bootstrap_make_class_Point()
                 entries = {}
                 for path in (source_root, *source_root.rglob("*")):
                     relative = path.relative_to(source_root)
-                    if ".git" in relative.parts:
+                    # Omit only this checkout's Git metadata; a nested .git
+                    # path can be ordinary source data and must be snapshotted.
+                    if relative.parts and relative.parts[0] == ".git":
                         continue
                     metadata = path.lstat()
                     if stat.S_ISLNK(metadata.st_mode):
@@ -1202,6 +1204,17 @@ say _lt_bootstrap_make_class_Point()
             # even when the file bytes equal the old directory marker.
             snapshot_probe = root / "snapshot-probe"
             snapshot_probe.mkdir()
+            root_git_config = snapshot_probe / ".git" / "config"
+            root_git_config.parent.mkdir()
+            root_git_config.write_bytes(b"root metadata")
+            nested_git_payload = snapshot_probe / "nested" / ".git" / "payload"
+            nested_git_payload.parent.mkdir(parents=True)
+            nested_git_payload.write_bytes(b"nested source data")
+            probe_paths = source_tree_snapshot(snapshot_probe)
+            self.assertNotIn(".git/config", probe_paths,
+                             "snapshots must omit root Git metadata")
+            self.assertIn("nested/.git/payload", probe_paths,
+                          "snapshots must retain nested .git source data")
             probe_entry = snapshot_probe / "entry"
             probe_entry.write_bytes(b"<directory>")
             file_snapshot = source_tree_snapshot(snapshot_probe)

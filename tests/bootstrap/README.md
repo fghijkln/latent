@@ -85,3 +85,6 @@ On 2026-10-13, the first post-fix GitHub Actions `Tests` run [38296512999](https
 
 
 The POSIX ctime snapshot hardening was pushed in commit `4fa00c817442f212425b7c9a05b166d64b855836`. GitHub `Tests` run [38306152000](https://github.com/fghijkln/latent/actions/runs/38306152000) passed all four jobs; DevSkim [38306151327](https://github.com/fghijkln/latent/actions/runs/38306151327) and CodeQL [38306151076](https://github.com/fghijkln/latent/actions/runs/38306151076) passed on the same commit. Its uploaded reports confirm both clean-clone HEADs match, 372 tracked paths / 432 snapshot entries, no source-tree writes, per-root Stage2==Stage3 and cross-root Stage2/3 manifest/byte equality, and zero projection mismatches across 243 runner case IDs, 244 fixture invocations, and 505 properties.
+
+
+The snapshot exception applies only to the checkout-root `.git` administrative directory. Nested paths named `.git` are included as ordinary source-tree entries; a regression probe verifies both behaviors.
