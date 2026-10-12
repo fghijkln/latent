@@ -112,3 +112,4 @@ Mocked `PermissionError` and generic `OSError` cases also lock the `permission-d
 A Stage1 `-o` path that already names a regular file now returns `output error: not-a-directory` and preserves that file; the Host adapter maps the underlying `FileExistsError` specifically instead of misreporting `io-error`.
 A `--run` fixture that raises `ZeroDivisionError` confirms the Stage1 CLI propagates the generated program's exit code 1 and stderr while retaining the successfully compiled `.py` artifact.
 On POSIX, the standalone module smoke also compiles through a symlinked `--source-root` alias and runs the result, covering canonical root normalization for both entry and import paths.
+On POSIX, an output directory symlink is intentionally followed: the CLI preserves the link, writes both the generated Python file and Java daemon sidecar into its real target, and the emitted program runs successfully.

@@ -341,3 +341,5 @@ Java 后端代码生成、REPL、AST/脱糖输出诊断模式、编辑器元数�
 Stage1 `--run` failure propagation is now pinned end-to-end with a generated `ZeroDivisionError`: the CLI preserves exit code 1 and runtime stderr while retaining the compiled output; emitter focused smoke **1/1** passed. The full Stage0 and single-root projection gates above were rerun after the production Host fix; this addition is test/documentation only.
 
 Source-root normalization also has a POSIX integration case: Stage1 compiles the standalone module project through a symlink alias for both entry and `--source-root`, and the emitted program returns the expected output. The emitter focused smoke **1/1** passed; this is test/documentation only.
+
+The POSIX CLI smoke also covers `-o` as a symlink to an existing directory: Stage1 retains the directory link, places the generated `.py` and Java daemon sidecar in the real target, and the program runs correctly. Emitter focused smoke **1/1** passed; this is test/documentation only.

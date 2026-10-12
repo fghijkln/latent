@@ -251,6 +251,24 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertEqual(run_stage_program(linked_main, root),
                              (0, EXPECTED_STDOUT, ""))
 
+            if os.name == "posix":
+                output_dir_target = root / "output-dir-target"
+                output_dir_target.mkdir()
+                output_dir_link = root / "output-dir-link"
+                output_dir_link.symlink_to(
+                    output_dir_target, target_is_directory=True)
+                checked([sys.executable, str(compiler_a), str(fixture),
+                         "-o", str(output_dir_link)], cwd=root, env=clean_env)
+                self.assertTrue(output_dir_link.is_symlink())
+                self.assertEqual(output_dir_link.resolve(),
+                                 output_dir_target.resolve())
+                self.assertTrue((output_dir_target / "fixture.py").is_file())
+                self.assertTrue(
+                    (output_dir_target / "LtJavaDaemon.java").is_file())
+                self.assertEqual(
+                    run_stage_program(output_dir_target / "fixture.py", root),
+                    (0, EXPECTED_STDOUT, ""))
+
             stage0_target = root / "stage0-target"
             stage1_target = root / "stage1-target"
             stage1_target_repeat = root / "stage1-target-repeat"
