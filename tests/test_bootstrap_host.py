@@ -4,11 +4,17 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tests._safe_test_env import isolate_test_environment
+
+isolate_test_environment()
 SPEC = importlib.util.spec_from_file_location(
     "latent_host", ROOT / "bootstrap" / "latent_host.py")
 host = importlib.util.module_from_spec(SPEC)
@@ -27,12 +33,18 @@ class HostContractTests(unittest.TestCase):
             "remove_temp_dir", "copy_explicit_files", "run_python",
         }
         self.assertEqual(set(host.__all__), expected)
+        self.assertEqual(len(host.__all__), len(expected))
         public_functions = {
             name for name, value in vars(host).items()
             if callable(value) and getattr(value, "__module__", None) == host.__name__
             and not name.startswith("_")
         }
         self.assertEqual(public_functions, expected - {"API_VERSION"})
+        public_constants = {
+            name for name in vars(host)
+            if name.isupper() and not name.startswith("_")
+        }
+        self.assertEqual(public_constants, {"API_VERSION"})
 
     def test_version_and_path_primitives(self):
         self.assertEqual(host.API_VERSION, 1)
@@ -61,6 +73,29 @@ class HostContractTests(unittest.TestCase):
             self.assertEqual(host.read_utf8(root)["error"], "is-directory")
             self.assertTrue(host.make_dirs(os.path.join(root, "nested"))["ok"])
 
+    def test_relpath_preserves_cross_drive_absolute_candidate(self):
+        candidate = r"C:\outside\main.lt"
+        project_root = r"D:\project"
+        with patch.object(
+                host.os.path, "relpath",
+                side_effect=ValueError("paths are on different drives")):
+            self.assertEqual(host.path_relpath(candidate, project_root),
+                             os.path.normpath(candidate))
+
+    def test_write_utf8_replaces_final_symlink_without_following_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            outside = Path(root, "outside.txt")
+            outside.write_text("keep me\n", encoding="utf-8")
+            output = Path(root, "generated.py")
+            output.symlink_to(outside)
+
+            result = host.write_utf8(str(output), "generated\n")
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(outside.read_text(), "keep me\n")
+            self.assertFalse(output.is_symlink())
+            self.assertEqual(output.read_text(), "generated\n")
+
     def test_copy_is_explicit_and_rejects_paths(self):
         with tempfile.TemporaryDirectory() as root:
             source = os.path.join(root, "runtime")
@@ -74,6 +109,95 @@ class HostContractTests(unittest.TestCase):
             rejected = host.copy_explicit_files(source, output, ["../secret"])
             self.assertFalse(rejected["ok"])
             self.assertEqual(rejected["error"], "invalid-name")
+            windows_path = host.copy_explicit_files(
+                source, output, [r"..\secret"])
+            self.assertFalse(windows_path["ok"])
+            self.assertEqual(windows_path["error"], "invalid-name")
+
+    def test_copy_stages_all_sources_before_changing_destinations(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root, "runtime")
+            output = Path(root, "out")
+            source.mkdir()
+            output.mkdir()
+            (source / "first.py").write_text("new\n", encoding="utf-8")
+            (output / "first.py").write_text("old\n", encoding="utf-8")
+
+            result = host.copy_explicit_files(
+                str(source), str(output), ["first.py", "missing.py"])
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error"], "not-found")
+            self.assertEqual(result["value"], [])
+            self.assertEqual((output / "first.py").read_text(), "old\n")
+            self.assertEqual(sorted(path.name for path in output.iterdir()),
+                             ["first.py"])
+
+    def test_copy_directory_conflict_does_not_partially_replace_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root, "runtime")
+            output = Path(root, "out")
+            source.mkdir()
+            output.mkdir()
+            (source / "first.py").write_text("new\n", encoding="utf-8")
+            (source / "second.py").write_text("new\n", encoding="utf-8")
+            (output / "first.py").write_text("old\n", encoding="utf-8")
+            (output / "second.py").mkdir()
+
+            result = host.copy_explicit_files(
+                str(source), str(output), ["first.py", "second.py"])
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error"], "is-directory")
+            self.assertEqual(result["value"], [])
+            self.assertEqual((output / "first.py").read_text(), "old\n")
+            self.assertTrue((output / "second.py").is_dir())
+            self.assertEqual(sorted(path.name for path in output.iterdir()),
+                             ["first.py", "second.py"])
+
+    def test_copy_replaces_destination_symlink_without_following_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root, "runtime")
+            output = Path(root, "out")
+            source.mkdir()
+            output.mkdir()
+            (source / "fixed.py").write_text("trusted runtime\n",
+                                              encoding="utf-8")
+            outside = Path(root, "outside.txt")
+            outside.write_text("keep me\n", encoding="utf-8")
+            (output / "fixed.py").symlink_to(outside)
+
+            result = host.copy_explicit_files(
+                str(source), str(output), ["fixed.py"])
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(outside.read_text(), "keep me\n")
+            self.assertFalse((output / "fixed.py").is_symlink())
+            self.assertEqual((output / "fixed.py").read_text(),
+                             "trusted runtime\n")
+
+    @unittest.skipUnless(os.name == "posix", "hard-link semantics are POSIX-specific")
+    def test_copy_replaces_destination_hardlink_without_mutating_its_peer(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root, "runtime")
+            output = Path(root, "out")
+            source.mkdir()
+            output.mkdir()
+            (source / "fixed.py").write_text("trusted runtime\n",
+                                              encoding="utf-8")
+            outside = Path(root, "outside.txt")
+            outside.write_text("keep me\n", encoding="utf-8")
+            os.link(outside, output / "fixed.py")
+
+            result = host.copy_explicit_files(
+                str(source), str(output), ["fixed.py"])
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(outside.read_text(), "keep me\n")
+            self.assertNotEqual(os.stat(outside).st_ino,
+                                os.stat(output / "fixed.py").st_ino)
+            self.assertEqual((output / "fixed.py").read_text(),
+                             "trusted runtime\n")
 
     def test_temporary_build_directory_is_scoped_and_removable(self):
         created = host.make_temp_dir()
@@ -106,15 +230,25 @@ class HostContractTests(unittest.TestCase):
 
     def test_run_python_captures_exit_and_streams(self):
         with tempfile.TemporaryDirectory() as root:
-            script = os.path.join(root, "program.py")
+            script = os.path.join(root, "program with spaces.py")
             Path(script).write_text(
-                "import sys\nprint('ok')\nprint('problem', file=sys.stderr)\n"
+                "import os, sys\nprint('ok')\nprint(os.getcwd())\n"
+                "print('problem', file=sys.stderr)\n"
                 "raise SystemExit(7)\n", encoding="utf-8")
             result = host.run_python(script, cwd=root)
             self.assertEqual(result["returncode"], 7)
-            self.assertEqual(result["stdout"], "ok\n")
+            self.assertEqual(result["stdout"], f"ok\n{root}\n")
             self.assertEqual(result["stderr"], "problem\n")
             self.assertTrue(result["ok"])
+
+    def test_run_python_maps_spawn_errors_to_stable_results(self):
+        with tempfile.TemporaryDirectory() as root:
+            script = Path(root, "program.py")
+            script.write_text("pass\n", encoding="utf-8")
+            result = host.run_python(str(script), cwd=str(Path(root, "missing")))
+            self.assertEqual(result, {
+                "ok": False, "returncode": 127, "stdout": "", "stderr": "",
+                "error": "not-found"})
 
     def test_only_selected_files_are_copied(self):
         with tempfile.TemporaryDirectory() as root:

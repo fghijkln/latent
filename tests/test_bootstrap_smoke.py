@@ -21,6 +21,11 @@ import unittest
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
+BOOTSTRAP_MANIFEST_REPORT = os.environ.get("P15_BOOTSTRAP_MANIFEST_REPORT")
+sys.path.insert(0, str(ROOT))
+from tests._safe_test_env import clean_test_environment, isolate_test_environment
+
+isolate_test_environment()
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
 COMPILER_SOURCE = ROOT / "bootstrap" / "compiler.lt"
 FIXTURE = r'''fn add(a, b):
@@ -68,7 +73,8 @@ Hi world / 3
 
 
 def checked(command: list[str], *, cwd: Path, env: dict[str, str] | None = None):
-    result = subprocess.run(command, cwd=cwd, env=env, text=True,
+    child_env = clean_test_environment() if env is None else env
+    result = subprocess.run(command, cwd=cwd, env=child_env, text=True,
                             encoding="utf-8", capture_output=True, check=False)
     if result.returncode != 0:
         raise AssertionError(
@@ -105,7 +111,7 @@ def extract_stage0(destination: Path) -> None:
 
 def run_stage_program(script: Path, cwd: Path,
                       env: dict[str, str] | None = None) -> tuple[int, str, str]:
-    execution_env = {**os.environ, "PYTHONPATH": ""}
+    execution_env = clean_test_environment()
     if env is not None:
         execution_env.update(env)
     result = subprocess.run(
@@ -121,7 +127,7 @@ class BootstrapEmitterTests(unittest.TestCase):
             root = Path(temporary)
             stage0 = root / "stage0"
             extract_stage0(stage0)
-            clean_env = {**os.environ, "PYTHONPATH": ""}
+            clean_env = clean_test_environment()
 
             # Keep the normalized module root fixed, but build into two fresh
             # directories. Cross-checkout path independence is not claimed yet.
@@ -143,6 +149,80 @@ class BootstrapEmitterTests(unittest.TestCase):
 
             fixture = root / "fixture.lt"
             fixture.write_text(FIXTURE, encoding="utf-8", newline="\n")
+            missing_sidecar = stage_dirs[0] / "LtRt.java"
+            self.assertTrue(missing_sidecar.is_file())
+            sidecar_bytes = missing_sidecar.read_bytes()
+            missing_sidecar.unlink()
+            sidecar_failure_out = root / "missing-sidecar-out"
+            sidecar_failure = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture), "-o",
+                 str(sidecar_failure_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            missing_sidecar.write_bytes(sidecar_bytes)
+            self.assertEqual(sidecar_failure.returncode, 1)
+            self.assertIn("runtime output error: not-found",
+                          sidecar_failure.stderr)
+            self.assertTrue(sidecar_failure_out.is_dir())
+            self.assertEqual(list(sidecar_failure_out.iterdir()), [])
+
+            symlink_out = root / "sidecar-symlink-out"
+            symlink_out.mkdir()
+            outside_runtime = root / "outside-runtime.java"
+            outside_runtime.write_text("preserve\n", encoding="utf-8")
+            (symlink_out / "LtRt.java").symlink_to(outside_runtime)
+            symlink_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture), "-o",
+                 str(symlink_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(symlink_result.returncode, 0,
+                             symlink_result.stderr)
+            self.assertEqual(outside_runtime.read_text(), "preserve\n")
+            self.assertFalse((symlink_out / "LtRt.java").is_symlink())
+            self.assertEqual((symlink_out / "LtRt.java").read_bytes(),
+                             (stage_dirs[0] / "LtRt.java").read_bytes())
+
+            blocked_out = root / "blocked-output"
+            blocked_out.mkdir()
+            (blocked_out / "fixture.py").mkdir()
+            blocked_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture), "-o",
+                 str(blocked_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(blocked_result.returncode, 1)
+            self.assertIn("output error: is-directory", blocked_result.stderr)
+            self.assertEqual(
+                sorted(path.name for path in blocked_out.iterdir()),
+                ["fixture.py"])
+
+            blocked_symlink_out = root / "blocked-symlink-output"
+            blocked_symlink_out.mkdir()
+            outside_output_dir = root / "outside-output-dir"
+            outside_output_dir.mkdir()
+            (outside_output_dir / "keep.txt").write_text(
+                "preserve\n", encoding="utf-8")
+            (blocked_symlink_out / "fixture.py").symlink_to(
+                outside_output_dir, target_is_directory=True)
+            blocked_symlink_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(fixture), "-o",
+                 str(blocked_symlink_out)], cwd=root, env=clean_env,
+                text=True, encoding="utf-8", capture_output=True,
+                check=False)
+            self.assertEqual(blocked_symlink_result.returncode, 1)
+            self.assertIn("output error: is-directory",
+                          blocked_symlink_result.stderr)
+            self.assertTrue((blocked_symlink_out / "fixture.py").is_symlink())
+            self.assertEqual(
+                sorted(path.name for path in blocked_symlink_out.iterdir()),
+                ["fixture.py"])
+            self.assertEqual(
+                sorted(path.name for path in outside_output_dir.iterdir()),
+                ["keep.txt"])
+            self.assertEqual((outside_output_dir / "keep.txt").read_text(),
+                             "preserve\n")
+
             stage0_target = root / "stage0-target"
             stage1_target = root / "stage1-target"
             stage1_target_repeat = root / "stage1-target-repeat"
@@ -287,6 +367,53 @@ class BootstrapEmitterTests(unittest.TestCase):
                      "-o", str(dotted_out)], cwd=root, env=clean_env)
             self.assertTrue((dotted_out / "multi.part.name.py").is_file())
 
+            standalone_project = root / "standalone-project"
+            standalone_project.mkdir()
+            (standalone_project / "main.lt").write_text(
+                'import "lib.lt" as lib\nsay lib.value()\n',
+                encoding="utf-8", newline="\n")
+            (standalone_project / "lib.lt").write_text(
+                'fn value():\n    return "standalone module"\n',
+                encoding="utf-8", newline="\n")
+            invocation_dirs = [root / "invoke-a", root / "invoke-b"]
+            output_dirs = [root / "standalone-out-a", root / "standalone-out-b"]
+            for invocation_dir, output_dir in zip(invocation_dirs, output_dirs):
+                invocation_dir.mkdir()
+                checked(
+                    [sys.executable, str(compiler_a),
+                     str(standalone_project / "main.lt"),
+                     "--source-root", str(standalone_project),
+                     "-o", str(output_dir)],
+                    cwd=invocation_dir, env=clean_env)
+            standalone_snapshots = [
+                {path.name: path.read_bytes() for path in output_dir.iterdir()}
+                for output_dir in output_dirs]
+            self.assertEqual(standalone_snapshots[0], standalone_snapshots[1])
+            self.assertEqual(
+                run_stage_program(output_dirs[0] / "main.py", invocation_dirs[0]),
+                (0, "standalone module\n", ""))
+
+            java_run_out = root / "java-run-out"
+            java_run_source = ROOT / "tests" / "java_basic.lt"
+            java_run_result = subprocess.run(
+                [sys.executable, str(compiler_a), str(java_run_source),
+                 "--run", "-o", str(java_run_out)],
+                cwd=invocation_dirs[0], env=clean_env, text=True,
+                encoding="utf-8", capture_output=True, check=False)
+            java_run_program = run_stage_program(
+                java_run_out / "java_basic.py", invocation_dirs[0])
+            self.assertEqual(java_run_result.returncode, 0,
+                             java_run_result.stdout + java_run_result.stderr)
+            self.assertTrue(java_run_result.stdout.startswith(
+                f"wrote {java_run_out / 'java_basic.py'}\n"))
+            self.assertEqual(java_run_result.stdout,
+                             f"wrote {java_run_out / 'java_basic.py'}\n"
+                             + java_run_program[1])
+            self.assertEqual(java_run_result.stderr, java_run_program[2])
+            self.assertEqual(java_run_program[0], 0,
+                             java_run_program[1] + java_run_program[2])
+            self.assertTrue((java_run_out / "LtJavaDaemon.class").is_file())
+
             runtime_failure = root / "runtime-failure.lt"
             runtime_failure.write_text("say 1 / 0\n", encoding="utf-8",
                                       newline="\n")
@@ -345,7 +472,7 @@ say invoke(describe, {"value": 70, "required": 71})
                      "-t", "py", "-o", str(stage0_out)], cwd=root)
             checked([sys.executable, str(compiler), str(fixture),
                      "-o", str(stage1_out)], cwd=root,
-                    env={**os.environ, "PYTHONPATH": ""})
+                    env=clean_test_environment())
 
             stage0_result = run_stage_program(stage0_out / "parameters.py", root)
             stage1_result = run_stage_program(stage1_out / "parameters.py", root)
@@ -366,7 +493,7 @@ say invoke(describe, {"value": 70, "required": 71})
                      str(invalid_stage0_out)], cwd=root)
             checked([sys.executable, str(compiler), str(invalid_fixture),
                      "-o", str(invalid_stage1_out)], cwd=root,
-                    env={**os.environ, "PYTHONPATH": ""})
+                    env=clean_test_environment())
             invalid_stage0_result = run_stage_program(
                 invalid_stage0_out / "missing-required.py", root)
             invalid_stage1_result = run_stage_program(
@@ -413,7 +540,7 @@ say invoke(describe, {"value": 70, "required": 71})
                 stage1_result = subprocess.run(
                     [sys.executable, str(compiler), str(fixture),
                      "-o", str(stage1_out)], cwd=root,
-                    env={**os.environ, "PYTHONPATH": ""}, text=True,
+                    env=clean_test_environment(), text=True,
                     encoding="utf-8", capture_output=True, check=False)
                 if stage0_accepts:
                     self.assertEqual(stage1_result.returncode, 0,
@@ -462,8 +589,7 @@ say invoke(describe, {"value": 70, "required": 71})
         )
         with tempfile.TemporaryDirectory(prefix="p15-java-runtime-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             clean_env.pop("LATENT_JAVAD", None)
             stage0 = root / "stage0"
             extract_stage0(stage0)
@@ -509,7 +635,7 @@ say invoke(describe, {"value": 70, "required": 71})
                   'obj.value = 1\n')
         with tempfile.TemporaryDirectory(prefix="p15-host-write-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": ""}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -551,7 +677,7 @@ say invoke(describe, {"value": 70, "required": 71})
             (stage1_dir / "latent_host.py").write_bytes(
                 (ROOT / "bootstrap" / "latent_host.py").read_bytes())
             compiler = stage1_dir / "compiler.py"
-            clean_env = {**os.environ, "PYTHONPATH": ""}
+            clean_env = clean_test_environment()
 
             module_project = root / "module-project"
             (module_project / "sub").mkdir(parents=True)
@@ -723,8 +849,7 @@ say invoke(describe, {"value": 70, "required": 71})
         )
         with tempfile.TemporaryDirectory(prefix="p15-module-linker-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -762,8 +887,7 @@ say invoke(describe, {"value": 70, "required": 71})
     def test_module_interpolation_globals_match_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-module-interpolation-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -815,8 +939,7 @@ say invoke(describe, {"value": 70, "required": 71})
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
             stage1_dir.mkdir()
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             checked([sys.executable, str(stage0 / "latent.py"),
                      str(COMPILER_SOURCE), "-t", "py", "-o",
                      str(stage1_dir)], cwd=root)
@@ -895,8 +1018,7 @@ say _lt_bootstrap_make_class_Point()
 '''
         with tempfile.TemporaryDirectory(prefix="p15-class-basics-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -982,8 +1104,7 @@ say _lt_bootstrap_make_class_Point()
     def test_single_file_inheritance_super_and_override_match_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-inheritance-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -1048,8 +1169,7 @@ say _lt_bootstrap_make_class_Point()
     def test_scope_and_known_method_negative_diagnostics_match_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-negative-semantic-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -1098,8 +1218,7 @@ say _lt_bootstrap_make_class_Point()
     def test_function_scope_global_nonlocal_and_closures_match_fixed_stage0(self):
         with tempfile.TemporaryDirectory(prefix="p15-function-scope-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1"}
+            clean_env = clean_test_environment()
             stage0 = root / "stage0"
             extract_stage0(stage0)
             stage1_dir = root / "stage1"
@@ -1145,9 +1264,7 @@ say _lt_bootstrap_make_class_Point()
     def test_stage1_compiles_stage2_and_stage3_to_a_dual_root_fixed_point(self):
         with tempfile.TemporaryDirectory(prefix="p15-fixed-point-") as temporary:
             root = Path(temporary)
-            clean_env = {**os.environ, "PYTHONPATH": "",
-                         "PYTHONDONTWRITEBYTECODE": "1",
-                         "enable_mcp": "false"}
+            clean_env = clean_test_environment()
             clean_env.pop("P15_BOOTSTRAP_MANIFEST_REPORT", None)
             no_javac = root / "no-javac"
             no_javac.mkdir()
@@ -1381,7 +1498,7 @@ say _lt_bootstrap_make_class_Point()
                              "Stage0/1/2/3 build wrote into checkout-b")
 
             def write_report() -> None:
-                report_name = os.environ.get("P15_BOOTSTRAP_MANIFEST_REPORT")
+                report_name = BOOTSTRAP_MANIFEST_REPORT
                 if not report_name:
                     return
                 report_path = Path(report_name)

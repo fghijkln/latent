@@ -12,6 +12,10 @@ import unittest
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tests._safe_test_env import isolate_test_environment
+
+isolate_test_environment()
 FIXTURE = ROOT / "tests" / "bootstrap_parser.lt"
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
 

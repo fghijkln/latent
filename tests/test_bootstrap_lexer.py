@@ -13,6 +13,10 @@ import unicodedata
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tests._safe_test_env import clean_test_environment, isolate_test_environment
+
+isolate_test_environment()
 FIXTURE = ROOT / "tests" / "bootstrap_lexer.lt"
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
 
@@ -144,7 +148,7 @@ def compile_and_run_fixture(stage0: Path, fixture: Path, output: Path) -> subpro
     generated = output / (fixture.stem + ".py")
     executed = subprocess.run(
         [sys.executable, str(generated)], cwd=ROOT,
-        env={**os.environ, "PYTHONPATH": ""},
+        env=clean_test_environment(),
         text=True, encoding="utf-8", capture_output=True, check=False)
     if executed.returncode != 0:
         raise AssertionError(executed.stdout + executed.stderr)
@@ -169,7 +173,7 @@ class BootstrapLexerTests(unittest.TestCase):
             generated = output / "bootstrap_lexer.py"
             executed = subprocess.run(
                 [sys.executable, str(generated)], cwd=ROOT,
-                env={**os.environ, "PYTHONPATH": ""},
+                env=clean_test_environment(),
                 text=True, encoding="utf-8", capture_output=True,
                 check=False)
             self.assertEqual(executed.returncode, 0,

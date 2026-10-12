@@ -133,7 +133,7 @@ fn source_id_for(path, root_dir):
 fn outside_root(relative_path):
     if relative_path == ".." or starts_with(relative_path, "../"):
         return true
-    if starts_with(relative_path, "/"):
+    if module_is_absolute(relative_path):
         return true
     return false
 

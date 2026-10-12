@@ -25,7 +25,7 @@ __all__ = (
 )
 # Temporary build directories created by this adapter use this fixed prefix;
 # remove_temp_dir rejects paths outside that explicit temp-root namespace.
-TEMP_DIR_PREFIX = "latent-build-"
+_TEMP_DIR_PREFIX = "latent-build-"
 _TEMP_DIRS: set[str] = set()
 
 
@@ -86,7 +86,12 @@ def path_realpath(path: str) -> str:
 
 
 def path_relpath(path: str, start: str) -> str:
-    return os.path.relpath(path, start)
+    try:
+        return os.path.relpath(path, start)
+    except ValueError:
+        # Windows has no relative path across drives; retain the absolute
+        # candidate so the Latent module graph can reject it as out-of-root.
+        return os.path.normpath(path)
 
 
 def path_norm(path: str) -> str:
@@ -147,7 +152,7 @@ def make_dirs(path: str) -> dict:
 def make_temp_dir() -> dict:
     """Create an isolated temporary build directory with a fixed prefix."""
     try:
-        path = os.path.abspath(tempfile.mkdtemp(prefix=TEMP_DIR_PREFIX))
+        path = os.path.abspath(tempfile.mkdtemp(prefix=_TEMP_DIR_PREFIX))
         _TEMP_DIRS.add(path)
         return {"ok": True, "value": path, "error": ""}
     except OSError as exc:
@@ -162,7 +167,7 @@ def remove_temp_dir(path: str) -> dict:
     expected_parent = os.path.abspath(tempfile.gettempdir())
     if (absolute not in _TEMP_DIRS or os.path.islink(absolute) or
             os.path.dirname(absolute) != expected_parent or
-            not os.path.basename(absolute).startswith(TEMP_DIR_PREFIX)):
+            not os.path.basename(absolute).startswith(_TEMP_DIR_PREFIX)):
         return {"ok": False, "value": "", "error": "invalid-temp-dir"}
     try:
         shutil.rmtree(absolute)
@@ -174,21 +179,51 @@ def remove_temp_dir(path: str) -> dict:
 
 def copy_explicit_files(source_dir: str, destination_dir: str,
                         names: list[str]) -> dict:
-    """Copy only caller-named runtime files; does not scan source_dir."""
+    """Stage caller-named runtime files, then atomically replace destinations."""
+    if any(not isinstance(name, str) or not name or "/" in name or
+           "\\" in name or os.path.basename(name) != name for name in names):
+        return {"ok": False, "value": [], "error": "invalid-name"}
+    if any(os.path.isdir(os.path.join(destination_dir, name)) and
+           not os.path.islink(os.path.join(destination_dir, name))
+           for name in names):
+        return {"ok": False, "value": [], "error": "is-directory"}
+
+    staged = []
     copied = []
-    for name in names:
-        # Reject path traversal and directory selection: the API is for files
-        # explicitly listed by the Latent compiler, not arbitrary trees.
-        if not name or os.path.basename(name) != name:
-            return {"ok": False, "value": copied, "error": "invalid-name"}
-        source = os.path.join(source_dir, name)
-        destination = os.path.join(destination_dir, name)
-        try:
-            shutil.copyfile(source, destination)
-        except OSError as exc:
-            return {"ok": False, "value": copied, "error": _error_code(exc)}
-        copied.append(name)
-    return {"ok": True, "value": copied, "error": ""}
+    try:
+        for name in names:
+            source = os.path.join(source_dir, name)
+            destination = os.path.join(destination_dir, name)
+            descriptor = None
+            try:
+                descriptor, temporary = tempfile.mkstemp(
+                    prefix=".latent-copy-", dir=destination_dir)
+                staged.append((name, temporary, destination))
+                os.close(descriptor)
+                descriptor = None
+                shutil.copyfile(source, temporary)
+            except OSError as exc:
+                if descriptor is not None:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+                return {"ok": False, "value": copied,
+                        "error": _error_code(exc)}
+        for name, temporary, destination in staged:
+            os.replace(temporary, destination)
+            copied.append(name)
+        return {"ok": True, "value": copied, "error": ""}
+    except OSError as exc:
+        return {"ok": False, "value": copied, "error": _error_code(exc)}
+    finally:
+        for _, temporary, _ in staged:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
 
 
 def run_python(script_path: str, cwd: str | None = None) -> dict:

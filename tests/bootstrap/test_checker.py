@@ -1,16 +1,67 @@
 #!/usr/bin/env python3
 """Focused regression tests for the Python-target projection ledger checker."""
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import checker
+import project_stage0
 
 
 class ProjectionLedgerTests(unittest.TestCase):
+    def test_unallowlisted_parent_variables_are_not_forwarded(self):
+        with patch.dict(os.environ, {"P15_SECRET_SENTINEL": "not-for-child"}):
+            environment = project_stage0.clean_test_environment()
+        self.assertNotIn("P15_SECRET_SENTINEL", environment)
+        self.assertIn("PATH", environment)
+        self.assertEqual(environment["PYTHONPATH"], "")
+
+    def test_projection_subprocess_cannot_read_parent_sentinel(self):
+        with patch.dict(os.environ, {"P15_SECRET_SENTINEL": "not-for-child"}):
+            result = project_stage0.command_result(
+                [sys.executable, "-c",
+                 "import os; print('P15_SECRET_SENTINEL' in os.environ)"],
+                cwd=HERE)
+        self.assertEqual(result, {
+            "rc": 0, "stdout": "False\n", "stderr": ""})
+
+    def test_full_runner_does_not_forward_parent_sentinel(self):
+        with patch.dict(os.environ, {"P15_SECRET_SENTINEL": "not-for-child"}):
+            result = project_stage0.runner.run(
+                [sys.executable, "-c",
+                 "import os; print('P15_SECRET_SENTINEL' in os.environ)"],
+                cwd=HERE)
+        self.assertEqual(result, (0, "False\n", ""))
+
+    def test_smoke_runner_captures_ci_report_path_without_forwarding_it(self):
+        report_path = "/tmp/p15-report-path-sentinel"
+        environment = project_stage0.clean_test_environment({
+            "P15_BOOTSTRAP_MANIFEST_REPORT": report_path})
+        probe = (
+            "import os; import tests.test_bootstrap_smoke as smoke; "
+            "print(smoke.BOOTSTRAP_MANIFEST_REPORT); "
+            "print('P15_BOOTSTRAP_MANIFEST_REPORT' in os.environ)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe], cwd=project_stage0.ROOT,
+            env=environment, text=True, encoding="utf-8",
+            capture_output=True, check=False)
+        self.assertEqual((result.returncode, result.stdout, result.stderr),
+                         (0, report_path + "\nFalse\n", ""))
+
+    def test_explicit_empty_subprocess_environment_stays_empty(self):
+        result = project_stage0.command_result(
+            [sys.executable, "-c", "import os; print('PATH' in os.environ)"],
+            cwd=HERE, env={})
+        self.assertEqual(result, {
+            "rc": 0, "stdout": "False\n", "stderr": ""})
+
     def test_current_repository_inventory_is_classified(self):
         self.assertEqual(checker.audit(), [])
 

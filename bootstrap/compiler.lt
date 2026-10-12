@@ -122,14 +122,17 @@ fn compile_one(source_path, output_dir, run_after, source_root):
         host.stderr(output_dir + ": output error: " + directory_result["error"] + "\n")
         return 1
     output_path = host.path_join(output_dir, source_stem(source_path) + ".py")
-    write_result = host.write_utf8(output_path, generated["code"])
-    if not write_result["ok"]:
-        host.stderr(output_path + ": output error: " + write_result["error"] + "\n")
+    if host.path_is_dir(output_path):
+        host.stderr(output_path + ": output error: is-directory\n")
         return 1
     runtime_files = ["LtJavaDaemon.java", "JReflect.java", "LtRt.java"]
     copied_runtime = host.copy_explicit_files(host.runtime_source_dir(), output_dir, runtime_files)
     if not copied_runtime["ok"]:
         host.stderr(output_dir + ": runtime output error: " + copied_runtime["error"] + "\n")
+        return 1
+    write_result = host.write_utf8(output_path, generated["code"])
+    if not write_result["ok"]:
+        host.stderr(output_path + ": output error: " + write_result["error"] + "\n")
         return 1
     host.stdout("wrote " + output_path + "\n")
     if run_after:

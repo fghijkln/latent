@@ -365,6 +365,11 @@ fn main():
     assert_equal(result["line"], 1, "mismatched closer line")
     assert_equal(result["col"], 10, "mismatched closer column")
 
+    if not module_graph.outside_root("C:/outside/main.lt"):
+        throw "drive-absolute module path must be outside the source root"
+    if not module_graph.outside_root("C:\\outside\\main.lt"):
+        throw "backslash-absolute module path must be outside the source root"
+
     run_desugar_checks()
     say "bootstrap parser ok"
     args = host.argv()

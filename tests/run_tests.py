@@ -8,6 +8,10 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)
+from tests._safe_test_env import clean_test_environment, isolate_test_environment
+
+TEST_ENV = isolate_test_environment()
 LATENTC = os.path.join(ROOT, "latent.py")
 TESTS = os.path.join(ROOT, "tests")
 OUT = os.path.join(ROOT, "out")
@@ -589,7 +593,8 @@ COOKBOOK_INTEROP_FUNCTION_VALUES_STDOUT = (
 def run(cmd, cwd=None, timeout=60, env=None):
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                           timeout=timeout, env=env)
+                           timeout=timeout,
+                           env=TEST_ENV if env is None else env)
         return r.returncode, r.stdout, r.stderr
     except subprocess.TimeoutExpired:
         return "timeout", "", ""
@@ -635,7 +640,7 @@ def compile_and_run(name, target, srcdir=TESTS):
         if rc != 0:
             return ("compile-fail", so, se)
     if p13_case or p14_case:
-        run_env = os.environ.copy()
+        run_env = clean_test_environment()
         run_env["PYTHONPATH"] = os.path.join(TESTS, "python") + os.pathsep + \
             run_env.get("PYTHONPATH", "")
     if target == "py":

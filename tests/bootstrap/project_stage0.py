@@ -20,8 +20,10 @@ TESTS = ROOT / "tests"
 COOKBOOK = ROOT / "cookbook"
 MANIFEST = ROOT / "tests" / "bootstrap" / "manifest.json"
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
-CLEAN_ENV = {**os.environ, "PYTHONPATH": "", "PYTHONDONTWRITEBYTECODE": "1"}
-CLEAN_ENV.pop("LATENT_JAVAD", None)
+sys.path.insert(0, str(ROOT))
+from tests._safe_test_env import clean_test_environment, isolate_test_environment
+
+CLEAN_ENV = isolate_test_environment()
 MODULE_SYMBOL = re.compile(
     r"(?<![A-Za-z0-9])_ltm_(?:[0-9a-f]{8}|m[0-9]+)_([A-Za-z_][A-Za-z0-9_]*)"
 )
@@ -32,7 +34,6 @@ MISSING_MODULE = re.compile(
     r"cannot read module ['\"]([^'\"]+)['\"]: No such file or directory"
 )
 
-sys.path.insert(0, str(ROOT))
 from tests.test_bootstrap_smoke import extract_stage0  # noqa: E402
 
 
@@ -56,7 +57,8 @@ def command_result(command: list[str], *, cwd: Path,
                    timeout: int = 90) -> dict[str, Any]:
     try:
         result = subprocess.run(
-            command, cwd=cwd, env=env or CLEAN_ENV, text=True,
+            command, cwd=cwd,
+            env=clean_test_environment() if env is None else env, text=True,
             encoding="utf-8", capture_output=True, timeout=timeout,
             check=False)
         return {"rc": result.returncode, "stdout": result.stdout,
