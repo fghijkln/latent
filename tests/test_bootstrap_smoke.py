@@ -505,7 +505,7 @@ class BootstrapEmitterTests(unittest.TestCase):
                     run_stage_program(alias_out / "main.py", invocation_dirs[0]),
                     (0, "standalone module\n", ""))
 
-            java_run_out = root / "java-run-out"
+            java_run_out = root / "java run out"
             java_run_source = ROOT / "tests" / "java_basic.lt"
             java_run_result = subprocess.run(
                 [sys.executable, str(compiler_a), str(java_run_source),

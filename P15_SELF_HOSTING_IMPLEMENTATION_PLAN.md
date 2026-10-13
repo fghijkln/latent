@@ -351,3 +351,5 @@ The Host contract also explicitly distinguishes product execution from test isol
 A definite harness diagnostic defect was reproduced: the main Stage0 runner's `TimeoutExpired` branch discarded partial stdout/stderr, unlike the projection wrapper. It now decodes captured bytes with UTF-8 replacement and returns both streams with `rc="timeout"`; the regression failed before the fix and `tests/bootstrap/test_checker.py` now passes **11/11**. Full Stage0 and single-root projection gates will be rerun after this runner change; dual-root clone remains excluded.
 
 Gate result after the runner fix: full Stage0 completed with **259 passed, 0 failed**; the single-root Stage0→Stage3 projection completed with **243 case IDs, 244/244 fixtures, 505/505 properties, 0 mismatches**, and Stage2/Stage3 bytes equal. The dual-root clone task was not repeated.
+
+The Java sidecar integration smoke now places its output under a directory containing spaces, exercising `javac` source/classpath/output arguments and the generated program path without shell splitting; emitter focused smoke **1/1** passed. This is test/documentation only.
