@@ -526,6 +526,18 @@ class BootstrapEmitterTests(unittest.TestCase):
                              java_run_program[1] + java_run_program[2])
             self.assertTrue((java_run_out / "LtJavaDaemon.class").is_file())
 
+            custom_javad = root / "custom java runtime"
+            custom_javad.mkdir()
+            for sidecar_name in ("LtJavaDaemon.java", "JReflect.java", "LtRt.java"):
+                (custom_javad / sidecar_name).write_bytes(
+                    (java_run_out / sidecar_name).read_bytes())
+            java_env = dict(clean_env)
+            java_env["LATENT_JAVAD"] = str(custom_javad)
+            custom_runtime_result = run_stage_program(
+                java_run_out / "java_basic.py", invocation_dirs[0], env=java_env)
+            self.assertEqual(custom_runtime_result, java_run_program)
+            self.assertTrue((custom_javad / "LtJavaDaemon.class").is_file())
+
             for class_file in java_run_out.glob("*.class"):
                 class_file.unlink()
             (java_run_out / "LtJavaDaemon.java").write_text(

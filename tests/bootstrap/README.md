@@ -119,3 +119,4 @@ The main Stage0 differential runner also preserves and UTF-8-decodes partial std
 The Java interop `--run` smoke uses an output directory containing spaces, covering argv boundaries for `javac`, its classpath/output directory, and the generated Python child process.
 The same Java `--run` integration also corrupts only the copied daemon source in its temporary output, confirming javac failure returns exit code 1 with a `javac failed` diagnostic and does not create `LtJavaDaemon.class`.
 The javac failure case also asserts that no partial `.class` files of any kind remain in the output directory.
+The interop smoke also points `LATENT_JAVAD` at a separate sidecar directory containing spaces; it verifies the Java program's output matches the default path and `LtJavaDaemon.class` is compiled in the override directory.

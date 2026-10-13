@@ -357,3 +357,5 @@ The Java sidecar integration smoke now places its output under a directory conta
 The Java sidecar smoke also forces a javac failure by corrupting only the temporary copied daemon source; the generated program exits 1 with `javac failed` and leaves no `LtJavaDaemon.class`. Emitter focused smoke **1/1** passed; this extends test coverage without changing runtime logic.
 
 The Java compilation-failure regression additionally asserts the output contains no partial `.class` files after failure; emitter focused smoke **1/1** passed.
+
+The Java interop smoke additionally points `LATENT_JAVAD` to a copied sidecar directory whose path contains spaces; the generated Java program matches the default output and the daemon class is built in the override directory. Emitter focused smoke **1/1** passed; no runtime code changed.
