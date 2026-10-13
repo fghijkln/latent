@@ -74,6 +74,17 @@ class ProjectionLedgerTests(unittest.TestCase):
         self.assertEqual(result, {
             "rc": "timeout", "stdout": "started\n", "stderr": "warning\n"})
 
+    def test_full_runner_timeout_preserves_partial_text_output(self):
+        script = (
+            "import sys, time; "
+            "print('started', flush=True); "
+            "print('warning', file=sys.stderr, flush=True); "
+            "time.sleep(8)"
+        )
+        result = project_stage0.runner.run(
+            [sys.executable, "-c", script], cwd=HERE, timeout=2)
+        self.assertEqual(result, ("timeout", "started\n", "warning\n"))
+
     def test_projection_spawn_error_is_structured(self):
         missing = HERE / "missing-command-for-projection-test"
         self.assertFalse(missing.exists())

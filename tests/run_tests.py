@@ -596,8 +596,12 @@ def run(cmd, cwd=None, timeout=60, env=None):
                            timeout=timeout,
                            env=TEST_ENV if env is None else env)
         return r.returncode, r.stdout, r.stderr
-    except subprocess.TimeoutExpired:
-        return "timeout", "", ""
+    except subprocess.TimeoutExpired as exc:
+        def text(value):
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return value or ""
+        return "timeout", text(exc.stdout), text(exc.stderr)
 
 
 def cap(name):

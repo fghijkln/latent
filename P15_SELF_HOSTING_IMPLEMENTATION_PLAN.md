@@ -347,3 +347,7 @@ The POSIX CLI smoke also covers `-o` as a symlink to an existing directory: Stag
 Projection subprocess-wrapper coverage now includes a timed command that preserves partial stdout/stderr as text and a missing executable that returns structured `rc: error`; `tests/bootstrap/test_checker.py` passes **10/10**. No production changes or long gates were needed for this test-only addition.
 
 The Host contract also explicitly distinguishes product execution from test isolation: `run_python(env=None)` inherits the caller's environment (verified with a dummy sentinel), while test harnesses pass their narrow allowlist. Host contract now passes **19/19**; no production behavior changed.
+
+A definite harness diagnostic defect was reproduced: the main Stage0 runner's `TimeoutExpired` branch discarded partial stdout/stderr, unlike the projection wrapper. It now decodes captured bytes with UTF-8 replacement and returns both streams with `rc="timeout"`; the regression failed before the fix and `tests/bootstrap/test_checker.py` now passes **11/11**. Full Stage0 and single-root projection gates will be rerun after this runner change; dual-root clone remains excluded.
+
+Gate result after the runner fix: full Stage0 completed with **259 passed, 0 failed**; the single-root Stage0→Stage3 projection completed with **243 case IDs, 244/244 fixtures, 505/505 properties, 0 mismatches**, and Stage2/Stage3 bytes equal. The dual-root clone task was not repeated.

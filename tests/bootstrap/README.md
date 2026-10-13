@@ -115,3 +115,4 @@ On POSIX, the standalone module smoke also compiles through a symlinked `--sourc
 On POSIX, an output directory symlink is intentionally followed: the CLI preserves the link, writes both the generated Python file and Java daemon sidecar into its real target, and the emitted program runs successfully.
 Projection harness tests also verify that timeout results retain partial stdout/stderr as text and that process-spawn `OSError` becomes a structured `rc: error` result rather than an uncaught exception.
 A dummy-sentinel Host test pins the product contract that `run_python(env=None)` inherits its caller's environment; this remains distinct from test harnesses, which pass the narrow allowlisted environment explicitly.
+The main Stage0 differential runner also preserves and UTF-8-decodes partial stdout/stderr when a subprocess times out, matching the projection harness's structured timeout behavior.
