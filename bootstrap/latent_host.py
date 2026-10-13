@@ -38,9 +38,15 @@ def _error_code(exc: BaseException) -> str:
         return "is-directory"
     if isinstance(exc, UnicodeDecodeError):
         return "invalid-utf8"
+    if isinstance(exc, ValueError):
+        return "invalid-path"
     if isinstance(exc, NotADirectoryError):
         return "not-a-directory"
     return "io-error"
+
+
+def _invalid_path(path: object) -> bool:
+    return not isinstance(path, str) or "\x00" in path
 
 
 def argv() -> list[str]:
@@ -112,15 +118,19 @@ def path_is_dir(path: str) -> bool:
 
 def read_utf8(path: str) -> dict:
     """Read one explicitly selected UTF-8 file; never enumerate directories."""
+    if _invalid_path(path):
+        return {"ok": False, "value": "", "error": "invalid-path"}
     try:
         with open(path, "r", encoding="utf-8", newline="") as stream:
             return {"ok": True, "value": stream.read(), "error": ""}
-    except (OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         return {"ok": False, "value": "", "error": _error_code(exc)}
 
 
 def write_utf8(path: str, text: str) -> dict:
     """Write one explicit UTF-8 file with stable LF newline handling."""
+    if _invalid_path(path):
+        return {"ok": False, "value": "", "error": "invalid-path"}
     temporary = None
     try:
         parent = os.path.dirname(os.path.abspath(path))
@@ -132,7 +142,7 @@ def write_utf8(path: str, text: str) -> dict:
             os.fsync(stream.fileno())
         os.replace(temporary, path)
         return {"ok": True, "value": path, "error": ""}
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         if temporary is not None:
             try:
                 os.unlink(temporary)
@@ -142,12 +152,14 @@ def write_utf8(path: str, text: str) -> dict:
 
 
 def make_dirs(path: str) -> dict:
+    if _invalid_path(path):
+        return {"ok": False, "value": "", "error": "invalid-path"}
     try:
         os.makedirs(path, exist_ok=True)
         return {"ok": True, "value": path, "error": ""}
     except FileExistsError:
         return {"ok": False, "value": "", "error": "not-a-directory"}
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return {"ok": False, "value": "", "error": _error_code(exc)}
 
 
@@ -182,8 +194,11 @@ def remove_temp_dir(path: str) -> dict:
 def copy_explicit_files(source_dir: str, destination_dir: str,
                         names: list[str]) -> dict:
     """Stage caller-named runtime files, then atomically replace destinations."""
+    if _invalid_path(source_dir) or _invalid_path(destination_dir):
+        return {"ok": False, "value": [], "error": "invalid-path"}
     if any(not isinstance(name, str) or not name or "/" in name or
-           "\\" in name or os.path.basename(name) != name for name in names):
+           "\\" in name or "\x00" in name or
+           os.path.basename(name) != name for name in names):
         return {"ok": False, "value": [], "error": "invalid-name"}
     if any(os.path.isdir(os.path.join(destination_dir, name)) and
            not os.path.islink(os.path.join(destination_dir, name))
@@ -204,7 +219,7 @@ def copy_explicit_files(source_dir: str, destination_dir: str,
                 os.close(descriptor)
                 descriptor = None
                 shutil.copyfile(source, temporary)
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 if descriptor is not None:
                     try:
                         os.close(descriptor)
@@ -216,7 +231,7 @@ def copy_explicit_files(source_dir: str, destination_dir: str,
             os.replace(temporary, destination)
             copied.append(name)
         return {"ok": True, "value": copied, "error": ""}
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return {"ok": False, "value": copied, "error": _error_code(exc)}
     finally:
         for _, temporary, _ in staged:
@@ -230,6 +245,14 @@ def copy_explicit_files(source_dir: str, destination_dir: str,
 
 def run_python(script_path: str, cwd: str | None = None) -> dict:
     """Run a generated Python-target program and capture its observable result."""
+    if _invalid_path(script_path) or (cwd is not None and _invalid_path(cwd)):
+        return {
+            "ok": False,
+            "returncode": 127,
+            "stdout": "",
+            "stderr": "",
+            "error": "invalid-path",
+        }
     try:
         result = subprocess.run(
             [sys.executable, script_path], cwd=cwd, capture_output=True,
@@ -242,7 +265,7 @@ def run_python(script_path: str, cwd: str | None = None) -> dict:
             "stderr": result.stderr,
             "error": "",
         }
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return {
             "ok": False,
             "returncode": 127,

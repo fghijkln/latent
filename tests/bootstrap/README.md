@@ -121,3 +121,5 @@ The same Java `--run` integration also corrupts only the copied daemon source in
 The javac failure case also asserts that no partial `.class` files of any kind remain in the output directory.
 The interop smoke also points `LATENT_JAVAD` at a separate sidecar directory containing spaces; it verifies the Java program's output matches the default path and `LtJavaDaemon.class` is compiled in the override directory.
 If `LATENT_JAVAD` points to a directory with no Java runtime source sidecars, both the active Stage0 and Stage1 generated runtimes report the missing sources rather than falsely claiming `javac` is unavailable.
+A module import path containing the `\0` escape is rejected with `module path contains NUL` before filesystem normalization; the Stage0 CLI regression asserts there is no traceback or output artifact, and the Stage1 module-graph fixture covers the same case.
+The Host API rejects NUL-containing file/process paths with the stable `invalid-path` result (and NUL filenames with `invalid-name`); the `write_utf8` regression verifies rejection occurs without leaving `.latent-write-*` staging files.

@@ -139,6 +139,23 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertIn("Java runtime sidecar sources not found", result[2])
             self.assertNotIn("javac is unavailable", result[2])
 
+    def test_current_stage0_rejects_nul_import_path_without_traceback(self):
+        with tempfile.TemporaryDirectory(prefix="p15-stage0-nul-import-") as temporary:
+            root = Path(temporary)
+            source = root / "main.lt"
+            source.write_text('import "bad\\0.lt" as bad\n',
+                              encoding="utf-8", newline="\n")
+            output = root / "out"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "latent.py"), str(source),
+                 "-t", "py", "-o", str(output)], cwd=root,
+                env=clean_test_environment(), text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("module path contains NUL", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_stage0_generates_deterministic_stage1_python_emitter(self):
         with tempfile.TemporaryDirectory(prefix="p15-emitter-") as temporary:
             root = Path(temporary)

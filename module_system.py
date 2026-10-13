@@ -525,6 +525,9 @@ def _load_graph(root_path):
             if seen_code:
                 raise ModuleCompileError("module", path, stmt.line, stmt.col,
                                          "imports must precede module code")
+            if "\x00" in stmt.module_path:
+                raise ModuleCompileError("module", path, stmt.line, stmt.col,
+                                         "module path contains NUL")
             if os.path.isabs(stmt.module_path):
                 raise ModuleCompileError("module", path, stmt.line, stmt.col,
                                          "module path must be relative to the importing file")

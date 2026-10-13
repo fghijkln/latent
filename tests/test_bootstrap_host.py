@@ -90,6 +90,29 @@ class HostContractTests(unittest.TestCase):
                 self.assertEqual(result, {
                     "ok": False, "value": "", "error": expected})
 
+    def test_nul_paths_return_stable_errors_without_temp_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            invalid = os.path.join(root, "bad\x00path")
+            expected = {"ok": False, "value": "", "error": "invalid-path"}
+            self.assertEqual(host.write_utf8(invalid, "x"), expected)
+            self.assertEqual(list(Path(root).iterdir()), [])
+            self.assertEqual(host.read_utf8(invalid), expected)
+            self.assertEqual(host.make_dirs(invalid), expected)
+            copy_error = {"ok": False, "value": [], "error": "invalid-path"}
+            self.assertEqual(host.copy_explicit_files(invalid, root, []),
+                             copy_error)
+            self.assertEqual(host.copy_explicit_files(root, invalid, []),
+                             copy_error)
+            self.assertEqual(host.copy_explicit_files(
+                root, root, ["bad\x00name"]), {
+                    "ok": False, "value": [], "error": "invalid-name"})
+            run_error = {
+                "ok": False, "returncode": 127, "stdout": "", "stderr": "",
+                "error": "invalid-path"}
+            self.assertEqual(host.run_python(invalid), run_error)
+            self.assertEqual(host.run_python("unused.py", cwd=invalid), run_error)
+            self.assertEqual(list(Path(root).iterdir()), [])
+
     def test_make_dirs_existing_file_maps_to_not_a_directory(self):
         with tempfile.TemporaryDirectory() as root:
             target = Path(root, "not-a-directory")
