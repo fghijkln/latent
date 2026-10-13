@@ -6,7 +6,7 @@
 
 Latent 是一门通用小语言：语法直观、代码精简，同一份源码可由现有编译器生成 Python 或 Java。它的重点不是取代纯 Python，而是让一个程序能按需调用两边的库：`py "numpy"` 与 `java "java.time.LocalDate"` 可以共存于同一源码中；对应运行时只在真正使用时才启动或加载。
 
-正式发布版本请见 [GitHub Releases](https://github.com/fghijkln/latent/releases)。当前开发线完成了 **P15：Python 宿主上的可复现自举编译器**。
+正式发布版本请见 [GitHub Releases](https://github.com/fghijkln/latent/releases)。当前开发线的 **P15 首期 DoD 已完成**：固定 v0.13.5 Stage0 → Stage1 → Stage2 → Stage3，范围限定为 Python 宿主上的 Python-target 自举。
 
 ### P15 自举更新
 
@@ -20,7 +20,7 @@ Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱
 
 这项工作是**运行在 Python 宿主上的自托管自举**，不是 native 或 host-independent bootstrap：生成的编译器仍需 Python 运行时。自举编译器当前只生成 Python；它不替代现有 `latent.py` 编译器，也不实现 Java 代码生成、REPL、AST/脱糖诊断或编辑器元数据模式。
 
-当前 P15 验证记录包含 **243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质案例，零差异**；Stage2 与 Stage3 产物相同。CI 另运行 Stage0 的完整双后端回归，以及 Python/JDK 版本矩阵和 VS Code 扩展检查。请参阅 [P15 设计说明](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) 与 [P15 实施及验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)。
+首期验收覆盖 **243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质案例，零差异**；同根 Stage2==Stage3，两个完整 clean-clone 根目录中的 Stage2/3 产物也逐字节一致；固定 Stage0 的完整双后端基线为 **259/259**。本结论不扩展到 native 或 host-independent bootstrap。CI 另运行 Python/JDK 版本矩阵和 VS Code 扩展检查。请参阅 [P15 设计说明](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) 与 [P15 实施及验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)。
 
 ### 快速开始
 
@@ -106,7 +106,7 @@ MIT，见 [LICENSE](LICENSE)。
 
 Latent is a small general-purpose language with concise, approachable syntax. The existing compiler can compile the same source to Python or Java. The goal is not to replace pure Python, but to let one program use libraries from both ecosystems on demand: `py "numpy"` and `java "java.time.LocalDate"` can appear in the same source file, with the corresponding runtime loaded or started only when it is actually used.
 
-See [GitHub Releases](https://github.com/fghijkln/latent/releases) for published versions. The current development line completes **P15: a reproducible self-hosting compiler hosted on Python**.
+See [GitHub Releases](https://github.com/fghijkln/latent/releases) for published versions. The **P15 first-phase DoD is complete**: fixed v0.13.5 Stage0 → Stage1 → Stage2 → Stage3, scoped to a Python-hosted, Python-target bootstrap.
 
 ### P15 bootstrap update
 
@@ -120,7 +120,7 @@ Stage0 is used only to seed the bootstrap. The Stage1, Stage2, and Stage3 compil
 
 This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The bootstrap compiler currently emits Python only. It does not replace the existing `latent.py` compiler and does not implement Java code generation, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
 
-The current P15 validation report covers **243 projection case IDs, 244 fixture invocations, and 505 fixed-seed property cases with zero mismatches**; Stage2 and Stage3 artifacts match. CI also runs the full Stage0 dual-backend regression suite, a Python/JDK version matrix, and VS Code extension checks. See the [P15 design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) and [P15 implementation and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md).
+First-phase acceptance covers **243 projection case IDs, 244 fixture invocations, and 505 fixed-seed property cases with zero mismatches**; Stage2==Stage3 within a root, and Stage2/3 artifacts are byte-identical across two full clean-clone roots. The fixed Stage0 full dual-backend baseline is **259/259**. This does not extend the claim to native or host-independent bootstrap. CI also runs a Python/JDK version matrix and VS Code extension checks. See the [P15 design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) and [P15 implementation and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md).
 
 ### Quick start
 

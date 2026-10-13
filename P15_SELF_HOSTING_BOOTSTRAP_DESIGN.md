@@ -1,6 +1,6 @@
 # Latent 自举编译器：目标、边界与验收设计提案
 
-> **状态：推荐边界已获批准，实施进行中。** 用户已批准本提案的 Python 宿主、Python 输出目标和 Stage0→Stage1→Stage2→Stage3 方向，并在 2026-10-11 明确授权按实施计划编码、测试及推送。本文件保留设计依据，不代表首期验收已完成。
+> **当前状态：P15 首期 DoD 已完成。** 范围为固定 v0.13.5 Stage0 → Stage1 → Stage2 → Stage3 的 Python-hosted / Python-target 自举：243 个 case ID、244 次 fixture 调用、505 个固定种子性质用例零差异；Stage2==Stage3，两个完整 clean-clone 根目录中的 Stage2/3 产物逐字节一致；Stage0 全量双后端基线 259/259。该结论不扩展到 native 或 host-independent bootstrap。下方实施记录保留早期过程；其中当时的未完成状态由最新验收记录取代。
 >
 > **基线：** Latent v0.13.5，仓库当前提交 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9`。
 
@@ -171,6 +171,8 @@ Job 失败时保留差异 manifest 与最小复现信息作为 CI artifact，正
 
 ## 13. 实施记录
 
+> 本节按时间记录实施过程；前面的状态是历史快照，最新首期验收结论见本节末尾。
+
 - 设计边界与 P15 实施计划均已批准；用户已明确授权实现、测试并推送，无需再次确认。
 - M0 投影账本、M1 薄宿主契约和 M2 微型 Stage0→1→2→3 垂直切片已有初版且聚焦测试通过；当前投影账本归类 243 个 runner case 与 291 个文件路径。Stage0 全量基线实测 259 passed、0 failed（本地 Python 3.12.3/JDK 25.0.4）。
 - M3 已实现并测试 Latent ASCII lexer 切片；参考 Python lexer 的 Unicode 字母/数字/空白分类尚未复现，因此完整 M3 门禁仍未通过。不得以 Python adapter 补足该编译逻辑。
@@ -179,3 +181,10 @@ Job 失败时保留差异 manifest 与最小复现信息作为 CI artifact，正
 - 本次只授权推送代码，不创建 tag/Release；main 分支保护保持原状。
 - 2026-10-12：按用户重排后的第三步，新增 `bootstrap/gen_py.lt`，首个 Python emitter 只覆盖当前 Latent parser/AST 子集；`compiler.lt` 通过 Latent parser/emitter 流程生成输出，Python adapter 只执行宿主 I/O/路径/临时目录/生成程序进程服务。Stage0→Stage1 fixture 对拍和同一固定源码根重复生成检查通过；Stage1→Stage2→Stage3 仍因 parser 尚不支持 import/模块图而未覆盖，绝不作为完整自举声明。
 - 本步 smoke 发现并修复 M3 lexer 的 dedent 后缩进栈槽位复用缺陷；新增 case 与固定 Stage0 token 差分。路径身份/source map 的规范化绝对路径影响仍由固定仓库源码根规避，跨根字节可复现性继续留待后续。
+
+### 2026-10-13 当前验收状态：P15 首期 DoD 完成
+
+- 固定 Stage0 为 v0.13.5 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9`，并验证 Stage0 → Stage1 → Stage2 → Stage3；没有更新 Stage0 pin。
+- 首期范围限于 Python 宿主上的 Python-target compiler，不包括 native / host-independent bootstrap；保留已批准的 deferred scope。
+- 243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质用例全部零差异；Stage2==Stage3，两个完整 clean-clone 根目录的 Stage2/3 声明产物逐字节一致；Stage0 全量双后端基线 259/259。
+- 首期 DoD 标记 **Done**。绿色 workflow 是验证证据，不替代对 code-scanning findings 的逐条复核。
