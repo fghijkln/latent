@@ -526,6 +526,16 @@ class BootstrapEmitterTests(unittest.TestCase):
                              java_run_program[1] + java_run_program[2])
             self.assertTrue((java_run_out / "LtJavaDaemon.class").is_file())
 
+            for class_file in java_run_out.glob("*.class"):
+                class_file.unlink()
+            (java_run_out / "LtJavaDaemon.java").write_text(
+                "this is not valid Java\n", encoding="utf-8", newline="\n")
+            java_compile_failure = run_stage_program(
+                java_run_out / "java_basic.py", invocation_dirs[0])
+            self.assertEqual(java_compile_failure[0], 1)
+            self.assertIn("javac failed", java_compile_failure[2])
+            self.assertFalse((java_run_out / "LtJavaDaemon.class").exists())
+
             runtime_failure = root / "runtime-failure.lt"
             runtime_failure.write_text("say 1 / 0\n", encoding="utf-8",
                                       newline="\n")

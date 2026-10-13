@@ -353,3 +353,5 @@ A definite harness diagnostic defect was reproduced: the main Stage0 runner's `T
 Gate result after the runner fix: full Stage0 completed with **259 passed, 0 failed**; the single-root Stage0→Stage3 projection completed with **243 case IDs, 244/244 fixtures, 505/505 properties, 0 mismatches**, and Stage2/Stage3 bytes equal. The dual-root clone task was not repeated.
 
 The Java sidecar integration smoke now places its output under a directory containing spaces, exercising `javac` source/classpath/output arguments and the generated program path without shell splitting; emitter focused smoke **1/1** passed. This is test/documentation only.
+
+The Java sidecar smoke also forces a javac failure by corrupting only the temporary copied daemon source; the generated program exits 1 with `javac failed` and leaves no `LtJavaDaemon.class`. Emitter focused smoke **1/1** passed; this extends test coverage without changing runtime logic.
