@@ -528,7 +528,9 @@ def _load_graph(root_path):
             if "\x00" in stmt.module_path:
                 raise ModuleCompileError("module", path, stmt.line, stmt.col,
                                          "module path contains NUL")
-            if os.path.isabs(stmt.module_path):
+            if (os.path.isabs(stmt.module_path) or
+                    "\\" in stmt.module_path or
+                    (len(stmt.module_path) >= 2 and stmt.module_path[1] == ":")):
                 raise ModuleCompileError("module", path, stmt.line, stmt.col,
                                          "module path must be relative to the importing file")
             if not stmt.module_path.endswith(".lt"):

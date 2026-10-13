@@ -156,6 +156,50 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertNotIn("Traceback", result.stderr)
             self.assertFalse(output.exists())
 
+    @unittest.skipUnless(os.name == "posix", "POSIX permits backslash filenames")
+    def test_current_stage0_rejects_backslash_import_path(self):
+        with tempfile.TemporaryDirectory(prefix="p15-stage0-backslash-import-") as temporary:
+            root = Path(temporary)
+            source = root / "main.lt"
+            source.write_text(r'import "dir\\lib.lt" as lib' + "\n",
+                              encoding="utf-8", newline="\n")
+            module_path = "dir" + chr(92) + "lib.lt"
+            (root / module_path).write_text('say "library"\n', encoding="utf-8")
+            output = root / "out"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "latent.py"), str(source),
+                 "-t", "py", "-o", str(output)], cwd=root,
+                env=clean_test_environment(), text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                "module path must be relative to the importing file",
+                result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertFalse(output.exists())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX permits colon filenames")
+    def test_current_stage0_rejects_drive_relative_import_path(self):
+        with tempfile.TemporaryDirectory(prefix="p15-stage0-drive-import-") as temporary:
+            root = Path(temporary)
+            source = root / "main.lt"
+            source.write_text('import "C:drive.lt" as lib\n',
+                              encoding="utf-8", newline="\n")
+            (root / "C:drive.lt").write_text('say "library"\n',
+                                              encoding="utf-8")
+            output = root / "out"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "latent.py"), str(source),
+                 "-t", "py", "-o", str(output)], cwd=root,
+                env=clean_test_environment(), text=True, encoding="utf-8",
+                capture_output=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                "module path must be relative to the importing file",
+                result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_stage0_generates_deterministic_stage1_python_emitter(self):
         with tempfile.TemporaryDirectory(prefix="p15-emitter-") as temporary:
             root = Path(temporary)
