@@ -8,6 +8,8 @@ Latent 是一门通用小语言：语法直观、代码精简，同一份源码�
 
 正式发布版本请见 [GitHub Releases](https://github.com/fghijkln/latent/releases)。当前开发线的 **P15 首期 DoD 已完成**：固定 v0.13.5 Stage0 → Stage1 → Stage2 → Stage3，范围限定为 Python 宿主上的 Python-target 自举。
 
+**P16-C Python 宿主版本决策：自举正式支持 CPython 3.11（Unicode 14.0.0）与 CPython 3.12（Unicode 15.0.0）。** 两个版本均纳入完整回归与自举 CI；其他 Python/UCD 组合尚未承诺。评估证据见 [P16-C Python 宿主兼容性记录](P16_C_PYTHON_HOST_SUPPORT.md)。
+
 ### P15 自举更新
 
 P15 将编译器核心写在 Latent 中，并验证固定的阶段链：
@@ -74,10 +76,10 @@ say items
 
 - 现有 Python 编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`。
 - P15 编译器核心源码位于 `bootstrap/`；薄 Python 宿主适配层为 `bootstrap/latent_host.py`。
-- 完整现有回归：`python3 tests/run_tests.py`。v0.13.5 基线套件包含 259 个回归条目；CI 覆盖 Python 3.11 与 JDK 17/21。
+- 完整现有回归：`python3 tests/run_tests.py`。v0.13.5 基线套件包含 259 个回归条目；CI 覆盖 Python 3.11/3.12 与 JDK 17/21。
 - 自举阶段及双根复现门禁：`python3 -m unittest tests.test_bootstrap_smoke -v`。
 - Stage0/Stage1/Stage2/Stage3 的 Python 目标投影：`python3 tests/bootstrap/project_stage0.py`。
-- P15 CI 使用 Python 3.11/JDK 17；另有 VS Code 扩展测试与打包任务。
+- 自举 CI 覆盖 Python 3.11/UCD 14.0.0 与 Python 3.12/UCD 15.0.0（JDK 17）；另有 VS Code 扩展测试与打包任务。
 
 正例与 Cookbook 示例会对拍双后端输出；运行期负例检查失败状态及 `.lt` 源码位置。编译错误包含文件、行、列及源码定位；可映射的未捕获运行错误包含 `.lt` 文件、行号和 Latent 调用栈。
 
@@ -107,6 +109,8 @@ MIT，见 [LICENSE](LICENSE)。
 Latent is a small general-purpose language with concise, approachable syntax. The existing compiler can compile the same source to Python or Java. The goal is not to replace pure Python, but to let one program use libraries from both ecosystems on demand: `py "numpy"` and `java "java.time.LocalDate"` can appear in the same source file, with the corresponding runtime loaded or started only when it is actually used.
 
 See [GitHub Releases](https://github.com/fghijkln/latent/releases) for published versions. The **P15 first-phase DoD is complete**: fixed v0.13.5 Stage0 → Stage1 → Stage2 → Stage3, scoped to a Python-hosted, Python-target bootstrap.
+
+**P16-C Python host decision: the bootstrap officially supports CPython 3.11 (Unicode 14.0.0) and CPython 3.12 (Unicode 15.0.0).** Both versions are included in the full regression and bootstrap CI matrices; other Python/UCD combinations are not yet committed. See the [P16-C Python host compatibility record](P16_C_PYTHON_HOST_SUPPORT.md) for evidence.
 
 ### P15 bootstrap update
 
@@ -174,10 +178,10 @@ say items
 
 - Existing Python compiler pipeline: `lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`.
 - P15 compiler sources are in `bootstrap/`; the thin Python host adapter is `bootstrap/latent_host.py`.
-- Full existing regression suite: `python3 tests/run_tests.py`. The v0.13.5 baseline contains 259 regression entries; CI covers Python 3.11 with JDK 17 and 21.
+- Full existing regression suite: `python3 tests/run_tests.py`. The v0.13.5 baseline contains 259 regression entries; CI covers Python 3.11/3.12 with JDK 17 and 21.
 - Bootstrap-stage and dual-root reproducibility gate: `python3 -m unittest tests.test_bootstrap_smoke -v`.
 - Python-target projection through Stage0/Stage1/Stage2/Stage3: `python3 tests/bootstrap/project_stage0.py`.
-- P15 CI uses Python 3.11/JDK 17; separate jobs test and package the VS Code extension.
+- Bootstrap CI covers Python 3.11/UCD 14.0.0 and Python 3.12/UCD 15.0.0 (JDK 17); separate jobs test and package the VS Code extension.
 
 Positive cases and Cookbook examples compare output across both backends. Runtime negative cases check failure status and `.lt` source locations. Compile-time errors include file, line, column, and source context; mapped uncaught runtime errors include the `.lt` file, line, and Latent call stack.
 
@@ -193,6 +197,7 @@ Positive cases and Cookbook examples compare output across both backends. Runtim
 
 - [Tutorial](TUTORIAL.md) · [Language specification](SPEC.md) · [Changelog](CHANGELOG.md) · [Contributing and tests](CONTRIBUTING.md)
 - [P15 bootstrap design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) · [P15 implementation plan and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)
+- [P16-C Python host compatibility decision and evidence](P16_C_PYTHON_HOST_SUPPORT.md)
 - [P13 interop bound instance method values](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md) · [P14 Python module functions and Java static method values](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)
 - [P12 method override signature compatibility](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md) · [P11 keyword-only parameters](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
 - [P10 variadic parameters and argument expansion](P10_VARIADIC_ARGUMENTS_DESIGN.md) · [P9 default parameters](P9_DEFAULT_PARAMETERS_DESIGN.md) · [P8 named arguments](P8_NAMED_ARGUMENTS_DESIGN.md)
