@@ -1,75 +1,59 @@
 # Latent
 
-一门通用小语言：直观、代码少，一份源码编译为 Java 或 Python。
-`py "mod"` / `java "com.foo.Bar"` 一行按需加载两个生态——懒到第一次真正
-使用时才 `import`／`Class.forName`／才启动对端运行时。
+[简体中文](#简体中文) · [English](#english)
 
-万物皆潜在（latent），直到被触碰的那一刻。
+## 简体中文
 
-**最近正式发布：v0.13.5**，包含 P13/P14 互操作 callable 值（VS Code 扩展仍为 0.6.5）。P12 方法覆盖签名兼容检查随 v0.13.4 发布；该规则会有意拒绝一部分过去可编译但调用不兼容的普通方法覆盖。
+Latent 是一门通用小语言：语法直观、代码精简，同一份源码可由现有编译器生成 Python 或 Java。它的重点不是取代纯 Python，而是让一个程序能按需调用两边的库：`py "numpy"` 与 `java "java.time.LocalDate"` 可以共存于同一源码中；对应运行时只在真正使用时才启动或加载。
 
-P8 设计与实现记录见 [P8 命名参数设计](P8_NAMED_ARGUMENTS_DESIGN.md)。
-P9 默认参数语义与 AST schema v4 见 [P9 默认参数设计](P9_DEFAULT_PARAMETERS_DESIGN.md)。
-P10 变参语义与 AST schema v5 见 [P10 变参形参与调用展开](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
-P11 仅限关键字形参与 AST schema v6 的设计与验收记录见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。v0.13.4/P12 方法覆盖签名兼容检查的设计与实现记录见 [P12 设计与实现记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)。v0.13.5 中的 P13/P14 分别支持受限范围的宿主绑定方法、模块函数与静态方法值，详见 [P13 记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md) 与 [P14 记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)；此前版本的历史标签与既有资产保持不变。
+正式发布版本请见 [GitHub Releases](https://github.com/fghijkln/latent/releases)。当前开发线完成了 **P15：Python 宿主上的可复现自举编译器**。
 
-Latent 不追求在简单脚本上赢过 Python——写纯 Python 逻辑，Python 的工具和
-生态成熟得多，无需争辩。它的赌注只有一个：**同一份源码，跑在 Python 和
-Java 两个运行时上，并在同一个程序里按需使用两边的库**。`py "numpy"` 和
-`java "java.time.LocalDate"` 可以出现在同一个文件里，互不启动对方的
-运行时，直到真正被用到的那一刻。
+### P15 自举更新
 
-代价是真实的：两套后端、跨语言对象让调试和错误处理更难。为此编译器用
-机制而不是运气来还债：P13 完成后的工作区基线有 234 个回归条目（含 13 项只读 AST/CLI 诊断）；P14 新增一个覆盖四组合的正例、22 个双后端 runtime 负例、1 个 typed-daemon protocol 检查和 1 个 Cookbook 示例；原 P13 Java static exclusion 重新分类为 P14 提取正例。v0.13.5 共 259 项（相对 P13 基线净增 25）。套件还包含阶段 1 固定语义用例和 1 个有界、固定种子的性质测试入口（实际案例数运行时报告，套件计 1 项）；正例与 Cookbook 双后端输出逐字节对拍，两端不一致即失败。P10 新增 25 项回归，P11 增加 24 项双后端回归与 1 项 AST 诊断；P12/v0.13.4 新增 1 个正例和 9 个独立签名负例，并将既有覆盖 arity 负例纳入双后端诊断矩阵；P13 新增 1 个四组合正例、11 个 runtime 负例和 1 个 Cookbook 示例。
+P15 将编译器核心写在 Latent 中，并验证固定的阶段链：
 
-- 教程：[TUTORIAL.md](TUTORIAL.md)
-- 语言规范：[SPEC.md](SPEC.md)
-- P2 模块语义：[P2_MODULES_DESIGN.md](P2_MODULES_DESIGN.md)
-- P3 继承语义：[P3_INHERITANCE_DESIGN.md](P3_INHERITANCE_DESIGN.md)
-- P5 函数值与闭包设计：[P5_FUNCTION_VALUES_DESIGN.md](P5_FUNCTION_VALUES_DESIGN.md)
-- P6 `nonlocal` 设计：[P6_NONLOCAL_DESIGN.md](P6_NONLOCAL_DESIGN.md)
-- P8 命名参数设计：[P8_NAMED_ARGUMENTS_DESIGN.md](P8_NAMED_ARGUMENTS_DESIGN.md)
-- P9 默认参数设计：[P9_DEFAULT_PARAMETERS_DESIGN.md](P9_DEFAULT_PARAMETERS_DESIGN.md)
-- P10 变参与调用展开：[P10_VARIADIC_ARGUMENTS_DESIGN.md](P10_VARIADIC_ARGUMENTS_DESIGN.md)
-- P11 仅限关键字形参（v0.13.3）：[P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
-- P12 方法覆盖签名兼容性（v0.13.4）：[P12 设计与实现记录](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md)
-- P13 互操作绑定实例方法值（v0.13.5）：[P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md)
-- P14 Python 模块函数与 Java 静态方法值（v0.13.5）：[P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)
-- VS Code 插件使用指南：[VSCODE_EXTENSION_GUIDE.md](VSCODE_EXTENSION_GUIDE.md)
-- 发布记录：[CHANGELOG.md](CHANGELOG.md)
-- 贡献与测试指南：[CONTRIBUTING.md](CONTRIBUTING.md)
+```text
+固定 Stage0（v0.13.5 Python 编译器） → Stage1 → Stage2 → Stage3
+```
 
-## 用法
+Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱糖、语义分析、模块处理、Python 代码生成和 CLI 策略由 Latent 编译器源码实现。Python 适配层只提供受限的操作系统服务，例如文件、路径与进程 I/O。CI 检查 Stage0/Stage1/Stage2 的 Python 目标行为投影，并验证 Stage2 与 Stage3 的产物在同一构建及不同干净 checkout 根目录下逐字节复现。
+
+这项工作是**运行在 Python 宿主上的自托管自举**，不是 native 或 host-independent bootstrap：生成的编译器仍需 Python 运行时。自举编译器当前只生成 Python；它不替代现有 `latent.py` 编译器，也不实现 Java 代码生成、REPL、AST/脱糖诊断或编辑器元数据模式。
+
+当前 P15 验证记录包含 **243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质案例，零差异**；Stage2 与 Stage3 产物相同。CI 另运行 Stage0 的完整双后端回归，以及 Python/JDK 版本矩阵和 VS Code 扩展检查。请参阅 [P15 设计说明](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) 与 [P15 实施及验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)。
+
+### 快速开始
+
+运行 Python 后端：
 
 ```bash
-# 编译为 Python 并运行（用到了 java 才需要 java 在 PATH）
 python3 latent.py prog.lt -t py -o out --run
+```
 
-# 编译为 Java 并运行（需要 JDK 17+；用到了 py 才需要 python3 在 PATH）
+运行 Java 后端（需要 JDK 17+；只有程序使用 `py` 互操作时才需要 Python 运行时）：
+
+```bash
 python3 latent.py prog.lt -t java -o out --run
+```
 
-# 查看解析 AST / 脱糖后的 AST；输出 JSON，不编译、不运行、不写产物
+查看语法树或脱糖后的 AST（只读诊断，不编译或运行）：
+
+```bash
 python3 latent.py prog.lt --show-ast
 python3 latent.py prog.lt --show-desugar
+```
 
-# 交互式（Python 后端；空行结束缩进块，裸表达式自动打印）
+交互式 REPL（Python 后端）：
+
+```bash
 python3 latent.py repl
 ```
 
-`--show-ast`（别名 `--dump-ast`）与 `--show-desugar` 输出版本化、稳定的 JSON AST，节点
-带源文件、行号和列号。它们只检查命令行指定的单个文件：前者做词法/语法分析，后者再做
-脱糖；不执行语义检查、代码生成或模块图遍历，不加载 Python/Java 互操作运行时，也不创建
-或修改 `out/` 及 `-o` 指向的普通编译产物。诊断模式下 `-t`/`-o` 不生效；`--run` 不可与诊断
-选项并用。语法错误仍显示编译阶段、源码行和 `^` 定位。
+`--show-ast` 也接受 `--dump-ast`。诊断模式输出版本化 JSON，携带源文件、行号和列号；只检查命令行指定的文件，不遍历模块图、不加载互操作运行时，也不写编译产物。
 
-- `-t py` 产出：`<prog>.py` + `LtJavaDaemon.java`、`JReflect.java`、`LtRt.java`
- （`java` 句柄用的 JVM 守护进程；有 javac 就当场编译好，
-  没有则在第一次 `java` 使用时编译）。
-- `-t java` 产出：`<Prog>.java` + `LtRt.java`（运行时）、`JReflect.java`（反射核心）、
-  `ltpy.py`（懒启动的 Python 守护进程，`LATENT_PY` 环境变量或
-  `-Dlatent.pydaemon=` 可指定位置）。`java` 句柄走直接反射，无守护进程。
+### 语言与互操作
 
-## 速览
+Latent 支持函数与闭包、默认参数、命名参数、变参与调用展开、仅限关键字形参、单继承与 `super`、本地显式别名模块、异常处理，以及 Python/Java 互操作。P13/P14 扩展了特定 Python/Java 方法和函数作为 Latent callable 值的能力；覆盖范围与限制见对应设计记录。
 
 ```latent
 fn fib(n):
@@ -77,61 +61,143 @@ fn fib(n):
         return n
     fib(n - 1) + fib(n - 2)
 
-say fib(20)                       # 6765
-
-name = "latent"
-say "hello $name, ${1 + 2 * 3}"   # 插值
-
-np = py "numpy"                   # 懒加载：这里什么都不发生
-say np.sqrt(2)                    # 第一次使用时才 import（Java 下才启动 python3）
-
-A = java "java.util.ArrayList"    # 同样懒：不 Class.forName（Python 下不启动 JVM）
-a = A.new()                       # 构造
-a.add("hi")
-say a                             # ["hi"]
-say java "java.lang.Math".sqrt(2)  # 静态方法直接调：1.4142135623730951
+say fib(20)                         # 6765
+np = py "numpy"                     # 延迟加载
+say np.sqrt(2)
+ArrayList = java "java.util.ArrayList"  # 延迟加载
+items = ArrayList.new()
+items.add("hello")
+say items
 ```
 
-## 工程
+### 工程与验证
 
-- 纯 Python 标准库实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`
-- 测试：`python3 tests/run_tests.py` —— v0.13.5 有 259 个回归条目，其中 13 项为只读 AST/CLI 诊断；包括 P14 typed-daemon protocol 检查、阶段 1 固定语义用例和 1 个有界、固定种子的性质测试入口（实际生成案例数会在运行时打印，套件计数为 1 项）。
-  正例与 cookbook 双后端输出逐字节对拍，运行期负例验证两端失败状态与 `.lt` 源码位置。
-- 编译期错误显示 `文件:行:列`、源码行和 `^`；未捕获的运行期错误在
-  Python/Java 后端显示 `.lt` 文件、行号和 Latent 调用栈。无法映射时回退到
-  原生 traceback/Java 堆栈；运行期暂不显示列号。
+- 现有 Python 编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`。
+- P15 编译器核心源码位于 `bootstrap/`；薄 Python 宿主适配层为 `bootstrap/latent_host.py`。
+- 完整现有回归：`python3 tests/run_tests.py`。v0.13.5 基线套件包含 259 个回归条目；CI 覆盖 Python 3.11 与 JDK 17/21。
+- 自举阶段及双根复现门禁：`python3 -m unittest tests.test_bootstrap_smoke -v`。
+- Stage0/Stage1/Stage2/Stage3 的 Python 目标投影：`python3 tests/bootstrap/project_stage0.py`。
+- P15 CI 使用 Python 3.11/JDK 17；另有 VS Code 扩展测试与打包任务。
 
-## 已知边界（正式版 v0.13.5）
+正例与 Cookbook 示例会对拍双后端输出；运行期负例检查失败状态及 `.lt` 源码位置。编译错误包含文件、行、列及源码定位；可映射的未捕获运行错误包含 `.lt` 文件、行号和 Latent 调用栈。
 
-支持 Latent 单继承、`super`、`try`/`catch`/`throw`、属性与下标读写；未捕获的运行期错误
-已映射到 `.lt` 文件和行号。P2 静态模块与 P3 继承随 v0.6.0 发布；v0.7.0 增加只读 AST/脱糖诊断；v0.8.0 增加用户定义函数值、嵌套词法闭包和 `global`，详见 [P5 设计记录](P5_FUNCTION_VALUES_DESIGN.md)；v0.9.0 增加 `nonlocal`，详见 [P6 设计记录](P6_NONLOCAL_DESIGN.md)；v0.10.0 让 `obj.method` 在没有同名字段时返回捕获实例的绑定方法值，实例字段仍优先；v0.11.0/P8 增加 Latent 调用的命名参数；v0.12.0/P9 增加默认参数；v0.13.0/P10 增加变参形参与调用展开；v0.13.3/P11 增加仅限关键字形参，并将 `latent-ast` 升至 schema v6。模块导入仍只支持本地显式别名，不支持循环导入或包管理；仍无多继承。正式 v0.13.5 仍不把独立内建函数或 P13/P14 范围外的互操作值当作函数值。
+### 当前边界
 
-P13/v0.13.5 允许从 Python/Java 对象实例读取受支持的绑定实例方法值：字段/普通属性优先，Python 捕获取值时的 bound method，Java 在每次调用时按实参选择重载；模块函数、静态/类方法、构造器、独立 builtin、callable 字段/property/custom descriptor 不在 P13 范围内。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md)。
+- 自举编译器目前仅生成 Python；Java 后端由现有 `latent.py` 编译器提供。
+- P15 需要 Python 宿主；它不宣称无需 Python、native 或 host-independent。
+- 模块导入限于显式本地 `.lt` 别名；不支持循环导入、包管理或多继承。
+- Python/Java 互操作 callable 值仅覆盖文档列出的受支持方法与函数；不支持任意 callable 对象、独立 builtin（如 `len`）或 Latent callback。
+- 数值类型为 float64；`java "int"` 等 Java 基本类型名不支持。
 
-P14/v0.13.5 允许从 Python 模块读取精确导出的 Python 函数和模块拥有的 C 函数（如 `math.sqrt`），以及从 Java 类读取公开静态方法族（含与直接调用一致的继承成员集）作为可赋值/传递/返回/闭包捕获/间接调用的值。Python 捕获读取时函数对象，Java 调用时选重载；同名公开静态字段优先于方法值，但 `Class.name(...)` 直接调用不变。仍排除无模块归属的 builtin（如 `len`）、构造器、任意 callable 对象、动态属性结果和普通 opaque ref；只支持位置参数，不接受 Latent callback。详见 [P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)。
-v0.13.4/P12 规则要求普通方法覆盖保留最近父类实现的固定参数名称和位置槽，不新增必需参数，并保留父类已有的 `*rest` / `**extra` 能力；`init` 仍豁免。该规则收紧一部分旧源码的编译接受范围，但不改变 AST schema v6 或运行时 binder；v0.13.3 的历史标签与资产保持不变。
+### 文档
 
-`py` 只支持模块句柄，
-不支持内联 Python 代码块；`java` 不支持基本类型类名（`java "int"`）；数字只有 float64 一种类型。
+- [教程](TUTORIAL.md) · [语言规范](SPEC.md) · [发布记录](CHANGELOG.md) · [贡献与测试指南](CONTRIBUTING.md)
+- [P15 自举设计](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) · [P15 实施计划与验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)
+- [P13 互操作绑定实例方法值](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md) · [P14 Python 模块函数与 Java 静态方法值](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)
+- [P12 方法覆盖签名兼容性](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md) · [P11 仅限关键字形参](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
+- [P10 变参与调用展开](P10_VARIADIC_ARGUMENTS_DESIGN.md) · [P9 默认参数](P9_DEFAULT_PARAMETERS_DESIGN.md) · [P8 命名参数](P8_NAMED_ARGUMENTS_DESIGN.md)
+- [VS Code 扩展指南](VSCODE_EXTENSION_GUIDE.md)
 
-**阶段 1 已实现并纳入回归**：两后端统一了 `NaN` 真值、比较与负底数非整数幂语义；Java 后端的字符串长度、下标和迭代按 Unicode 码点处理；Java 重载调用按转换等级和形参特异性选择唯一未被支配的候选，歧义时报告稳定错误。相关规则见[语言规范](SPEC.md#4-语义)及其 Java 互操作章节。Latent 列表/映射传给兼容的 Java `List`/`Map` 形参以及列表转 Java 数组也已受运行时支持。
-
-## v0.11.0：命名参数
-
-位置参数必须先于命名参数，实参仍按源码从左到右求值；签名已知时在编译期检查，否则在运行期按保留的形参名绑定。使用命名调用的源码要求 v0.11.0 或更新版本。
-
-## v0.12.0：默认参数
-
-Latent 用户定义函数的默认表达式在每次调用时、仅对省略的实参按形参顺序求值；显式传入 `nil` 不会触发默认值。位置区必需形参必须位于默认位置形参之前，默认值可引用更早的形参；P11 的仅限关键字区允许必需项与默认项交错。该功能适用于函数值、闭包、模块函数、Latent 方法与构造器；内建函数及 Python/Java 互操作调用不变。`latent-ast` schema 升级到 v4，新增 `DefaultParam(name, default)` 节点。
-
-## v0.13.0：P10 变参与调用展开
-
-P10 为 Latent 函数增加 `*rest` 位置收集器和 `**extra` 命名收集器，并允许 Latent 调用使用 `*items`、`**mapping` 展开实参；支持函数值、闭包、模块函数、Latent 方法、`super` 与构造器。`*items` 只接受 Latent 列表；`**mapping` 只接受键为字符串的 Latent 映射，并按插入顺序展开。内建函数及 Python/Java 互操作调用不接受展开实参；仍不支持仅限关键字形参。AST schema v5 新增 `RestParam`、`ExtraParam`、`StarArg` 和 `StarStarArg`，详见 [P10 设计记录](P10_VARIADIC_ARGUMENTS_DESIGN.md)。
-
-## P11：仅限关键字形参（v0.13.3）
-
-`*rest` 或裸 `*` 可开启仅限关键字区。`fn send(to, *, urgent, retry=2)` 中，`urgent` 必须按名称提供，`retry` 可省略；`*rest` 后的普通形参同样仅限关键字。必需项与默认项可以交错，位置实参不会填充该区。P11 将 AST schema 从 v5 升至 v6，新增 `KeywordOnlyParam(name, default)`；详见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。
-
-## 许可证
+### 许可证
 
 MIT，见 [LICENSE](LICENSE)。
+
+## English
+
+Latent is a small general-purpose language with concise, approachable syntax. The existing compiler can compile the same source to Python or Java. The goal is not to replace pure Python, but to let one program use libraries from both ecosystems on demand: `py "numpy"` and `java "java.time.LocalDate"` can appear in the same source file, with the corresponding runtime loaded or started only when it is actually used.
+
+See [GitHub Releases](https://github.com/fghijkln/latent/releases) for published versions. The current development line completes **P15: a reproducible self-hosting compiler hosted on Python**.
+
+### P15 bootstrap update
+
+P15 implements the compiler core in Latent and validates this fixed stage chain:
+
+```text
+fixed Stage0 (the v0.13.5 Python compiler) → Stage1 → Stage2 → Stage3
+```
+
+Stage0 is used only to seed the bootstrap. The Stage1, Stage2, and Stage3 compiler logic—lexing, parsing, desugaring, semantic analysis, module handling, Python code generation, and CLI policy—is implemented in Latent. A small Python adapter provides operating-system services such as file, path, and process I/O. CI checks the Python-target behavior projection across Stage0/Stage1/Stage2 and verifies byte-for-byte Stage2/Stage3 reproducibility both within one build and across clean checkouts at different absolute paths.
+
+This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The bootstrap compiler currently emits Python only. It does not replace the existing `latent.py` compiler and does not implement Java code generation, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
+
+The current P15 validation report covers **243 projection case IDs, 244 fixture invocations, and 505 fixed-seed property cases with zero mismatches**; Stage2 and Stage3 artifacts match. CI also runs the full Stage0 dual-backend regression suite, a Python/JDK version matrix, and VS Code extension checks. See the [P15 design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) and [P15 implementation and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md).
+
+### Quick start
+
+Run the Python backend:
+
+```bash
+python3 latent.py prog.lt -t py -o out --run
+```
+
+Run the Java backend (JDK 17+ required; Python is needed only when the program uses `py` interop):
+
+```bash
+python3 latent.py prog.lt -t java -o out --run
+```
+
+Inspect the parsed or desugared AST (read-only diagnostics; no compilation or execution):
+
+```bash
+python3 latent.py prog.lt --show-ast
+python3 latent.py prog.lt --show-desugar
+```
+
+Start the interactive REPL (Python backend):
+
+```bash
+python3 latent.py repl
+```
+
+`--show-ast` also accepts `--dump-ast`. These diagnostics emit versioned JSON with source-file, line, and column information. They inspect only the specified file: they do not traverse a module graph, load an interop runtime, or write compiler artifacts.
+
+### Language and interop
+
+Latent supports functions and closures, default and named arguments, variadic parameters and argument expansion, keyword-only parameters, single inheritance and `super`, explicitly aliased local modules, exceptions, and Python/Java interop. P13/P14 add supported Python/Java methods and functions as Latent callable values; see the design notes for exact scope and limitations.
+
+```latent
+fn fib(n):
+    if n < 2:
+        return n
+    fib(n - 1) + fib(n - 2)
+
+say fib(20)                         # 6765
+np = py "numpy"                     # lazy loading
+say np.sqrt(2)
+ArrayList = java "java.util.ArrayList"  # lazy loading
+items = ArrayList.new()
+items.add("hello")
+say items
+```
+
+### Project and verification
+
+- Existing Python compiler pipeline: `lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`.
+- P15 compiler sources are in `bootstrap/`; the thin Python host adapter is `bootstrap/latent_host.py`.
+- Full existing regression suite: `python3 tests/run_tests.py`. The v0.13.5 baseline contains 259 regression entries; CI covers Python 3.11 with JDK 17 and 21.
+- Bootstrap-stage and dual-root reproducibility gate: `python3 -m unittest tests.test_bootstrap_smoke -v`.
+- Python-target projection through Stage0/Stage1/Stage2/Stage3: `python3 tests/bootstrap/project_stage0.py`.
+- P15 CI uses Python 3.11/JDK 17; separate jobs test and package the VS Code extension.
+
+Positive cases and Cookbook examples compare output across both backends. Runtime negative cases check failure status and `.lt` source locations. Compile-time errors include file, line, column, and source context; mapped uncaught runtime errors include the `.lt` file, line, and Latent call stack.
+
+### Current limitations
+
+- The bootstrap compiler currently emits Python only; Java code generation remains available through the existing `latent.py` compiler.
+- P15 requires a Python host. It does not claim to run without Python or to be native/host-independent.
+- Imports are limited to explicitly aliased local `.lt` modules; circular imports, package management, and multiple inheritance are not supported.
+- Python/Java interop callable values are limited to documented supported methods and functions; arbitrary callable objects, standalone built-ins such as `len`, and Latent callbacks are unsupported.
+- Numbers use float64; Java primitive type names such as `java "int"` are unsupported.
+
+### Documentation
+
+- [Tutorial](TUTORIAL.md) · [Language specification](SPEC.md) · [Changelog](CHANGELOG.md) · [Contributing and tests](CONTRIBUTING.md)
+- [P15 bootstrap design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) · [P15 implementation plan and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)
+- [P13 interop bound instance method values](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md) · [P14 Python module functions and Java static method values](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)
+- [P12 method override signature compatibility](P12_METHOD_OVERRIDE_SIGNATURE_COMPATIBILITY_DESIGN.md) · [P11 keyword-only parameters](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)
+- [P10 variadic parameters and argument expansion](P10_VARIADIC_ARGUMENTS_DESIGN.md) · [P9 default parameters](P9_DEFAULT_PARAMETERS_DESIGN.md) · [P8 named arguments](P8_NAMED_ARGUMENTS_DESIGN.md)
+- [VS Code extension guide](VSCODE_EXTENSION_GUIDE.md)
+
+### License
+
+MIT; see [LICENSE](LICENSE).
