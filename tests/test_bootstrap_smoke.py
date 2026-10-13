@@ -383,6 +383,18 @@ class BootstrapEmitterTests(unittest.TestCase):
             checked([sys.executable, str(compiler_a), str(fixture),
                      "-o", str(stage1_target_repeat)], cwd=root, env=clean_env)
 
+            long_alias_out = root / "long-alias-output"
+            long_alias_result = checked(
+                [sys.executable, str(compiler_a), str(fixture),
+                 "--target", "py", "--outdir", str(long_alias_out)],
+                cwd=root, env=clean_env)
+            self.assertEqual(
+                long_alias_result.stdout,
+                f"wrote {long_alias_out / 'fixture.py'}\n")
+            self.assertEqual(
+                (long_alias_out / "fixture.py").read_bytes(),
+                (stage1_target / "fixture.py").read_bytes())
+
             stage0_result = run_stage_program(stage0_target / "fixture.py", root)
             stage1_result = run_stage_program(stage1_target / "fixture.py", root)
             self.assertEqual(stage0_result, (0, EXPECTED_STDOUT, ""))
@@ -472,12 +484,21 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertIn("usage: latent source.lt", help_result.stdout)
             self.assertIn("--source-root ROOT", help_result.stdout)
             self.assertEqual(help_result.stderr, "")
+            short_help = checked(
+                [sys.executable, str(compiler_a), "-h"], cwd=root,
+                env=clean_env)
+            self.assertEqual(short_help.stdout, help_result.stdout)
+            self.assertEqual(short_help.stderr, "")
 
             argument_errors = (
                 ([], "usage: latent source.lt [-t py] [-o OUTDIR] "
                      "[--source-root ROOT] [--run]\n"),
                 ([str(fixture), "-o"], "error: -o requires a directory\n"),
+                ([str(fixture), "--outdir"],
+                 "error: -o requires a directory\n"),
                 ([str(fixture), "-t"], "error: -t requires a target\n"),
+                ([str(fixture), "--target"],
+                 "error: -t requires a target\n"),
                 ([str(fixture), "extra.lt"],
                  "error: unexpected argument extra.lt\n"),
                 ([str(fixture), "--show-ast"],
