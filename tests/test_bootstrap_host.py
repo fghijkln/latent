@@ -113,6 +113,16 @@ class HostContractTests(unittest.TestCase):
             self.assertEqual(host.run_python("unused.py", cwd=invalid), run_error)
             self.assertEqual(list(Path(root).iterdir()), [])
 
+    def test_write_utf8_cleans_temp_after_replace_valueerror(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root, "generated.py")
+            with patch.object(host.os, "replace",
+                              side_effect=ValueError("invalid path")):
+                result = host.write_utf8(str(output), "payload\n")
+            self.assertEqual(result, {
+                "ok": False, "value": "", "error": "invalid-path"})
+            self.assertEqual(list(Path(root).iterdir()), [])
+
     def test_make_dirs_existing_file_maps_to_not_a_directory(self):
         with tempfile.TemporaryDirectory() as root:
             target = Path(root, "not-a-directory")
