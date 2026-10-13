@@ -1794,6 +1794,7 @@
       "test_diagnostics.py",
       "test_differential_properties.py",
       "test_editor_metadata.py",
+      "test_latent_stage1.py",
       "test_p14_protocol.py"
     ],
     "python_fixture": [
@@ -2954,6 +2955,10 @@
       "disposition": "exclude",
       "reason": "P15 M9 explicitly deferred the editor-metadata interface; parser-derived symbols/folding contracts are not Python-target compilation or execution."
     },
+    "test_module/test_latent_stage1.py": {
+      "disposition": "include",
+      "reason": "P17-B acceptance tests for the explicit Stage1 launcher, supported host boundary, safe cache behavior, and no-fallback CLI path; run independently from the Stage0 compiler projection."
+    },
     "test_module/test_p14_protocol.py": {
       "disposition": "include",
       "reason": "P14 daemon protocol file includes an in-scope Python stale module-function ref check; Java static-method operation is separately excluded."
@@ -2995,6 +3000,10 @@
     "test_editor_metadata.py": {
       "disposition": "exclude",
       "reason": "P15 M9 explicitly deferred the editor-metadata interface; parser-derived symbols/folding contracts are not Python-target compilation or execution."
+    },
+    "test_latent_stage1.py": {
+      "disposition": "include",
+      "reason": "P17-B integration and cache-contract tests for the Stage1 opt-in entry; run in the Ubuntu 24.04 CPython/UCD matrix and do not replace the separate Stage0/Stage1 projection."
     },
     "python/p13_host.py": {
       "disposition": "include",

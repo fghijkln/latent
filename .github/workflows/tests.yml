@@ -41,6 +41,7 @@ jobs:
           gen_java.py gen_py.py latent.py lex.py module_system.py nodes.py
           parse.py semant.py
           runtime/ltpy.py tests
+          tools/latent_stage1.py
 
       - name: Test editor metadata contract
         run: python tests/test_editor_metadata.py
@@ -93,6 +94,9 @@ jobs:
 
       - name: Test bootstrap host contract
         run: python tests/test_bootstrap_host.py
+
+      - name: Test opt-in Stage1 preview launcher and cache
+        run: python -m unittest tests.test_latent_stage1 -v
 
       - name: Test Stage0/1 differential and Stage1-to-3 fixed point / dual-root reproducibility
         run: python -m unittest tests.test_bootstrap_smoke -v

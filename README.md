@@ -24,6 +24,18 @@ Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱
 
 首期验收覆盖 **243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质案例，零差异**；同根 Stage2==Stage3，两个完整 clean-clone 根目录中的 Stage2/3 产物也逐字节一致；固定 Stage0 的完整双后端基线为 **259/259**。本结论不扩展到 native 或 host-independent bootstrap。CI 另运行 Python/JDK 版本矩阵和 VS Code 扩展检查。请参阅 [P15 设计说明](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) 与 [P15 实施及验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)。
 
+### Stage1 实验性预览（显式 opt-in）
+
+仓库检出内可显式试用 Latent 实现的 Stage1：
+
+```bash
+python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]
+```
+
+这是**实验性、非默认入口**。首次调用会使用本机 Git 历史中的固定 Stage0 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` 按需构建 Stage1；不会自动联网取源码或发布预构建产物。Stage1 只生成 Python，默认输出目录为 `build/py`（与 `latent.py` 不同）；Java target、REPL、AST/脱糖诊断和编辑器元数据仍请使用现有 `latent.py`。包装器只接受仓库根目录或其子目录作为工作目录，构建缓存放在用户级 XDG cache（未设置时为 `~/.cache/latent/stage1/`）；不支持的宿主或 Stage1 错误会明确失败，不会回退到 `latent.py`。
+
+预览仅验证于 Ubuntu 24.04 上的 CPython 3.11/UCD 14.0.0 与 CPython 3.12/UCD 15.0.0。自该实现进入 `main` 起 90 天内复审，且必须早于任何包含此入口的首次公开发布；预览不会自动转为稳定功能。P17 不创建 tag、Release 或发布资产。
+
 ### 快速开始
 
 运行 Python 后端：
@@ -125,6 +137,18 @@ Stage0 is used only to seed the bootstrap. The Stage1, Stage2, and Stage3 compil
 This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The bootstrap compiler currently emits Python only. It does not replace the existing `latent.py` compiler and does not implement Java code generation, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
 
 First-phase acceptance covers **243 projection case IDs, 244 fixture invocations, and 505 fixed-seed property cases with zero mismatches**; Stage2==Stage3 within a root, and Stage2/3 artifacts are byte-identical across two full clean-clone roots. The fixed Stage0 full dual-backend baseline is **259/259**. This does not extend the claim to native or host-independent bootstrap. CI also runs a Python/JDK version matrix and VS Code extension checks. See the [P15 design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) and [P15 implementation and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md).
+
+### Stage1 experimental preview (explicit opt-in)
+
+From the repository checkout, explicitly try the Latent-implemented Stage1 compiler:
+
+```bash
+python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]
+```
+
+This is an **experimental, non-default entry point**. On first use it builds Stage1 on demand from the fixed Stage0 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` in the local Git history; it does not fetch source automatically or publish prebuilt artifacts. Stage1 emits Python only and defaults to `build/py` (unlike `latent.py`); continue to use `latent.py` for Java targets, the REPL, AST/desugared-AST diagnostics, and editor metadata. Run the wrapper from the checkout root or a directory inside the checkout. Its build cache is user-level XDG cache (or `~/.cache/latent/stage1/` when unset); unsupported hosts and Stage1 errors fail explicitly, with no fallback to `latent.py`.
+
+The preview is verified only on Ubuntu 24.04 with CPython 3.11/UCD 14.0.0 and CPython 3.12/UCD 15.0.0. Review it within 90 days after the implementation reaches `main`, and before any first public release containing this entry; it does not automatically become stable. P17 creates no tag, GitHub Release, or release assets.
 
 ### Quick start
 
