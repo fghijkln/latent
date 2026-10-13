@@ -359,3 +359,7 @@ The Java sidecar smoke also forces a javac failure by corrupting only the tempor
 The Java compilation-failure regression additionally asserts the output contains no partial `.class` files after failure; emitter focused smoke **1/1** passed.
 
 The Java interop smoke additionally points `LATENT_JAVAD` to a copied sidecar directory whose path contains spaces; the generated Java program matches the default output and the daemon class is built in the override directory. Emitter focused smoke **1/1** passed; no runtime code changed.
+
+A definite diagnostic defect was reproduced for an empty `LATENT_JAVAD` override while `javac` is available: both active runtime implementations fell through to a message falsely claiming the compiler was unavailable. `gen_py.py` and `bootstrap/java_runtime.lt` now distinguish missing sidecar sources before the existing missing-`javac` path; runtime behavior is otherwise unchanged. Current-root Stage0 and Stage1 empty-override regressions each passed, and the existing fixed-seed Java interop parity suite passed **1/1**. The immutable pinned Stage0 archive remains unchanged.
+
+Post-fix gates: `python3 tests/run_tests.py` passed **259/259**; `tests/bootstrap/project_stage0.py` completed **243 case IDs, 244/244 fixtures, 505 fixed-seed properties**, with **0 runner, property, or artifact mismatches** and Stage2/Stage3 byte equality. The completed dual-root clone task was not repeated.

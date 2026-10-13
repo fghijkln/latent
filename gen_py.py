@@ -757,6 +757,9 @@ class _JVM:
         cls = _os.path.join(cp, "LtJavaDaemon.class")
         srcs = [s for s in ("LtJavaDaemon.java", "JReflect.java", "LtRt.java")
                 if _os.path.exists(_os.path.join(cp, s))]
+        if not srcs:
+            raise RuntimeError(
+                "Java runtime sidecar sources not found next to " + cp)
         if _os.path.exists(cls) and srcs:
             # recompile when any runtime source is newer than the class
             # (stale classes silently ignore runtime fixes otherwise)

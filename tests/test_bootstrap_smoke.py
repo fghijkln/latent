@@ -122,6 +122,23 @@ def run_stage_program(script: Path, cwd: Path,
 
 
 class BootstrapEmitterTests(unittest.TestCase):
+    def test_current_stage0_reports_missing_java_sidecar_sources(self):
+        with tempfile.TemporaryDirectory(prefix="p15-stage0-java-missing-") as temporary:
+            root = Path(temporary)
+            output = root / "stage0 output"
+            checked(
+                [sys.executable, str(ROOT / "latent.py"),
+                 str(ROOT / "tests" / "java_basic.lt"), "-t", "py",
+                 "-o", str(output)], cwd=root)
+            empty_javad = root / "empty java runtime"
+            empty_javad.mkdir()
+            result = run_stage_program(
+                output / "java_basic.py", root,
+                {"LATENT_JAVAD": str(empty_javad)})
+            self.assertEqual(result[0], 1)
+            self.assertIn("Java runtime sidecar sources not found", result[2])
+            self.assertNotIn("javac is unavailable", result[2])
+
     def test_stage0_generates_deterministic_stage1_python_emitter(self):
         with tempfile.TemporaryDirectory(prefix="p15-emitter-") as temporary:
             root = Path(temporary)
@@ -525,6 +542,19 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertEqual(java_run_program[0], 0,
                              java_run_program[1] + java_run_program[2])
             self.assertTrue((java_run_out / "LtJavaDaemon.class").is_file())
+
+            empty_javad = root / "empty java runtime"
+            empty_javad.mkdir()
+            missing_sidecar_env = dict(clean_env)
+            missing_sidecar_env["LATENT_JAVAD"] = str(empty_javad)
+            missing_sidecar_result = run_stage_program(
+                java_run_out / "java_basic.py", invocation_dirs[0],
+                env=missing_sidecar_env)
+            self.assertEqual(missing_sidecar_result[0], 1)
+            self.assertIn("Java runtime sidecar sources not found",
+                          missing_sidecar_result[2])
+            self.assertNotIn("javac is unavailable",
+                             missing_sidecar_result[2])
 
             custom_javad = root / "custom java runtime"
             custom_javad.mkdir()
