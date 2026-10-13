@@ -10,6 +10,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from tests._safe_test_env import isolate_test_environment
+
+isolate_test_environment()
+
 import editor_metadata
 import lex
 import parse

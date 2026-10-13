@@ -29,6 +29,11 @@ jobs:
           output-filename: devskim-results.sarif
 
       - name: Upload SARIF to GitHub Code Scanning
+        # Fork PR and Dependabot tokens are read-only; keep scanning without upload.
+        if: >-
+          github.event_name != 'pull_request' ||
+          (github.event.pull_request.head.repo.full_name == github.repository &&
+           github.actor != 'dependabot[bot]')
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: devskim-results.sarif

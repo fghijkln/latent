@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -26,6 +27,29 @@ sys.path.insert(0, str(ROOT))
 from tests._safe_test_env import clean_test_environment, isolate_test_environment
 
 isolate_test_environment()
+
+
+class WorkflowPermissionContractTests(unittest.TestCase):
+    def test_devskim_sarif_upload_skips_read_only_pull_requests(self):
+        workflow = (ROOT / ".github" / "workflows" / "devskim.yml").read_text(
+            encoding="utf-8")
+        upload_step = re.search(
+            r"(?ms)^      - name: Upload SARIF to GitHub Code Scanning\n"
+            r"(.*?)(?=^      - name: |\Z)", workflow)
+        self.assertIsNotNone(upload_step)
+        condition = re.search(
+            r"(?m)^        if: >-\n((?:^ {10,}.*(?:\n|$))+)",
+            upload_step.group(1))
+        self.assertIsNotNone(condition)
+        expression = " ".join(
+            line.strip() for line in condition.group(1).splitlines())
+        self.assertEqual(expression,
+                         "github.event_name != 'pull_request' || "
+                         "(github.event.pull_request.head.repo.full_name == "
+                         "github.repository && "
+                         "github.actor != 'dependabot[bot]')")
+
+
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
 COMPILER_SOURCE = ROOT / "bootstrap" / "compiler.lt"
 FIXTURE = r'''fn add(a, b):

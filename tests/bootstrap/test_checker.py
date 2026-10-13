@@ -39,6 +39,33 @@ class ProjectionLedgerTests(unittest.TestCase):
                 cwd=HERE)
         self.assertEqual(result, (0, "False\n", ""))
 
+    def test_property_runner_does_not_forward_parent_sentinel(self):
+        with patch.dict(os.environ, {"P15_SECRET_SENTINEL": "not-for-child"}):
+            result = project_stage0.properties._run(
+                [sys.executable, "-c",
+                 "import os; print('P15_SECRET_SENTINEL' in os.environ)"],
+                str(project_stage0.ROOT))
+        self.assertEqual(result, (0, "False\n", ""))
+
+    def test_direct_test_modules_clear_parent_sentinel(self):
+        environment = project_stage0.clean_test_environment(
+            {"P15_SECRET_SENTINEL": "not-for-child"})
+        for module_name in ("tests.test_editor_metadata",
+                            "tests.test_p14_protocol"):
+            with self.subTest(module=module_name):
+                probe = (
+                    "import importlib, os; "
+                    f"importlib.import_module({module_name!r}); "
+                    "print('P15_SECRET_SENTINEL' in os.environ)")
+                result = subprocess.run(
+                    [sys.executable, "-c", probe],
+                    cwd=project_stage0.ROOT, env=environment,
+                    text=True, encoding="utf-8", capture_output=True,
+                    check=False)
+                self.assertEqual(
+                    (result.returncode, result.stdout, result.stderr),
+                    (0, "False\n", ""))
+
     def test_smoke_runner_captures_ci_report_path_without_forwarding_it(self):
         report_path = "/tmp/p15-report-path-sentinel"
         environment = project_stage0.clean_test_environment({

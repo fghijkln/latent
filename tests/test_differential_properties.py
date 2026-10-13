@@ -11,6 +11,10 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+from tests._safe_test_env import clean_test_environment
+
 LATENTC = os.path.join(ROOT, "latent.py")
 DEFAULT_SEED = 0x5EED2026
 NUMBER_PAIRS = 21  # includes five fixed edge pairs and sixteen seeded pairs
@@ -220,8 +224,10 @@ def run_backend(source_path, outdir, backend, include_overload_fixture=False):
 
 def _run(command, cwd):
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True,
-                                encoding="utf-8", timeout=90, check=False)
+        result = subprocess.run(
+            command, cwd=cwd, env=clean_test_environment(),
+            capture_output=True, text=True, encoding="utf-8", timeout=90,
+            check=False)
         return result.returncode, result.stdout, result.stderr
     except subprocess.TimeoutExpired as exc:
         return "timeout", exc.stdout or "", exc.stderr or ""

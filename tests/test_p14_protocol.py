@@ -9,6 +9,11 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 RUNTIME = os.path.join(ROOT, "runtime")
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+from tests._safe_test_env import isolate_test_environment
+
+isolate_test_environment()
 
 
 def main():
