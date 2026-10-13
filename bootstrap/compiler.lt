@@ -145,6 +145,21 @@ fn compile_one(source_path, output_dir, run_after, source_root):
         return execution["returncode"]
     return 0
 
+fn is_cli_option(arg):
+    if arg == "-h" or arg == "--help":
+        return true
+    if arg == "-o" or arg == "--outdir":
+        return true
+    if arg == "-t" or arg == "--target":
+        return true
+    if arg == "--source-root" or arg == "--run":
+        return true
+    if arg == "--show-ast" or arg == "--dump-ast":
+        return true
+    if arg == "--show-desugar" or arg == "--editor-metadata":
+        return true
+    return false
+
 fn main():
     args = host.argv()
     if len(args) == 0:
@@ -160,12 +175,21 @@ fn main():
     take_source_root = false
     for arg in args:
         if take_output:
+            if is_cli_option(arg):
+                host.stderr("error: -o requires a directory\n")
+                return 2
             output_dir = arg
             take_output = false
         elif take_target:
+            if is_cli_option(arg):
+                host.stderr("error: -t requires a target\n")
+                return 2
             target = arg
             take_target = false
         elif take_source_root:
+            if is_cli_option(arg):
+                host.stderr("error: --source-root requires a directory\n")
+                return 2
             source_root = arg
             take_source_root = false
         elif arg == "--help" or arg == "-h":

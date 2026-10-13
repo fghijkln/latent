@@ -498,9 +498,15 @@ class BootstrapEmitterTests(unittest.TestCase):
                 ([str(fixture), "-o"], "error: -o requires a directory\n"),
                 ([str(fixture), "--outdir"],
                  "error: -o requires a directory\n"),
+                ([str(fixture), "-o", "--help"],
+                 "error: -o requires a directory\n"),
                 ([str(fixture), "-t"], "error: -t requires a target\n"),
                 ([str(fixture), "--target"],
                  "error: -t requires a target\n"),
+                ([str(fixture), "-t", "--help"],
+                 "error: -t requires a target\n"),
+                ([str(fixture), "--source-root", "--run"],
+                 "error: --source-root requires a directory\n"),
                 ([str(fixture), "extra.lt"],
                  "error: unexpected argument extra.lt\n"),
                 ([str(fixture), "--show-ast"],
@@ -514,6 +520,7 @@ class BootstrapEmitterTests(unittest.TestCase):
                 self.assertEqual(argument_result.returncode, 2)
                 self.assertEqual(argument_result.stdout, "")
                 self.assertEqual(argument_result.stderr, expected_error)
+            self.assertFalse((root / "--help").exists())
 
             missing_root = subprocess.run(
                 [sys.executable, str(compiler_a), str(fixture),
