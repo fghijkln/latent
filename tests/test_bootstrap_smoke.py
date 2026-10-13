@@ -535,6 +535,7 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertEqual(java_compile_failure[0], 1)
             self.assertIn("javac failed", java_compile_failure[2])
             self.assertFalse((java_run_out / "LtJavaDaemon.class").exists())
+            self.assertEqual(list(java_run_out.glob("*.class")), [])
 
             runtime_failure = root / "runtime-failure.lt"
             runtime_failure.write_text("say 1 / 0\n", encoding="utf-8",

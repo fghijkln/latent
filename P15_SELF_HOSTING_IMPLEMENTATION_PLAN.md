@@ -355,3 +355,5 @@ Gate result after the runner fix: full Stage0 completed with **259 passed, 0 fai
 The Java sidecar integration smoke now places its output under a directory containing spaces, exercising `javac` source/classpath/output arguments and the generated program path without shell splitting; emitter focused smoke **1/1** passed. This is test/documentation only.
 
 The Java sidecar smoke also forces a javac failure by corrupting only the temporary copied daemon source; the generated program exits 1 with `javac failed` and leaves no `LtJavaDaemon.class`. Emitter focused smoke **1/1** passed; this extends test coverage without changing runtime logic.
+
+The Java compilation-failure regression additionally asserts the output contains no partial `.class` files after failure; emitter focused smoke **1/1** passed.

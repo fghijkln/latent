@@ -118,3 +118,4 @@ A dummy-sentinel Host test pins the product contract that `run_python(env=None)`
 The main Stage0 differential runner also preserves and UTF-8-decodes partial stdout/stderr when a subprocess times out, matching the projection harness's structured timeout behavior.
 The Java interop `--run` smoke uses an output directory containing spaces, covering argv boundaries for `javac`, its classpath/output directory, and the generated Python child process.
 The same Java `--run` integration also corrupts only the copied daemon source in its temporary output, confirming javac failure returns exit code 1 with a `javac failed` diagnostic and does not create `LtJavaDaemon.class`.
+The javac failure case also asserts that no partial `.class` files of any kind remain in the output directory.
