@@ -476,13 +476,16 @@ class BootstrapEmitterTests(unittest.TestCase):
                 self.assertFalse(stage0_semantic_out.exists())
                 self.assertFalse(stage1_semantic_out.exists())
 
+            expected_usage = (
+                "usage: latent source.lt [-t py | --target py] "
+                "[-o OUTDIR | --outdir OUTDIR] [--source-root ROOT] "
+                "[--run] [-h | --help]\n")
             help_result = subprocess.run(
                 [sys.executable, str(compiler_a), "--help"], cwd=root,
                 env=clean_env, text=True, encoding="utf-8",
                 capture_output=True, check=False)
             self.assertEqual(help_result.returncode, 0)
-            self.assertIn("usage: latent source.lt", help_result.stdout)
-            self.assertIn("--source-root ROOT", help_result.stdout)
+            self.assertEqual(help_result.stdout, expected_usage)
             self.assertEqual(help_result.stderr, "")
             short_help = checked(
                 [sys.executable, str(compiler_a), "-h"], cwd=root,
@@ -491,8 +494,7 @@ class BootstrapEmitterTests(unittest.TestCase):
             self.assertEqual(short_help.stderr, "")
 
             argument_errors = (
-                ([], "usage: latent source.lt [-t py] [-o OUTDIR] "
-                     "[--source-root ROOT] [--run]\n"),
+                ([], expected_usage),
                 ([str(fixture), "-o"], "error: -o requires a directory\n"),
                 ([str(fixture), "--outdir"],
                  "error: -o requires a directory\n"),

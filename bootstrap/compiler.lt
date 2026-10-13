@@ -148,7 +148,7 @@ fn compile_one(source_path, output_dir, run_after, source_root):
 fn main():
     args = host.argv()
     if len(args) == 0:
-        host.stderr("usage: latent source.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]\n")
+        host.stderr("usage: latent source.lt [-t py | --target py] [-o OUTDIR | --outdir OUTDIR] [--source-root ROOT] [--run] [-h | --help]\n")
         return 2
     source_path = ""
     output_dir = "build/py"
@@ -169,7 +169,7 @@ fn main():
             source_root = arg
             take_source_root = false
         elif arg == "--help" or arg == "-h":
-            host.stdout("usage: latent source.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]\n")
+            host.stdout("usage: latent source.lt [-t py | --target py] [-o OUTDIR | --outdir OUTDIR] [--source-root ROOT] [--run] [-h | --help]\n")
             return 0
         elif arg == "-o" or arg == "--outdir":
             take_output = true
