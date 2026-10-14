@@ -13,6 +13,7 @@ sys.path.insert(0, HERE)
 
 import lex
 import nodes
+import gen_py
 import parse as parse_mod
 import desugar
 import semant
@@ -249,7 +250,6 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     if args.target == "py":
-        import gen_py
         code = gen_py.generate(prog, source_path=os.path.realpath(args.src))
         out = os.path.join(outdir, stem + ".py")
         with open(out, "w", encoding="utf-8") as f:

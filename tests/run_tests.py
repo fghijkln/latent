@@ -942,6 +942,21 @@ def main():
             print(f"  py:   rc={py[0]} out={py[1]!r} err={py[2][-500:]}")
             print(f"  java: rc={jv[0]} out={jv[1]!r} err={jv[2][-500:]}")
 
+    print("== Python REPL CLI regressions ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS, "test_repl.py")])
+    repl_output = so + se
+    repl_count_match = re.search(r"Ran (\d+) tests?", repl_output)
+    repl_total = int(repl_count_match.group(1)) if repl_count_match else 1
+    print(("PASS " if rc == 0 else "FAIL ") +
+          f"CLI REPL ({repl_total} regression tests)")
+    if rc != 0:
+        repl_failure_match = re.search(
+            r"FAILED \(failures=(\d+)(?:, errors=(\d+))?\)", repl_output)
+        repl_failures = (sum(int(n or 0) for n in repl_failure_match.groups())
+                         if repl_failure_match else repl_total)
+        fails += repl_failures
+        print(f"  {repl_output[-1500:]}")
+
     print("== read-only CLI diagnostics: AST / desugar and no runtime execution ==")
     rc, so, se = run([sys.executable, os.path.join(TESTS,
                                                    "test_diagnostics.py")])
@@ -972,7 +987,7 @@ def main():
         fails += 1
         print(f"  {property_output[-3000:]}")
 
-    total = (diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
+    total = (repl_total + diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
              len(P8_NEG_COMPILE) +
              len(P9_NEG_COMPILE) +

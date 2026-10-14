@@ -1482,7 +1482,8 @@
   "runner_auxiliary_paths": [
     "test_diagnostics.py",
     "test_differential_properties.py",
-    "test_p14_protocol.py"
+    "test_p14_protocol.py",
+    "test_repl.py"
   ],
   "p14_protocol_operations": {
     "call_module_function": {
@@ -1795,7 +1796,8 @@
       "test_differential_properties.py",
       "test_editor_metadata.py",
       "test_latent_stage1.py",
-      "test_p14_protocol.py"
+      "test_p14_protocol.py",
+      "test_repl.py"
     ],
     "python_fixture": [
       "p13_host.py",
@@ -2962,6 +2964,10 @@
     "test_module/test_p14_protocol.py": {
       "disposition": "include",
       "reason": "P14 daemon protocol file includes an in-scope Python stale module-function ref check; Java static-method operation is separately excluded."
+    },
+    "test_module/test_repl.py": {
+      "disposition": "include",
+      "reason": "Dedicated REPL CLI regressions exercise startup, expression evaluation, definition/reset state, and parse-error recovery via sanitized subprocesses; this suite is included in the full regression runner, not the Stage0 projection case set."
     },
     "python_fixture/p13_host.py": {
       "disposition": "include",
