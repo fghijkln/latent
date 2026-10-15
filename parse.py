@@ -37,6 +37,12 @@ class Parser:
 
     # ---- program ----
     def parse(self):
+        try:
+            return self._parse_program()
+        except RecursionError:
+            self.err("source nesting is too deep for the parser")
+
+    def _parse_program(self):
         stmts = []
         while self.peek().kind != "EOF":
             while self.peek().kind == "NEWLINE":
@@ -304,7 +310,10 @@ class Parser:
 
     # ---- expressions ----
     def expr(self):
-        return self.orexpr()
+        try:
+            return self.orexpr()
+        except RecursionError:
+            self.err("expression nesting is too deep for the parser")
 
     def orexpr(self):
         e = self.andexpr()

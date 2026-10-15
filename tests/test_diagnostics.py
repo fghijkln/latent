@@ -125,6 +125,19 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("1 | say 1 +", error)
         self.assertIn("^", error)
 
+    def test_deep_expression_nesting_is_reported_without_python_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "deeply_nested.lt"
+            source.write_text(
+                "say " + "(" * 100 + "1" + ")" * 100 + "\n",
+                encoding="utf-8")
+            result, output, error = self.invoke(str(source), "--show-ast")
+        self.assertEqual(result, 1)
+        self.assertEqual(output, "")
+        self.assertIn("parse error:", error)
+        self.assertIn("nesting is too deep for the parser", error)
+        self.assertNotIn("Traceback (most recent call last)", error)
+
     def test_desugar_error_uses_structured_compile_error_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "bad_desugar.lt"

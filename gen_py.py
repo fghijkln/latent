@@ -3,6 +3,7 @@ import json
 from nodes import *
 
 PRELUDE = r'''
+import builtins as _builtins
 import importlib as _importlib
 import atexit as _atexit
 import json as _json
@@ -92,7 +93,7 @@ def _wv_repr_q(v):
 
 
 def _wv_say(v):
-    print(_wv_repr(v))
+    _builtins.print(_wv_repr(v))
 
 
 def _wv_num(v):
@@ -186,10 +187,10 @@ def _wv_eq(a, b):
     if type(a) is not type(b):
         return False
     if isinstance(a, list):
-        return len(a) == len(b) and all(
-            _wv_eq(a[i], b[i]) for i in range(len(a)))
+        return _builtins.len(a) == _builtins.len(b) and all(
+            _wv_eq(a[i], b[i]) for i in range(_builtins.len(a)))
     if isinstance(a, dict):
-        if len(a) != len(b) or any(k not in b for k in a):
+        if _builtins.len(a) != _builtins.len(b) or any(k not in b for k in a):
             return False
         return all(_wv_eq(a[k], b[k]) for k in a)
     return a == b
@@ -207,7 +208,7 @@ def _wv_cmp(a, b):
 
 def _wv_len(x):
     if isinstance(x, (list, dict, str)):
-        return float(len(x))
+        return _builtins.float(_builtins.len(x))
     raise TypeError("len() of " + _wv_repr(x))
 
 
@@ -263,13 +264,13 @@ def _wv_index(v, k):
         return jvm.req({"op": "getitem", "target": jvm.target(v),
                         "key": _jvm_encode(k)})
     if isinstance(v, list):
-        return v[_wv_idx(k, len(v))]
+        return v[_wv_idx(k, _builtins.len(v))]
     if isinstance(v, dict):
         if k in v:
             return v[k]
         raise KeyError("key not found: " + _wv_repr(k))
     if isinstance(v, str):
-        return v[_wv_idx(k, len(v))]
+        return v[_wv_idx(k, _builtins.len(v))]
     # exotic natives (e.g. a tuple straight from a py call): best effort
     try:
         return v[int(k)] if isinstance(k, float) else v[k]
@@ -310,6 +311,14 @@ def _wv_pyarg(v):
                 raise TypeError("Latent callable values cannot be passed to Python/Java interop calls")
             out[k] = _wv_pyarg(x)
         return out
+    return v
+
+
+def _wv_pyresult(v):
+    """Normalize Python integer results to Latent's single numeric type."""
+    if _builtins.isinstance(v, _builtins.int) and not _builtins.isinstance(
+            v, _builtins.bool):
+        return _builtins.float(v)
     return v
 
 
@@ -460,21 +469,22 @@ def _wv_bind_args(params, required_count, args, name, missing,
                   rest_name=None, extra_name=None, positional_count=None,
                   required_keyword_only=()):
     params = tuple(params)
-    positional_count = (len(params) if positional_count is None
+    positional_count = (_builtins.len(params) if positional_count is None
                         else positional_count)
     required_keyword_only = tuple(required_keyword_only)
     args = _wv_expand_args(args)
     if not _wv_has_named(args):
-        if len(args) > positional_count and rest_name is None:
+        if _builtins.len(args) > positional_count and rest_name is None:
             raise _LtArgumentError("%s() takes %d args, got %d" %
-                                   (name, positional_count, len(args)))
-        if len(args) < required_count:
+                                   (name, positional_count, _builtins.len(args)))
+        if _builtins.len(args) < required_count:
             if required_count == positional_count:
                 raise _LtArgumentError("%s() takes %d args, got %d" %
-                                       (name, positional_count, len(args)))
+                                       (name, positional_count,
+                                        _builtins.len(args)))
             raise _LtArgumentError("%s() missing required argument %r" %
-                                   (name, params[len(args)]))
-        values = [missing] * len(params)
+                                   (name, params[_builtins.len(args)]))
+        values = [missing] * _builtins.len(params)
         for index, value in enumerate(args[:positional_count]):
             values[index] = value
         for parameter in required_keyword_only:
@@ -486,8 +496,8 @@ def _wv_bind_args(params, required_count, args, name, missing,
         if extra_name is not None:
             values.append({})
         return values
-    values = [missing] * len(params)
-    supplied = [False] * len(params)
+    values = [missing] * _builtins.len(params)
+    supplied = [False] * _builtins.len(params)
     rest_values = []
     extra_values = {}
     pos = 0
@@ -545,11 +555,13 @@ def _wv_method_params(method):
 
 
 def _wv_method_required(method):
-    return getattr(method, "_lt_required_count", len(_wv_method_params(method)))
+    return getattr(method, "_lt_required_count",
+                    _builtins.len(_wv_method_params(method)))
 
 
 def _wv_method_position_count(method):
-    return getattr(method, "_lt_positional_count", len(_wv_method_params(method)))
+    return getattr(method, "_lt_positional_count",
+                    _builtins.len(_wv_method_params(method)))
 
 
 def _wv_method_required_keyword_only(method):
@@ -576,12 +588,12 @@ class _LtFunction:
                  required_keyword_only=()):
         self._fn = fn
         self._params = tuple(params)
-        self._required = (len(self._params) if required_count is None
+        self._required = (_builtins.len(self._params) if required_count is None
                           else required_count)
-        self._positional = (len(self._params) if positional_count is None
+        self._positional = (_builtins.len(self._params) if positional_count is None
                             else positional_count)
         self._required_keyword_only = tuple(required_keyword_only)
-        self._arity = len(self._params)
+        self._arity = _builtins.len(self._params)
         self._name = name
         self._display = display
         self._rest = rest_name
@@ -650,7 +662,7 @@ def _wv_call(fn, *args):
     if isinstance(fn, _InteropBoundMethod):
         _wv_reject_interop_args(args)
         if fn._kind == "python":
-            return fn._target(*[_wv_pyarg(a) for a in args])
+            return _wv_pyresult(fn._target(*[_wv_pyarg(a) for a in args]))
         if fn._kind == "java":
             jvm = _JVM.inst()
             return jvm.req({"op": "call", "target": jvm.target(fn._target),
@@ -659,7 +671,7 @@ def _wv_call(fn, *args):
         raise TypeError("invalid interop bound method")
     if isinstance(fn, _InteropModuleFunction):
         _wv_reject_interop_args(args)
-        return fn._function(*[_wv_pyarg(a) for a in args])
+        return _wv_pyresult(fn._function(*[_wv_pyarg(a) for a in args]))
     if isinstance(fn, _InteropStaticMethod):
         _wv_reject_interop_args(args)
         jvm = _JVM.inst()
@@ -703,21 +715,21 @@ def _jvm_encode(v):
 
 def _jvm_decode(v):
     if isinstance(v, dict):
-        if len(v) == 1 and "__map" in v:
+        if _builtins.len(v) == 1 and "__map" in v:
             entries = v["__map"]
             if not isinstance(entries, list):
                 raise ValueError("invalid JVM map envelope")
             result = {}
             for pair in entries:
-                if not isinstance(pair, list) or len(pair) != 2:
+                if not isinstance(pair, list) or _builtins.len(pair) != 2:
                     raise ValueError("invalid JVM map entry")
                 result[str(pair[0])] = _jvm_decode(pair[1])
             return result
-        if len(v) == 1 and "__jref" in v:
+        if _builtins.len(v) == 1 and "__jref" in v:
             return _JHandle(int(v["__jref"]))
-        if len(v) == 1 and "__jclass" in v:
+        if _builtins.len(v) == 1 and "__jclass" in v:
             return _JClass(v["__jclass"])
-        if len(v) == 1 and "__num" in v:
+        if _builtins.len(v) == 1 and "__num" in v:
             return {"nan": _math.nan, "inf": _math.inf,
                     "-inf": -_math.inf}[v["__num"]]
         return {k: _jvm_decode(x) for k, x in v.items()}
@@ -871,7 +883,7 @@ def _wv_wgetattr(h, attr):
             return _InteropModuleFunction(
                 value, "<module function %s.%s>" %
                 (module.__name__, attr))
-        return value
+        return _wv_pyresult(value)
     if isinstance(h, _LtObj):
         if attr in h._lt_fields:
             return h._lt_fields[attr]
@@ -896,7 +908,7 @@ def _wv_wgetattr(h, attr):
         return _InteropBoundMethod(
             "python", value, attr,
             "<bound method %s>" % display_member)
-    return value
+    return _wv_pyresult(value)
 
 
 def _wv_wcall(h, attr, *args):
@@ -926,9 +938,9 @@ def _wv_wcall(h, attr, *args):
                                _wv_method_required_keyword_only(m))(*args)
     if isinstance(h, _LazyMod):
         _wv_reject_interop_args(args)
-        return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
+        return _wv_pyresult(getattr(h, attr)(*[_wv_pyarg(a) for a in args]))
     _wv_reject_interop_args(args)
-    return getattr(h, attr)(*[_wv_pyarg(a) for a in args])
+    return _wv_pyresult(getattr(h, attr)(*[_wv_pyarg(a) for a in args]))
 
 
 def _wv_supercall(receiver, owner, attr, *args):
@@ -977,7 +989,7 @@ def _wv_wsetindex(h, k, v):
     if isinstance(h, _LtObj):
         raise TypeError("cannot index-assign an object; set a field instead")
     if isinstance(h, list):
-        h[_wv_idx(k, len(h))] = v
+        h[_wv_idx(k, _builtins.len(h))] = v
         return None
     if isinstance(h, dict):
         h[k] = v
@@ -1029,17 +1041,17 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
         else:
             error_type = type(exc).__name__
         detail = error_type + (": " + message if message else "")
-        print("Latent runtime error: " + detail, file=_sys.stderr)
-        print("Latent traceback (most recent call last):", file=_sys.stderr)
+        _builtins.print("Latent runtime error: " + detail, file=_sys.stderr)
+        _builtins.print("Latent traceback (most recent call last):", file=_sys.stderr)
         for filename, line, name in mapped:
-            print(f"  at {filename}:{line} in {name}", file=_sys.stderr)
+            _builtins.print(f"  at {filename}:{line} in {name}", file=_sys.stderr)
     except Exception:
         # Diagnostics must never replace the original failure.
         try:
             _fallback()
         except Exception:
-            print("Latent runtime error (diagnostic formatting failed)",
-                  file=_sys.stderr)
+            _builtins.print("Latent runtime error (diagnostic formatting failed)",
+                            file=_sys.stderr)
 
 '''
 
@@ -1061,6 +1073,7 @@ class Gen:
         self._used_internal_names = set()
         self._reserved_nodes = set()
         self._missing_name = None
+        self._builtins_name = None
 
     def _reserve_source_names(self, value):
         if isinstance(value, Node):
@@ -1098,11 +1111,25 @@ class Gen:
         self._used_internal_names.add(name)
         return name
 
+    def _fresh_internal_suffix(self, base):
+        name = base
+        suffix = 1
+        while name in self._used_internal_names:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        self._used_internal_names.add(name)
+        return name
+
     def _prepare_missing_alias(self):
+        self._builtins_name = self._fresh_internal_suffix("_builtins")
         self._missing_name = self._fresh_internal("_lt_missing")
 
     def _emit_missing_alias(self):
         self.w(f"{self._missing_name} = _LtFunction.MISSING")
+
+    def _emit_prelude(self):
+        prelude = PRELUDE.replace("_builtins", self._builtins_name)
+        self.w(prelude.strip("\n"))
 
     def w(self, s="", source_line=None, source_path=None):
         physical_line = len(self.out) + 1 + sum(x.count("\n") for x in self.out)
@@ -1116,7 +1143,7 @@ class Gen:
         self._prepare_missing_alias()
         if any(isinstance(s, ModuleInit) for s in prog.stmts):
             return self.generate_modules(prog)
-        self.w(PRELUDE.strip("\n"))
+        self._emit_prelude()
         self._emit_missing_alias()
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
         clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
@@ -1152,7 +1179,7 @@ class Gen:
         return "\n".join(self.out) + "\n"
 
     def generate_modules(self, prog):
-        self.w(PRELUDE.strip("\n"))
+        self._emit_prelude()
         self._emit_missing_alias()
         modules = [s for s in prog.stmts if isinstance(s, ModuleInit)]
         fns = [s for s in prog.stmts if isinstance(s, FnDef)]
@@ -1387,15 +1414,18 @@ class Gen:
         elif isinstance(s, Try):
             # catch var defaults to nil so reading it outside the handler
             # is nil on both backends (not NameError vs javac error)
+            error_name = self._fresh_internal("_lt_e")
+            message_name = self._fresh_internal("_lt_m")
             self.w(f"{s.var} = None")
             self.w("try:", s.line, s.source_path)
             self.suite(s.body)
-            self.w("except Exception as _lt_e:")
+            self.w(f"except Exception as {error_name}:")
             self.indent += 1
             # KeyError str() adds quotes; args[0] is the clean message
-            self.w("_lt_m = _lt_e.args[0] if _lt_e.args and "
-                   "isinstance(_lt_e.args[0], str) else str(_lt_e)")
-            self.w(f"{s.var} = _lt_m")
+            self.w(f"{message_name} = {error_name}.args[0] if "
+                   f"{error_name}.args and isinstance({error_name}.args[0], str) "
+                   f"else str({error_name})")
+            self.w(f"{s.var} = {message_name}")
             for x in s.handler:
                 self.stmt(x)
             self.indent -= 1

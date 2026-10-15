@@ -280,6 +280,56 @@ def run_case(source, tempdir, tag, include_overload_fixture=False):
     return results
 
 
+def run_runtime_regressions(tempdir):
+    source = """\
+fn len(values):
+    return 42
+print = 5
+_builtins = 7
+say len([1, 2, 3])
+say [1] == [1]
+say "abc"[1]
+say "output still works"
+math = py "math"
+os = py "os"
+say math.floor(1.5) > 0
+floor = math.floor
+say floor(1.5) > 0
+say math.isfinite(1.0)
+say os.O_RDONLY >= 0
+fn catch_internal_names():
+    _lt_e = "saved exception name"
+    _lt_m = "saved message name"
+    try:
+        throw "boom"
+    catch error:
+        say _lt_e
+        say _lt_m
+        say error
+    say _lt_e
+    say _lt_m
+catch_internal_names()
+"""
+    expected_lines = (
+        "3", "true", "b", "output still works", "true", "true", "true",
+        "true", "saved exception name", "saved message name", "boom",
+        "saved exception name", "saved message name")
+    results = run_case(source, tempdir, "runtime_regressions")
+    failed = False
+    for backend in ("py", "java"):
+        result = results[backend]
+        if (result.phase != "run" or result.exit_code != 0 or
+                result.stdout.splitlines() != list(expected_lines) or
+                not result.stdout.endswith(chr(10)) or result.stderr):
+            failed = True
+            print(f"FAIL {backend} targeted runtime regressions: "
+                  f"phase={result.phase}, exit={result.exit_code}, "
+                  f"stdout={result.stdout!r}, stderr={result.stderr[-1000:]!r}")
+    if not failed:
+        print("PASS targeted runtime regressions (py/java)")
+    return not failed
+
+
 def is_environment_diagnostic(result):
     message = result.stdout + result.stderr
     return (result.exit_code in ("error", "timeout") or
@@ -698,6 +748,9 @@ def main():
             print(regression_message)
             if not regression_ok:
                 return 1
+
+        if not run_runtime_regressions(tempdir):
+            return 1
 
         results = run_case(program_source(cases, args.seed), tempdir,
                            "property_cases", include_overload_fixture=True)

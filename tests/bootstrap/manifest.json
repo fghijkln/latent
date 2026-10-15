@@ -2993,7 +2993,7 @@
     },
     "test_differential_properties.py": {
       "disposition": "include",
-      "reason": "Generates Latent property cases and executes generated Python and Java outputs; Python execution leg is in scope."
+      "reason": "Generates Latent property cases, executes generated Python and Java outputs, and runs focused cross-backend runtime regressions for Python built-in shadowing, interop numeric normalization, and catch-temporary names; Python execution leg is in scope."
     },
     "test_p14_protocol.py": {
       "disposition": "include",
@@ -3001,7 +3001,7 @@
     },
     "test_diagnostics.py": {
       "disposition": "exclude",
-      "reason": "P15 M9 explicitly deferred the read-only AST/desugar diagnostics mode; ordinary generated Python-target compile/runtime diagnostics remain included."
+      "reason": "P15 M9 explicitly deferred the read-only AST/desugar diagnostics mode; this auxiliary module also guards the current parser's recursion-limit diagnostic outside the fixed Stage0 projection, while ordinary generated Python-target compile/runtime diagnostics remain included."
     },
     "test_editor_metadata.py": {
       "disposition": "exclude",
