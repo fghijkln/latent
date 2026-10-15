@@ -34,6 +34,14 @@ def _valid_fake_builder(root: Path, output: Path, work: Path) -> None:
     (output / "latent_host.py").write_text("# approved host\n", encoding="utf-8")
 
 
+def _require_supported_stage1_host() -> None:
+    try:
+        latent_stage1._check_supported_host()
+    except latent_stage1.Stage1Error as exc:
+        raise unittest.SkipTest(
+            f"real Stage1 CLI integration requires a supported host: {exc}") from exc
+
+
 def _cache_worker(root: Path, cache_root: Path, marker: Path) -> int:
     identity = {"schema": 1, "source": "concurrency-test"}
 
@@ -53,16 +61,35 @@ class HostAndScopeTests(unittest.TestCase):
         check = latent_stage1._host_support_error
         common = {"platform_name": "linux", "implementation": "cpython",
                   "os_id": "ubuntu", "os_version": "24.04"}
+        # Synthetic host identities keep these policy tests independent of the
+        # machine running the suite.
         self.assertIsNone(check(**common, version=(3, 11), ucd="14.0.0"))
         self.assertIsNone(check(**common, version=(3, 12), ucd="15.0.0"))
-        for changes in (
-                {"os_id": "debian"}, {"os_version": "22.04"},
-                {"platform_name": "darwin"}, {"implementation": "pypy"},
-                {"version": (3, 12), "ucd": "14.0.0"},
-                {"version": (3, 13), "ucd": "16.0.0"}):
+        rejected = (
+            ({"os_id": "debian"}, "requires Ubuntu 24.04 on Linux"),
+            ({"os_version": "22.04"}, "requires Ubuntu 24.04 on Linux"),
+            ({"platform_name": "darwin"}, "requires Ubuntu 24.04 on Linux"),
+            ({"implementation": "pypy"},
+             "requires CPython 3.11/UCD 14.0.0 or CPython 3.12/UCD 15.0.0"),
+            ({"version": (3, 12), "ucd": "14.0.0"},
+             "requires CPython 3.11/UCD 14.0.0 or CPython 3.12/UCD 15.0.0"),
+            ({"version": (3, 13), "ucd": "16.0.0"},
+             "requires CPython 3.11/UCD 14.0.0 or CPython 3.12/UCD 15.0.0"),
+        )
+        for changes, expected_error in rejected:
             fields = dict(common, version=(3, 11), ucd="14.0.0")
             fields.update(changes)
-            self.assertIsNotNone(check(**fields), fields)
+            self.assertEqual(check(**fields), expected_error, fields)
+
+    def test_unsupported_host_is_reported_as_an_integration_skip(self):
+        reason = "unsupported host (debian 12, CPython 3.12 / Unicode 15.0.0)"
+        with patch.object(latent_stage1, "_check_supported_host",
+                          side_effect=latent_stage1.Stage1Error(reason)):
+            with self.assertRaises(unittest.SkipTest) as skipped:
+                _require_supported_stage1_host()
+        self.assertIn("real Stage1 CLI integration requires a supported host",
+                      str(skipped.exception))
+        self.assertIn(reason, str(skipped.exception))
 
     def test_working_directory_must_be_inside_the_checkout(self):
         with tempfile.TemporaryDirectory(prefix="latent-stage1-outside-") as outside:
@@ -341,6 +368,7 @@ class CacheContractTests(unittest.TestCase):
 class Stage1CliIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        _require_supported_stage1_host()
         cls.temporary = tempfile.TemporaryDirectory(
             prefix=".latent-stage1-tests-", dir=ROOT)
         cls.test_root = Path(cls.temporary.name)
