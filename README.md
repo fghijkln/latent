@@ -34,6 +34,8 @@ python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] 
 
 这是**实验性、非默认入口**。首次调用会使用本机 Git 历史中的固定 Stage0 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` 按需构建 Stage1；不会自动联网取源码或发布预构建产物。Stage1 只生成 Python，默认输出目录为 `build/py`（与 `latent.py` 不同）；Java target、REPL、AST/脱糖诊断和编辑器元数据仍请使用现有 `latent.py`。包装器只接受仓库根目录或其子目录作为工作目录，构建缓存放在用户级 XDG cache（未设置时为 `~/.cache/latent/stage1/`）；不支持的宿主或 Stage1 错误会明确失败，不会回退到 `latent.py`。
 
+若首次构建报告本地检出缺少固定 Stage0，包装器不会自动联网补取。先运行 `git rev-parse --is-shallow-repository`；若结果为 `true`，在仓库根目录手动执行 `git fetch --unshallow origin` 后重试（若远端不叫 `origin`，替换为实际远端名）。若检出不是浅克隆，请确认该固定 commit 已存在于本地 Git 历史。
+
 预览仅验证于 Ubuntu 24.04 上的 CPython 3.11/UCD 14.0.0 与 CPython 3.12/UCD 15.0.0。自该实现进入 `main` 起 90 天内复审，且必须早于任何包含此入口的首次公开发布；预览不会自动转为稳定功能。P17 不创建 tag、Release 或发布资产。
 
 ### 快速开始
@@ -147,6 +149,8 @@ python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] 
 ```
 
 This is an **experimental, non-default entry point**. On first use it builds Stage1 on demand from the fixed Stage0 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` in the local Git history; it does not fetch source automatically or publish prebuilt artifacts. Stage1 emits Python only and defaults to `build/py` (unlike `latent.py`); continue to use `latent.py` for Java targets, the REPL, AST/desugared-AST diagnostics, and editor metadata. Run the wrapper from the checkout root or a directory inside the checkout. Its build cache is user-level XDG cache (or `~/.cache/latent/stage1/` when unset); unsupported hosts and Stage1 errors fail explicitly, with no fallback to `latent.py`.
+
+If the first build reports that the fixed Stage0 commit is missing from the local checkout, the launcher will not fetch it automatically. Run `git rev-parse --is-shallow-repository`; if it prints `true`, manually run `git fetch --unshallow origin` from the checkout root and retry (replace `origin` if your remote has a different name). For a non-shallow checkout, verify that the pinned commit exists in local Git history.
 
 The preview is verified only on Ubuntu 24.04 with CPython 3.11/UCD 14.0.0 and CPython 3.12/UCD 15.0.0. Review it within 90 days after the implementation reaches `main`, and before any first public release containing this entry; it does not automatically become stable. P17 creates no tag, GitHub Release, or release assets.
 
