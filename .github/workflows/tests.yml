@@ -26,6 +26,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Validate supported Ubuntu CPython/UCD pair
+        run: python tests/bootstrap/check_supported_runtime.py
+
       - name: Set up JDK
         uses: actions/setup-java@v6
         with:
@@ -77,6 +80,9 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Validate supported Ubuntu CPython/UCD pair
+        run: python tests/bootstrap/check_supported_runtime.py
 
       - name: Set up JDK
         uses: actions/setup-java@v6

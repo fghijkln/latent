@@ -20,6 +20,12 @@ TESTS = ROOT / "tests"
 COOKBOOK = ROOT / "cookbook"
 MANIFEST = ROOT / "tests" / "bootstrap" / "manifest.json"
 STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
+EXPECTED_PROJECTION = {
+    "runner_case_ids": 243,
+    "fixture_invocations": 244,
+    "fixed_seed": 0x5EED2026,
+    "fixed_seed_property_cases": 505,
+}
 sys.path.insert(0, str(ROOT))
 from tests._safe_test_env import clean_test_environment, isolate_test_environment
 
@@ -556,6 +562,23 @@ def main() -> int:
                                "failures": artifact_errors,
                                "file_differences": stage2_stage3_differences})
         unique_case_ids = len({case["name"] for case in cases})
+        projection_actual = {
+            "runner_case_ids": unique_case_ids,
+            "fixture_invocations": len(cases),
+            "fixed_seed": properties.DEFAULT_SEED,
+            "fixed_seed_property_cases": property_count,
+        }
+        projection_contract_passed = projection_actual == EXPECTED_PROJECTION
+        if not projection_contract_passed:
+            mismatches.append({
+                "kind": "projection-contract",
+                "failures": [
+                    f"{name}: expected {expected}, got "
+                    f"{projection_actual.get(name)}"
+                    for name, expected in EXPECTED_PROJECTION.items()
+                    if projection_actual.get(name) != expected
+                ],
+            })
         ledger = json.loads(MANIFEST.read_text(encoding="utf-8"))
         decisions = ledger["runner_cases"]
         included_case_ids = sorted(name for name, decision in decisions.items()
@@ -617,6 +640,10 @@ def main() -> int:
                   "stage_artifact_entries": stage_artifact_entries,
                   "stage2_stage3_bytes_equal": stage2_stage3_bytes_equal,
                   "stage2_stage3_file_differences": stage2_stage3_differences,
+                  "projection_contract": {
+                      "expected": EXPECTED_PROJECTION,
+                      "actual": projection_actual,
+                      "passed": projection_contract_passed},
                   "fixed_seed": properties.DEFAULT_SEED,
                   "fixed_seed_property_cases": property_count,
                   "matching_invocations": len(cases) - runner_failures,
@@ -626,7 +653,8 @@ def main() -> int:
                   "stage_difference_counts": {
                       "runner_invocations": runner_failures,
                       "property_corpus": property_failures,
-                      "artifact_errors": len(artifact_errors)},
+                      "artifact_errors": len(artifact_errors),
+                      "projection_contract": int(not projection_contract_passed)},
                   "mismatches": mismatches}
         if args.report is not None:
             args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -639,6 +667,7 @@ def main() -> int:
               f"{counts.get('runtime-negative', 0)} runtime-negative), "
               f"{property_count} fixed-seed properties; "
               f"Stage2/Stage3 bytes equal={stage2_stage3_bytes_equal}; "
+              f"projection contract={'PASS' if projection_contract_passed else 'FAIL'}; "
               f"runner mismatches={runner_failures}, property mismatches={property_failures}, "
               f"artifact mismatches={len(artifact_errors)}")
         if args.report is not None:

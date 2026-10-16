@@ -146,6 +146,38 @@ def run_stage_program(script: Path, cwd: Path,
 
 
 class BootstrapEmitterTests(unittest.TestCase):
+    def test_legacy_latent_entry_keeps_default_python_output_location(self):
+        import contextlib
+        from unittest.mock import patch
+        import latent
+
+        with tempfile.TemporaryDirectory(prefix="p17-legacy-cli-") as temporary:
+            root = Path(temporary)
+            legacy_root = root / "legacy-checkout"
+            runtime = legacy_root / "runtime"
+            runtime.mkdir(parents=True)
+            for name in ("LtJavaDaemon.java", "JReflect.java", "LtRt.java"):
+                shutil.copy2(ROOT / "runtime" / name, runtime / name)
+            source = root / "legacy-default.lt"
+            source.write_text('say "legacy default"\n', encoding="utf-8",
+                              newline="\n")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (patch.object(latent, "HERE", str(legacy_root)),
+                  patch.object(sys, "argv", [str(ROOT / "latent.py"), str(source)])):
+                with contextlib.redirect_stdout(stdout), \
+                        contextlib.redirect_stderr(stderr):
+                    status = latent.main()
+
+            output = legacy_root / "out"
+            generated = output / "legacy-default.py"
+            self.assertEqual(status, 0, stderr.getvalue())
+            self.assertTrue(generated.is_file())
+            self.assertIn("legacy default", generated.read_text(encoding="utf-8"))
+            self.assertIn(f"wrote {generated}", stdout.getvalue())
+            self.assertTrue((output / "LtRt.java").is_file())
+            self.assertFalse((output / "legacy-default.java").exists())
+
     def test_current_stage0_reports_missing_java_sidecar_sources(self):
         with tempfile.TemporaryDirectory(prefix="p15-stage0-java-missing-") as temporary:
             root = Path(temporary)
