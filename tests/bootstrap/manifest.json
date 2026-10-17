@@ -1480,6 +1480,7 @@
     }
   },
   "runner_auxiliary_paths": [
+    "test_compiler_regressions.py",
     "test_diagnostics.py",
     "test_differential_properties.py",
     "test_p14_protocol.py",
@@ -1792,6 +1793,7 @@
       "test_bootstrap_lexer.py",
       "test_bootstrap_parser.py",
       "test_bootstrap_smoke.py",
+      "test_compiler_regressions.py",
       "test_diagnostics.py",
       "test_differential_properties.py",
       "test_editor_metadata.py",
@@ -2976,6 +2978,10 @@
     "python_fixture/p14_host.py": {
       "disposition": "include",
       "reason": "Python host fixture consumed by target=py P14 module-function interoperability cases."
+    },
+    "test_module/test_compiler_regressions.py": {
+      "disposition": "include",
+      "reason": "Post-Stage0 bug regressions run current Python/Java and fixed-seed Stage1/2 compilers against explicit expected behavior. The immutable Stage0 has these bugs, so these checks supplement its unchanged 243-case/505-property projection rather than use its buggy results as the oracle."
     }
   },
   "auxiliary_tests": {
@@ -3034,6 +3040,10 @@
     "test_bootstrap_smoke.py": {
       "disposition": "include",
       "reason": "Fixed-Stage0 end-to-end checks for the bootstrap emitter, including compile/runtime source mapping, classes and interop, Stage1-to-Stage3 fixed point, dual-root reproducibility, exact artifact manifests, and a source-tree read-only snapshot around both builds; full ledger projection is enforced separately by project_stage0.py."
+    },
+    "test_compiler_regressions.py": {
+      "disposition": "include",
+      "reason": "Post-Stage0 bug regressions run current Python/Java and fixed-seed Stage1/2 compilers against explicit expected behavior. The immutable Stage0 has these bugs, so these checks supplement its unchanged 243-case/505-property projection rather than use its buggy results as the oracle."
     }
   }
 }

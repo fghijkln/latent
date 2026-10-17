@@ -27,6 +27,17 @@ fn expect(p, kind):
         fail(p, "expected " + kind + ", got " + token["kind"])
     return advance(p)
 
+fn check_binding_name(p, name, line, col):
+    reserved_names = ["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"]
+    for reserved in reserved_names:
+        if name == reserved:
+            fail_at(p, "identifier '" + name + "' is reserved by a target language", {"line": line, "col": col})
+
+fn expect_binding(p):
+    token = expect(p, "NAME")
+    check_binding_name(p, token["value"], token["line"], token["col"])
+    return token
+
 fn match(p, kind):
     if current(p)["kind"] == kind:
         return advance(p)
@@ -105,7 +116,7 @@ fn parse_formal_parameters(p):
                 marker = advance(p)
                 if saw_extra:
                     fail_at(p, "multiple **extra parameters", marker)
-                name = expect(p, "NAME")
+                name = expect_binding(p)
                 entry = parameter_node("ExtraParam", marker, name["value"])
                 params = params + [entry]
                 specs = specs + [entry]
@@ -116,7 +127,7 @@ fn parse_formal_parameters(p):
                     fail_at(p, "*rest must precede **extra and appear once", marker)
                 saw_star = true
                 if current(p)["kind"] == "NAME":
-                    name = advance(p)
+                    name = expect_binding(p)
                     entry = parameter_node("RestParam", marker, name["value"])
                     params = params + [entry]
                     specs = specs + [entry]
@@ -126,7 +137,7 @@ fn parse_formal_parameters(p):
             else:
                 if saw_extra:
                     fail_at(p, "positional parameter follows variadic parameter", token)
-                name = expect(p, "NAME")
+                name = expect_binding(p)
                 if match(p, "=") != nil:
                     default = parse_expression(p)
                     if saw_star:
@@ -163,6 +174,7 @@ fn parse_formal_parameters(p):
 fn parse_function(p):
     token = expect(p, "FN")
     name = expect(p, "NAME")
+    check_binding_name(p, name["value"], name["line"], name["col"])
     expect(p, "(")
     formal = parse_formal_parameters(p)
     result = node("FnDef", token)
@@ -185,7 +197,7 @@ fn parse_import(p):
     token = expect(p, "IMPORT")
     module = expect(p, "STR")
     expect(p, "AS")
-    alias = expect(p, "NAME")
+    alias = expect_binding(p)
     expect(p, "NEWLINE")
     result = node("ImportStmt", token)
     result["module_path"] = module["value"]
@@ -193,9 +205,9 @@ fn parse_import(p):
     return result
 
 fn parse_binding_declaration(p, token, kind):
-    names = [expect(p, "NAME")["value"]]
+    names = [expect_binding(p)["value"]]
     while match(p, ",") != nil:
-        names = names + [expect(p, "NAME")["value"]]
+        names = names + [expect_binding(p)["value"]]
     expect(p, "NEWLINE")
     result = node(kind, token)
     result["names"] = names
@@ -203,7 +215,7 @@ fn parse_binding_declaration(p, token, kind):
 
 fn parse_class(p):
     token = expect(p, "CLASS")
-    name = expect(p, "NAME")
+    name = expect_binding(p)
     parent = nil
     if match(p, "(") != nil:
         parent_name = expect(p, "NAME")
@@ -244,7 +256,7 @@ fn parse_try(p):
     expect(p, ":")
     body = parse_block(p)
     expect(p, "CATCH")
-    variable = expect(p, "NAME")
+    variable = expect_binding(p)
     expect(p, ":")
     handler = parse_block(p)
     result = node("Try", token)
@@ -281,7 +293,7 @@ fn parse_statement(p):
         return result
     if token["kind"] == "FOR":
         advance(p)
-        variable = expect(p, "NAME")
+        variable = expect_binding(p)
         expect(p, "IN")
         iterable = parse_expression(p)
         expect(p, ":")
@@ -330,6 +342,8 @@ fn parse_statement(p):
             p["line"] = expression["line"]
             p["col"] = expression["col"]
             throw "parser failure"
+        if kind == "Name":
+            check_binding_name(p, expression["id"], expression["line"], expression["col"])
         result = node("Assign", token)
         result["target"] = expression
         result["value"] = value

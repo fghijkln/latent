@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Reject Python hard keywords in user binding positions with source-level diagnostics on both targets instead of emitting invalid Python. Preserve valid Java-keyword source names using injective Java symbol encoding rather than collision-prone suffix escaping. Ordinary builtin calls, host member names and existing Java-keyword parameters remain available.
+- Validate bare builtin calls against builtin signatures even when a local user function has the same name; static builtin priority is unchanged.
+- Return signed infinity on floating-point power overflow in both the current Python emitter and the self-hosted Python runtime, matching Java for these overflow cases.
+- Add current Python/Java and fixed-seed Stage1/Stage2 regression coverage without changing the pinned Stage0 or weakening its existing projection. Clarify that decimal literals currently do not support exponent notation; this change does not add a new numeric syntax.
+
 ## v0.13.5 — 2026-10-11
 
 ### Added

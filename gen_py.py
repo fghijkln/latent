@@ -159,7 +159,12 @@ def _wv_pow(a, b):
     if isinstance(a, float) and isinstance(b, float):
         if a < 0 and _math.isfinite(b) and not b.is_integer():
             return _math.nan
-        return a ** b
+        try:
+            return a ** b
+        except OverflowError:
+            if a < 0 and _math.isfinite(b) and b.is_integer() and int(b) % 2:
+                return -_math.inf
+            return _math.inf
     try:
         return a ** b
     except Exception:

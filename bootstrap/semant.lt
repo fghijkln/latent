@@ -194,6 +194,8 @@ fn check_known_call(call, context):
     if function["type"] != "Name":
         return success(nil)
     name = function["id"]
+    if builtin_name(name):
+        return check_builtin_call(call, name)
     if has(context["locals"], name) or has(context["outer"], name):
         if map_has(context["local_functions"], name):
             target = context["local_functions"][name]
@@ -202,11 +204,6 @@ fn check_known_call(call, context):
     if map_has(context["functions"], name):
         target = context["functions"][name]
         return check_arguments(call, target["param_specs"], name)
-    shadowed = has(context["globals"], name)
-    if context["top"]:
-        shadowed = has(context["done"], name)
-    if builtin_name(name) and not shadowed:
-        return check_builtin_call(call, name)
     return success(nil)
 
 fn drop_first_parameter(parameters):
@@ -625,6 +622,8 @@ fn check_expression(node, context, as_callee):
         return success(nil)
     if kind == "Name":
         name = node["id"]
+        if as_callee and builtin_name(name):
+            return success(nil)
         if context["top"]:
             if has(context["done"], name):
                 return success(nil)

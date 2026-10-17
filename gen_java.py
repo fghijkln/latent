@@ -24,7 +24,9 @@ BUILTIN_JAVA = {
 
 
 def ident(name):
-    return name + "_" if name in JAVA_KW else name
+    # Encode all source symbols: escaping only keywords aliases `new`/`new_`.
+    # UTF-8 hex is injective and always yields a Java-safe ASCII identifier.
+    return "_lt_user_" + name.encode("utf-8").hex()
 
 
 def cls_name(stem):
