@@ -52,18 +52,6 @@ python3 tests/bootstrap/test_checker.py
 
 The focused tests verify that the existing repository passes and that a synthetic new unclassified `POSITIVE` case is rejected.
 
-### Post-Stage0 compiler fixes
-
-`test_compiler_regressions.py` is an included auxiliary suite invoked by the
-complete regression runner. It checks reserved-name source diagnostics, static
-builtin-call validation and floating-point power overflow against explicit
-expected results on the current Python/Java backends and Stage1/Stage2 built
-from the unchanged fixed Stage0 seed. These are intentional fixes to bugs in
-that immutable seed, so its erroneous output is not the oracle for the new
-cases. The historical 243-case/244-invocation/505-property projection and its
-strict comparisons remain unchanged; no new case is hidden by an exclusion or
-broad diagnostic normalization. Stage1 remains Python-target only.
-
 
 ## M6 single-file function scope and runtime slice
 
@@ -85,7 +73,7 @@ Fixed-Stage0 differential coverage now includes 18 programs spanning Java basics
 
 `project_stage0.py` builds Stage1 from the pinned Stage0 commit, then builds Stage2 and Stage3 without the Stage0 checkout present. It requires Stage2/Stage3's declared artifact bytes to match before re-extracting Stage0 as the oracle. It then derives cases from the same runner groups guarded by `manifest.json`, verifies coverage of all **243 unique ledger case IDs**, and runs all **244 source-fixture invocations** through Stage0, Stage1, and Stage2 (the test and cookbook `inheritance.lt` fixtures are distinct despite sharing a case name). The gate covers 71 successful fixtures, 88 compile-negative fixtures, 85 runtime-negative fixtures, and the 505-case fixed-seed property corpus. Stage1/2 fixture builds receive explicit logical source roots, allowing diagnostics and runtime frames to use the same root-relative IDs as Stage0 after narrow physical-prefix normalization. It compares successful status/stdout/stderr, normalized compile diagnostics and locations, and complete normalized runtime status/stdout/stderr with source-location checks.
 
-Diagnostic canonicalization is deliberately narrow: the physical test-root prefix is removed to compare with the explicit logical source root; the fixed Stage0 Linux missing-file text is mapped to the host adapter's stable `not-found` code; recognized Stage0-hash or Stage1-local module-symbol prefixes retain their source-level suffix; and a Stage1-local module initializer frame is mapped to the exact Stage0 hash computed from its retained logical source path. No general diagnostic or temporary-root regex is used to discard differences. The initial Stage1 seed build hides `javac` only to avoid Stage0's eager `.class` caches; the declared Java `.java` runtime sidecars remain, and JDK-backed interop tests run normally. The bootstrap CI job runs this projection on Python 3.11/JDK 17 and installs NumPy for the `py_numpy` case. Its JSON report records 243/0 runner cases, 285/6 fixture paths, 13/2 auxiliary-test paths, and 2/1 P14 protocol operations (included/excluded), with each exclusion reason. Java helper `.java` files are excluded from the Latent-input fixture inventory but are compiled and exercised by included Python-target interop/property cases. CI retains Stage1/2/3 SHA-256 manifests, Stage2/3 per-file byte differences, both-root fixed-point results, case counts, and minimal case/source paths; it does not upload compiled Stage artifacts.
+Diagnostic canonicalization is deliberately narrow: the physical test-root prefix is removed to compare with the explicit logical source root; the fixed Stage0 Linux missing-file text is mapped to the host adapter's stable `not-found` code; recognized Stage0-hash or Stage1-local module-symbol prefixes retain their source-level suffix; and a Stage1-local module initializer frame is mapped to the exact Stage0 hash computed from its retained logical source path. No general diagnostic or temporary-root regex is used to discard differences. The initial Stage1 seed build hides `javac` only to avoid Stage0's eager `.class` caches; the declared Java `.java` runtime sidecars remain, and JDK-backed interop tests run normally. The bootstrap CI job runs this projection on Python 3.11/JDK 17 and installs NumPy for the `py_numpy` case. Its JSON report records 243/0 runner cases, 285/6 fixture paths, 11/2 auxiliary-test paths, and 2/1 P14 protocol operations (included/excluded), with each exclusion reason. Java helper `.java` files are excluded from the Latent-input fixture inventory but are compiled and exercised by included Python-target interop/property cases. CI retains Stage1/2/3 SHA-256 manifests, Stage2/3 per-file byte differences, both-root fixed-point results, case counts, and minimal case/source paths; it does not upload compiled Stage artifacts.
 
 
 ## M15 host API allowlist and source-tree isolation

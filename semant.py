@@ -752,8 +752,6 @@ class Checker:
 
     def _resolve(self, e, ctx, as_callee=False):
         name = e.id
-        if as_callee and name in BUILTINS:
-            return
         binding = self._binding(name, ctx)
         if binding and binding[0] == "local":
             owner = binding[1]
@@ -798,7 +796,9 @@ class Checker:
         if not isinstance(e.func, Name):
             return
         name = e.func.id
-        if name in BUILTINS:
+        if name in BUILTINS and not (ctx is not None and
+                self._binding(name, ctx) and
+                self._binding(name, ctx)[0] == "local"):
             if any(isinstance(arg, NamedArg) for arg in e.args):
                 _err(e, f"built-in function {name!r} does not accept named arguments")
             if any(isinstance(arg, (StarArg, StarStarArg)) for arg in e.args):

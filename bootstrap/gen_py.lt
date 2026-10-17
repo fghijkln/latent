@@ -87,7 +87,7 @@ fn emit_map_pairs(pairs):
         output = output + quote_string(pair["key"]) + ": " + emitted["code"]
     return result(output)
 
-fn emit_expression(node, as_callee = false):
+fn emit_expression(node):
     kind = node["type"]
     if kind == "Num":
         return result("float(" + str(node["value"]) + ")")
@@ -100,10 +100,6 @@ fn emit_expression(node, as_callee = false):
     if kind == "Nil":
         return result("None")
     if kind == "Name":
-        # A value/assignment names the user binding; only a bare call target
-        # has static builtin priority (including when a local shares its name).
-        if not as_callee:
-            return result(node["id"])
         if node["id"] == "__say":
             return result("_lt_bootstrap_say")
         if node["id"] == "int":
@@ -151,7 +147,7 @@ fn emit_expression(node, as_callee = false):
             return result("(not " + operand["code"] + ")")
         return result("(" + node["op"] + operand["code"] + ")")
     if kind == "Call":
-        function = emit_expression(node["func"], true)
+        function = emit_expression(node["func"])
         if not function["ok"]:
             return function
         arguments = emit_call_arguments(node["args"])

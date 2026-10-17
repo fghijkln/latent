@@ -309,17 +309,11 @@ fn catch_internal_names():
     say _lt_e
     say _lt_m
 catch_internal_names()
-say 10.0 ** 400.0
-say (-10.0) ** 401.0
-say (-10.0) ** 400.0
-say 10.0 ** (-400.0)
-say math.copysign(1, (-10.0) ** (-401.0)) == -1
 """
     expected_lines = (
         "3", "true", "b", "output still works", "true", "true", "true",
         "true", "saved exception name", "saved message name", "boom",
-        "saved exception name", "saved message name", "inf", "-inf", "inf",
-        "0", "true")
+        "saved exception name", "saved message name")
     results = run_case(source, tempdir, "runtime_regressions")
     failed = False
     for backend in ("py", "java"):

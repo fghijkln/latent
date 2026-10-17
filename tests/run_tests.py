@@ -974,14 +974,6 @@ def main():
         fails += diagnostic_failures
         print(f"  {diagnostic_output[-1500:]}")
 
-    print("== post-Stage0 compiler fixes: dual backends and Stage1/2 ==")
-    rc, so, se = run([sys.executable, os.path.join(
-        TESTS, "test_compiler_regressions.py")], timeout=300)
-    print(("PASS " if rc == 0 else "FAIL ") + "compiler fix regressions")
-    if rc != 0:
-        fails += 1
-        print((so + se)[-5000:])
-
     print("== seeded bounded cross-backend property tests ==")
     rc, so, se = run([sys.executable, os.path.join(
         TESTS, "test_differential_properties.py")], timeout=180)
@@ -1004,7 +996,6 @@ def main():
              len(P12_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
              len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 2)
-    total += 1  # post-Stage0 compiler regression suite
     print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 

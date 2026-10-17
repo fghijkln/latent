@@ -3,18 +3,6 @@ from nodes import *
 from lex import Tok
 
 
-# Python emits binding names directly; keep its hard-keyword set explicit so
-# accepted programs do not depend on the running host's keyword version.
-# Java-only keywords remain valid source names: its emitter encodes symbols.
-HOST_RESERVED_NAMES = frozenset({
-    "False", "None", "True", "and", "as", "assert", "async", "await",
-    "break", "class", "continue", "def", "del", "elif", "else",
-    "except", "finally", "for", "from", "global", "if", "import",
-    "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
-    "return", "try", "while", "with", "yield",
-})
-
-
 class ParseError(Exception):
     pass
 
@@ -41,17 +29,6 @@ class Parser:
         if t.kind != kind:
             self.err(f"expected {kind}, got {t.kind}", t)
         return self.next()
-
-    def check_binding_name(self, name, line, col):
-        if name in HOST_RESERVED_NAMES:
-            raise ParseError(
-                f"{line}:{col}: identifier {name!r} is reserved by a target language")
-        return name
-
-    def expect_binding(self):
-        t = self.expect("NAME")
-        self.check_binding_name(t.value, t.line, t.col)
-        return t
 
     def match(self, kind):
         if self.peek().kind == kind:
@@ -97,21 +74,21 @@ class Parser:
             self.next()
             path = self.expect("STR")
             self.expect("AS")
-            alias = self.expect_binding()
+            alias = self.expect("NAME")
             self.expect("NEWLINE")
             return ImportStmt(path.value, alias.value, line=t.line, col=t.col)
         if t.kind == "GLOBAL":
             self.next()
-            names = [self.expect_binding().value]
+            names = [self.expect("NAME").value]
             while self.match(","):
-                names.append(self.expect_binding().value)
+                names.append(self.expect("NAME").value)
             self.expect("NEWLINE")
             return GlobalStmt(names, line=t.line, col=t.col)
         if t.kind == "NONLOCAL":
             self.next()
-            names = [self.expect_binding().value]
+            names = [self.expect("NAME").value]
             while self.match(","):
-                names.append(self.expect_binding().value)
+                names.append(self.expect("NAME").value)
             self.expect("NEWLINE")
             return NonlocalStmt(names, line=t.line, col=t.col)
         if t.kind == "FN":
@@ -149,7 +126,6 @@ class Parser:
             v = self.expr()
             self.expect("NEWLINE")
             if isinstance(e, Name):
-                self.check_binding_name(e.id, e.line, e.col)
                 return Assign(e.id, v, line=e.line, col=e.col)
             if isinstance(e, Dot):
                 return SetAttr(e.obj, e.attr, v, line=e.line, col=e.col)
@@ -161,7 +137,7 @@ class Parser:
 
     def classdef(self):
         t = self.expect("CLASS")
-        name = self.expect_binding()
+        name = self.expect("NAME")
         parent = None
         if self.match("("):
             p = self.expect("NAME")
@@ -196,7 +172,6 @@ class Parser:
     def fndef(self):
         t = self.expect("FN")
         name = self.expect("NAME")
-        self.check_binding_name(name.value, name.line, name.col)
         self.expect("(")
         params = []
         saw_default = False
@@ -212,7 +187,7 @@ class Parser:
                     marker = self.next()
                     if saw_extra:
                         self.err("multiple **extra parameters", marker)
-                    param = self.expect_binding()
+                    param = self.expect("NAME")
                     params.append(ExtraParam(param.value, line=marker.line,
                                              col=marker.col))
                     saw_extra = True
@@ -223,7 +198,7 @@ class Parser:
                                  marker)
                     saw_star_separator = True
                     if self.peek().kind == "NAME":
-                        param = self.expect_binding()
+                        param = self.next()
                         params.append(RestParam(param.value, line=marker.line,
                                                 col=marker.col))
                         saw_rest = True
@@ -233,7 +208,7 @@ class Parser:
                 else:
                     if saw_extra:
                         self.err("positional parameter follows variadic parameter")
-                    param = self.expect_binding()
+                    param = self.expect("NAME")
                     if self.match("="):
                         default = self.expr()
                         if saw_star_separator:
@@ -304,14 +279,14 @@ class Parser:
         self.expect(":")
         body = self.block()
         self.expect("CATCH")
-        var = self.expect_binding()
+        var = self.expect("NAME")
         self.expect(":")
         handler = self.block()
         return Try(body, var.value, handler, line=t.line, col=t.col)
 
     def forstmt(self):
         t = self.expect("FOR")
-        var = self.expect_binding()
+        var = self.expect("NAME")
         self.expect("IN")
         it = self.expr()
         self.expect(":")
