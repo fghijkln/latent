@@ -365,7 +365,8 @@ def _validate_cache_entry(path: Path, key: str,
 
 
 def _extract_stage0(root: Path, destination: Path) -> None:
-    command = ["git", "-C", str(root), "archive", STAGE0_COMMIT]
+    command = ["git", "--no-replace-objects", "-C", str(root),
+               "archive", STAGE0_COMMIT]
     try:
         result = subprocess.run(command, capture_output=True, check=False)
     except OSError as exc:

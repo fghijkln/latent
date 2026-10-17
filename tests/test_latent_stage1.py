@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import io
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -363,6 +364,46 @@ class CacheContractTests(unittest.TestCase):
                     r"history and retry \(no network fetch is performed automatically\)"):
                 latent_stage1._extract_stage0(root, destination)
             self.assertFalse(destination.exists())
+
+    def test_fixed_stage0_archive_ignores_git_replace_refs(self):
+        with tempfile.TemporaryDirectory(prefix="latent-stage1-replace-") as temporary:
+            root = Path(temporary)
+            repository = root / "repository"
+            repository.mkdir()
+            env = os.environ.copy()
+            env.pop("GIT_NO_REPLACE_OBJECTS", None)
+
+            def git(*args: str) -> str:
+                result = subprocess.run(
+                    ["git", "-C", str(repository), *args], check=True,
+                    capture_output=True, text=True, env=env)
+                return result.stdout.strip()
+
+            git("init", "--quiet")
+            git("config", "user.name", "Latent Stage1 Test")
+            git("config", "user.email", "latent-stage1-test@example.invalid")
+            source = repository / "payload.txt"
+            source.write_text("approved fixed Stage0\n", encoding="utf-8")
+            git("add", "payload.txt")
+            git("commit", "--quiet", "-m", "fixed Stage0")
+            fixed_commit = git("rev-parse", "HEAD")
+
+            source.write_text("replacement object payload\n", encoding="utf-8")
+            git("commit", "--quiet", "-am", "replacement tree")
+            replacement_commit = git("rev-parse", "HEAD")
+            git("replace", fixed_commit, replacement_commit)
+            self.assertEqual(git("replace", "-l"), fixed_commit)
+            self.assertEqual(
+                git("show", f"{fixed_commit}:payload.txt"),
+                "replacement object payload")
+
+            destination = root / "stage0"
+            with patch.dict(os.environ, env, clear=True), \
+                    patch.object(latent_stage1, "STAGE0_COMMIT", fixed_commit):
+                latent_stage1._extract_stage0(repository, destination)
+            self.assertEqual(
+                (destination / "payload.txt").read_text(encoding="utf-8"),
+                "approved fixed Stage0\n")
 
 
 class Stage1CliIntegrationTests(unittest.TestCase):

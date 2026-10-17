@@ -4,6 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const KEYWORDS = require('./keyword-completions.json');
+const EDITOR_METADATA_TIMEOUT_MS = 15 * 1000;
+const EDITOR_METADATA_OUTPUT_LIMIT_BYTES = 1 * 1024 * 1024;
+const PROCESS_TIMEOUT_MS = 10 * 60 * 1000;
+const PROJECT_TEST_TIMEOUT_MS = 25 * 60 * 1000;
+const PROCESS_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
+const PROCESS_KILL_GRACE_MS = 1000;
 
 function isWithin(parent, candidate) {
   const relative = path.relative(parent, candidate);
@@ -147,81 +153,171 @@ function foldingRangesFromMetadata(metadata, vscode) {
   );
 }
 
-function runEditorMetadata(executable, compilerPath, cwd, source) {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let settled = false;
-    const finish = (metadata) => {
-      if (settled) return;
-      settled = true;
-      resolve(metadata);
-    };
-    let child;
-    try {
-      child = spawn(executable, [compilerPath, '--editor-metadata'], {
-        cwd,
-        shell: false,
-        windowsHide: true
-      });
-    } catch (_) {
-      finish(null);
+function signalProcessTree(child, signal) {
+  if (process.platform === 'win32') {
+    if (!child.pid) {
+      try { child.kill(signal); } catch (_) {}
       return;
     }
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.once('error', () => finish(null));
-    child.stdin.once('error', () => finish(null));
-    child.once('close', (code) => {
-      if (code !== 0) {
-        finish(null);
-        return;
-      }
-      try {
-        finish(JSON.parse(stdout));
-      } catch (_) {
-        finish(null);
-      }
-    });
-    child.stdin.end(source);
-  });
+    try {
+      const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      const fallback = () => { try { child.kill(signal); } catch (_) {} };
+      killer.once('error', fallback);
+      killer.once('close', (code) => { if (code !== 0) fallback(); });
+      killer.unref();
+    } catch (_) {
+      try { child.kill(signal); } catch (_) {}
+    }
+    return;
+  }
+
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (error) {
+      if (error.code === 'ESRCH') return;
+    }
+  }
+  try { child.kill(signal); } catch (_) {}
 }
 
-function runProcess(executable, args, cwd, outputChannel) {
+function runBoundedProcess(executable, args, cwd, options) {
+  const {
+    input,
+    timeoutMs,
+    outputLimitBytes,
+    killGraceMs = PROCESS_KILL_GRACE_MS,
+    outputChannel
+  } = options;
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
+    let outputBytes = 0;
     let settled = false;
+    let terminationError = null;
+    let timeoutTimer;
+    let killTimer;
+    let forceKillTimer;
+    const clearTimers = () => {
+      clearTimeout(timeoutTimer);
+      clearTimeout(killTimer);
+      clearTimeout(forceKillTimer);
+    };
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      clearTimers();
       resolve({ ...result, stdout, stderr, output: stdout + stderr });
     };
-    outputChannel.appendLine(`$ ${[executable, ...args].map((part) => JSON.stringify(part)).join(' ')}`);
     let child;
     try {
-      child = spawn(executable, args, { cwd, shell: false, windowsHide: true });
+      child = spawn(executable, args, {
+        cwd,
+        shell: false,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32'
+      });
     } catch (error) {
-      outputChannel.appendLine(`Failed to start process: ${error.message}`);
       finish({ code: null, error });
       return;
     }
-    child.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
-      stdout += text;
-      outputChannel.append(text);
-    });
-    child.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      stderr += text;
-      outputChannel.append(text);
-    });
+
+    let terminationReason = null;
+    let terminationExit = null;
+    const terminate = (reason, detail) => {
+      if (settled || terminationReason) return;
+      terminationReason = reason;
+      const message = reason === 'timeout'
+        ? `Process timed out after ${timeoutMs} ms`
+        : reason === 'output-limit'
+          ? `Process output exceeded the ${outputLimitBytes}-byte limit`
+          : `Process input failed: ${detail}`;
+      terminationError = new Error(message);
+      if (outputChannel) outputChannel.appendLine(`${message}; terminating process.`);
+      signalProcessTree(child, 'SIGTERM');
+      killTimer = setTimeout(() => {
+        if (settled) return;
+        signalProcessTree(child, 'SIGKILL');
+        forceKillTimer = setTimeout(() => {
+          finish({
+            code: null,
+            signal: terminationExit ? terminationExit.signal : null,
+            error: terminationError
+          });
+        }, killGraceMs);
+      }, killGraceMs);
+    };
+
+    const collect = (stream, name) => {
+      stream.on('data', (chunk) => {
+        if (settled || terminationReason) return;
+        const remaining = Math.max(0, outputLimitBytes - outputBytes);
+        const accepted = chunk.subarray(0, remaining);
+        outputBytes += accepted.length;
+        const text = accepted.toString('utf8');
+        if (name === 'stdout') stdout += text;
+        else stderr += text;
+        if (outputChannel && text) outputChannel.append(text);
+        if (accepted.length < chunk.length) terminate('output-limit');
+      });
+    };
+    collect(child.stdout, 'stdout');
+    collect(child.stderr, 'stderr');
     child.once('error', (error) => {
-      outputChannel.appendLine(`Failed to start process: ${error.message}`);
-      finish({ code: null, error });
+      if (terminationReason) return;
+      finish({ code: null, error: terminationError || error });
     });
     child.once('close', (code, signal) => {
-      outputChannel.appendLine(`Process exited with code ${code === null ? 'unknown' : code}${signal ? ` (signal ${signal})` : ''}.`);
+      if (settled) return;
+      if (terminationReason) {
+        terminationExit = { code, signal };
+        return;
+      }
       finish({ code, signal });
     });
+    if (timeoutMs > 0) timeoutTimer = setTimeout(() => terminate('timeout'), timeoutMs);
+    if (input !== undefined) {
+      child.stdin.once('error', (error) => terminate('input-error', error.message));
+      child.stdin.end(input);
+    }
+  });
+}
+
+function runEditorMetadata(executable, compilerPath, cwd, source, options = {}) {
+  return runBoundedProcess(executable, [compilerPath, '--editor-metadata'], cwd, {
+    input: source,
+    timeoutMs: options.timeoutMs ?? EDITOR_METADATA_TIMEOUT_MS,
+    outputLimitBytes: options.outputLimitBytes ?? EDITOR_METADATA_OUTPUT_LIMIT_BYTES,
+    killGraceMs: options.killGraceMs ?? PROCESS_KILL_GRACE_MS
+  }).then((result) => {
+    if (result.code !== 0 || result.error) return null;
+    try {
+      return JSON.parse(result.stdout);
+    } catch (_) {
+      return null;
+    }
+  });
+}
+
+function runProcess(executable, args, cwd, outputChannel, options = {}) {
+  outputChannel.appendLine(`$ ${[executable, ...args].map((part) => JSON.stringify(part)).join(' ')}`);
+  return runBoundedProcess(executable, args, cwd, {
+    timeoutMs: options.timeoutMs ?? PROCESS_TIMEOUT_MS,
+    outputLimitBytes: options.outputLimitBytes ?? PROCESS_OUTPUT_LIMIT_BYTES,
+    killGraceMs: options.killGraceMs ?? PROCESS_KILL_GRACE_MS,
+    outputChannel
+  }).then((result) => {
+    if (result.error) {
+      outputChannel.appendLine(`Process failed: ${result.error.message}.`);
+    } else {
+      outputChannel.appendLine(`Process exited with code ${result.code === null ? 'unknown' : result.code}${result.signal ? ` (signal ${result.signal})` : ''}.`);
+    }
+    return result;
   });
 }
 
@@ -387,11 +483,18 @@ function activate(context) {
       const config = vscode.workspace.getConfiguration('latent', editor.document.uri);
       output.show(true);
       output.appendLine('\nLatent project test suite');
-      const result = await runProcess(config.get('pythonPath', 'python3'), [testScript], projectRoot, output);
+      const result = await runProcess(
+        config.get('pythonPath', 'python3'),
+        [testScript],
+        projectRoot,
+        output,
+        { timeoutMs: PROJECT_TEST_TIMEOUT_MS }
+      );
       if (result.code === 0) {
         vscode.window.setStatusBarMessage('Latent: 项目测试通过', 5000);
       } else {
-        vscode.window.showErrorMessage(`Latent 项目测试失败：退出码 ${result.code}`);
+        const detail = result.error ? result.error.message : `退出码 ${result.code}`;
+        vscode.window.showErrorMessage(`Latent 项目测试失败：${detail}`);
       }
       return result;
     })
@@ -401,4 +504,4 @@ function activate(context) {
 
 function deactivate() {}
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, runEditorMetadata, runProcess };

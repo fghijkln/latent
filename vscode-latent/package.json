@@ -125,10 +125,11 @@
     }
   },
   "scripts": {
-    "test": "node ./tests/tokenization.test.js && node ./tests/runTest.js && node ./tests/runRestrictedTest.js",
-    "package": "npx --yes @vscode/vsce@4.0.0 package --no-dependencies"
+    "test": "node ./tests/tokenization.test.js && node ./tests/process.test.js && node ./tests/runTest.js && node ./tests/runRestrictedTest.js",
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
+    "@vscode/vsce": "4.0.0",
     "@vscode/test-electron": "^2.5.2",
     "mocha": "^12.0.3",
     "vscode-oniguruma": "^2.0.1",

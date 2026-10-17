@@ -10,9 +10,12 @@ const vscode = require('vscode');
 const extensionRoot = path.resolve(__dirname, '..', '..');
 const projectRoot = path.resolve(extensionRoot, '..');
 const spacedOutput = 'vscode-latent/test output/.test-out';
-const mocha = new Mocha({ ui: 'bdd', timeout: 900000, reporter: 'spec' });
+// Leave one minute beyond the extension's 25-minute child-process limit, within
+// the 30-minute CI job budget, for process termination and error reporting.
+const testTimeoutMs = 26 * 60 * 1000;
+const mocha = new Mocha({ ui: 'bdd', timeout: testTimeoutMs, reporter: 'spec' });
 const extensionSuite = Mocha.Suite.create(mocha.suite, 'Latent VS Code extension');
-extensionSuite.timeout(900000);
+extensionSuite.timeout(testTimeoutMs);
 let sampleDocument;
 
 extensionSuite.beforeAll(async () => {

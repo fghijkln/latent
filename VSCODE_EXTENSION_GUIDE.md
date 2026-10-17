@@ -38,6 +38,8 @@ code --install-extension /absolute/path/to/latent-language-support-0.6.5.vsix
 
 编译器诊断会映射到 `.lt` 文件的相应行列；完整过程和输出显示在 **Latent** 输出面板。编译或运行前插件会保存当前文件；运行项目测试前会先保存所有已打开的同项目脏文件，任何保存失败都会取消测试。编译产物默认写入项目根目录下的 `.latent-vscode/out`。
 
+为限制异常挂起或大量输出对子进程宿主的影响，大纲/折叠元数据进程最多运行 15 秒、stdout 与 stderr 合计上限为 1 MiB；编译和运行最多 10 分钟，完整项目测试最多 25 分钟，这三类子进程各自的 stdout 与 stderr 合计上限为 4 MiB，超限时会终止进程。需要更长运行时间或更多输出时，可从终端直接运行对应命令。
+
 ## 运行环境与设置
 
 调用插件命令需要 Python 3，因为它通过 Python 启动项目中的 `latent.py`。Java 后端需要 JDK 17 或更新版本（包括 `javac` 和 `java`）；Python 后端程序如果使用 `java` 互操作，也需要可用的 Java 运行环境。只有源程序实际使用 Python 或 Java 互操作时，才需要对应的外部运行时。
