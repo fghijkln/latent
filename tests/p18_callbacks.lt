@@ -1,0 +1,60 @@
+rx = py "re"
+host = py "p18_callbacks_host"
+
+fn make_replacement(prefix):
+    count = 0
+    fn replacement(match):
+        nonlocal count
+        count = count + 1
+        return prefix + str(count) + ":" + match.group(0)
+    return replacement
+
+replacement = make_replacement("#")
+say rx.sub("[a-z]+", replacement, "a bb")
+say rx.sub("[a-z]+", replacement, "c")
+sub = rx.sub
+say sub("[a-z]+", replacement, "dd")
+
+fn convert(flag, missing, number, negative_zero, word, nested, opaque):
+    return [flag == true, missing == nil, number + 0.5, negative_zero, word, nested[1]["deep"][0], opaque.label(), nil]
+say host.inspect_conversion(convert)
+
+fn defaulted(value, suffix="!"):
+    return value + suffix
+say host.invoke_one(defaulted)
+
+fn collect(*values):
+    return len(values)
+say host.invoke_two(collect)
+
+fn inner(match):
+    return match.group(0) + "!"
+fn outer(match):
+    return rx.sub("x", inner, "x") + match.group(0)
+say rx.sub("x", outer, "xx")
+
+fn repeated(index):
+    return index + 1
+say len(host.repeat(repeated, 32))
+
+compiled = rx.compile("x")
+fn compiled_replacement(match):
+    return "compiled!"
+say compiled.sub(compiled_replacement, "x")
+extracted_sub = compiled.sub
+fn extracted_replacement(match):
+    return "extracted!"
+say extracted_sub(extracted_replacement, "x")
+
+fn positional(value):
+    return "positional:" + value
+say host.call_with_star_args(positional)
+say host.call_with_partial(positional)
+
+fn with_defaults(value="default", suffix="!"):
+    return value + suffix
+say host.call_zero_one_two(with_defaults)
+
+fn collect_count(*values):
+    return len(values)
+say host.call_variadic_sequence(collect_count)

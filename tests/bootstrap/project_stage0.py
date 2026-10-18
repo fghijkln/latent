@@ -127,6 +127,7 @@ def python_target_cases() -> list[dict[str, Any]]:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     included = {name for name, decision in manifest["runner_cases"].items()
                 if decision["disposition"] == "include"}
+    behavior_deltas = manifest.get("p18_stage0_deltas", {})
     excluded = set(manifest["runner_cases"]) - included
     observed = {case["name"] for case in cases}
     kinds_by_name: dict[str, str] = {}
@@ -139,6 +140,9 @@ def python_target_cases() -> list[dict[str, Any]]:
             "runner groups and ledger disagree: "
             f"missing={sorted(set(manifest['runner_cases']) - observed)}, "
             f"unledgered={sorted(observed - set(manifest['runner_cases']))}")
+    for case in cases:
+        if case["name"] in behavior_deltas:
+            case["behavior_delta"] = behavior_deltas[case["name"]]
     return [case for case in cases if case["name"] in included]
 
 
@@ -221,7 +225,8 @@ def compile_and_run(label: str, compiler: Path, source: Path, name: str,
         if fixture_result["rc"] != 0:
             return {"phase": "fixture", **fixture_result,
                     "output_exists": output.exists()}
-    if name == "p13_interop_bound_methods" or name.startswith("p13_negative/") or \
+    if (name.startswith("p18_") or name == "p13_interop_bound_methods" or
+            name.startswith("p13_negative/")) or \
             name in ("p14_module_and_static_values", "p14_static_method_extraction") or \
             name.startswith("p14_negative/"):
         run_env["PYTHONPATH"] = str(TESTS / "python")
@@ -294,6 +299,47 @@ def runtime_signature(name: str, result: dict[str, Any], temporary: Path,
             "locations_ok": locations_ok}
 
 
+def behavior_delta_failures(name: str, delta: dict[str, Any],
+                            results: dict[str, dict[str, Any]],
+                            temporary: Path, source_dir: Path) -> list[str]:
+    """Check one declared P18 semantic delta without weakening other cases."""
+    failures: list[str] = []
+    expectations = (("stage0", delta["fixed_stage0"]),
+                    ("stage1", delta["stage1_stage2"]),
+                    ("stage2", delta["stage1_stage2"]))
+    normalized_outcomes = {}
+    for label, expected in expectations:
+        record = results[label]
+        actual_stdout = normalize_text(record["stdout"], temporary, name,
+                                       source_dir)
+        actual_stderr = normalize_text(record["stderr"], temporary, name,
+                                       source_dir)
+        normalized_outcomes[label] = (
+            record["phase"], record["rc"], actual_stdout, actual_stderr)
+        if record["phase"] != expected["phase"]:
+            failures.append(
+                f"{label} P18 delta phase expected {expected['phase']}, got {record['phase']}")
+        if record["rc"] != expected["rc"]:
+            failures.append(
+                f"{label} P18 delta exit status expected {expected['rc']}, got {record['rc']}")
+        if actual_stdout != expected["stdout"]:
+            failures.append(f"{label} P18 delta stdout differs from explicit expectation")
+        if "stderr" in expected and actual_stderr != expected["stderr"]:
+            failures.append(f"{label} P18 delta stderr differs from explicit expectation")
+        if ("stderr_contains" in expected and
+                expected["stderr_contains"] not in actual_stderr):
+            failures.append(
+                f"{label} P18 delta stderr missing expected marker: {expected['stderr_contains']}")
+        if ("output_exists" in expected and
+                record.get("output_exists") is not expected["output_exists"]):
+            failures.append(
+                f"{label} P18 delta output-directory expectation was not met")
+
+    if normalized_outcomes["stage1"] != normalized_outcomes["stage2"]:
+        failures.append("Stage1 and Stage2 P18 delta behavior differs")
+    return failures
+
+
 def summarize(record: dict[str, Any], temporary: Path,
               name: str, source_dir: Path) -> dict[str, Any]:
     return {"phase": record["phase"], "rc": record["rc"],
@@ -329,22 +375,28 @@ def project_runner_cases(stage0: Path, stage1: Path, stage2: Path,
             results[label] = compile_and_run(
                 label, compiler, source, name, source_dir, output, temporary)
         failures: list[str] = []
+        behavior_delta = spec.get("behavior_delta")
 
         for label, record in results.items():
             if record["rc"] in ("timeout", "error"):
                 failures.append(f"{label} command ended with {record['rc']}")
-            if kind == "positive" and (record["phase"] != "run" or record["rc"] != 0):
+            if (kind == "positive" and
+                    (not behavior_delta or label != "stage0") and
+                    (record["phase"] != "run" or record["rc"] != 0)):
                 failures.append(f"{label} positive case did not run successfully")
-            if kind == "compile-negative":
+            if kind == "compile-negative" and not behavior_delta:
                 if record["phase"] != "compile" or record["rc"] == 0:
                     failures.append(f"{label} did not reject at compile time")
                 if record.get("output_exists"):
                     failures.append(f"{label} left an output directory after compile failure")
-            if kind == "runtime-negative" and (
+            if kind == "runtime-negative" and (not behavior_delta or label != "stage0") and (
                     record["phase"] != "run" or record["rc"] in (0, "timeout", "error")):
                 failures.append(f"{label} did not produce a runtime failure")
 
-        if kind == "compile-negative":
+        if behavior_delta:
+            failures.extend(behavior_delta_failures(
+                name, behavior_delta, results, temporary, source_dir))
+        elif kind == "compile-negative":
             normalized = []
             for label, record in results.items():
                 diagnostic = record["stdout"] + record["stderr"]
@@ -387,6 +439,111 @@ def project_runner_cases(stage0: Path, stage1: Path, stage2: Path,
             print(f"[runner projection] {index}/{len(cases)}; mismatches={len(mismatches)}",
                   flush=True)
     return mismatches, counts
+
+
+def project_p18_stage1_feature(stage1: Path, stage2: Path,
+                               temporary: Path) -> dict[str, Any] | None:
+    """Project P18 callback features and boundaries through Stage1/2, not Stage0."""
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    feature = manifest["p18_stage1_feature"]
+    source = ROOT / feature["source"]
+    name = source.stem
+    source_dir = source.parent
+    expected = feature["expected"]
+    results = {}
+    for label, compiler in (("stage1", stage1 / "compiler.py"),
+                            ("stage2", stage2 / "compiler.py")):
+        output = temporary / f"p18-feature-{label}"
+        clear_output(output)
+        results[label] = compile_and_run(
+            label, compiler, source, name, source_dir, output, temporary)
+
+    failures = []
+    outcomes = {}
+    for label, record in results.items():
+        stdout = normalize_text(record["stdout"], temporary, name, source_dir)
+        stderr = normalize_text(record["stderr"], temporary, name, source_dir)
+        outcomes[label] = (record["phase"], record["rc"], stdout, stderr)
+        if record["phase"] != expected["phase"]:
+            failures.append(f"{label} P18 feature phase differs from manifest")
+        if record["rc"] != expected["rc"]:
+            failures.append(f"{label} P18 feature exit status differs from manifest")
+        if stdout != expected["stdout"]:
+            failures.append(f"{label} P18 feature stdout differs from manifest")
+        if stderr != expected["stderr"]:
+            failures.append(f"{label} P18 feature stderr differs from manifest")
+    if outcomes["stage1"] != outcomes["stage2"]:
+        failures.append("Stage1 and Stage2 P18 callback feature behavior differs")
+    feature_result = {
+        "kind": "p18-stage1-callback-feature",
+        "source": feature["source"],
+        "passed": not failures,
+        "failures": failures,
+        **{label: {"phase": record["phase"], "rc": record["rc"],
+                   "stdout": normalize_text(record["stdout"], temporary,
+                                            name, source_dir)[:1200],
+                   "stderr": normalize_text(record["stderr"], temporary,
+                                            name, source_dir)[:2000]}
+           for label, record in results.items()},
+    }
+    boundary_results = []
+    for case in manifest.get("p18_stage1_cases", []):
+        case_name = case["name"]
+        case_source = temporary / f"{case_name}.lt"
+        case_source.write_text(case["source"], encoding="utf-8", newline="\n")
+        case_results = {}
+        for label, compiler in (("stage1", stage1 / "compiler.py"),
+                                ("stage2", stage2 / "compiler.py")):
+            output = temporary / f"{case_name}-{label}"
+            clear_output(output)
+            case_results[label] = compile_and_run(
+                label, compiler, case_source, case_name, case_source.parent,
+                output, temporary)
+        expected = case["expected"]
+        case_failures = []
+        normalized = {}
+        for label, record in case_results.items():
+            stdout = normalize_text(record["stdout"], temporary, case_name,
+                                    case_source.parent)
+            stderr = normalize_text(record["stderr"], temporary, case_name,
+                                    case_source.parent)
+            normalized[label] = (record["phase"], record["rc"], stdout, stderr)
+            if record["phase"] != expected["phase"]:
+                case_failures.append(f"{label} phase differs from manifest")
+            if record["rc"] != expected["rc"]:
+                case_failures.append(f"{label} exit status differs from manifest")
+            if stdout != expected["stdout"]:
+                case_failures.append(f"{label} stdout differs from manifest")
+            if "stderr" in expected and stderr != expected["stderr"]:
+                case_failures.append(f"{label} stderr differs from manifest")
+            if any(marker not in stderr
+                   for marker in expected.get("stderr_contains", [])):
+                case_failures.append(f"{label} stderr lacks a manifest marker")
+            if any(marker in stderr
+                   for marker in expected.get("stderr_not_contains", [])):
+                case_failures.append(f"{label} stderr contains a forbidden marker")
+        if normalized["stage1"] != normalized["stage2"]:
+            case_failures.append("Stage1 and Stage2 behavior differs")
+        boundary_results.append({
+            "name": case_name,
+            "source": "inline manifest case",
+            "passed": not case_failures,
+            "failures": case_failures,
+            **{label: {"phase": record["phase"], "rc": record["rc"],
+                       "stdout": normalize_text(record["stdout"], temporary,
+                                                case_name, case_source.parent)[:1200],
+                       "stderr": normalize_text(record["stderr"], temporary,
+                                                case_name, case_source.parent)[:2000]}
+               for label, record in case_results.items()},
+        })
+    feature_result["boundary_cases"] = boundary_results
+    for result in boundary_results:
+        if not result["passed"]:
+            failures.extend(f"{result['name']}: {failure}"
+                            for failure in result["failures"])
+    feature_result["failures"] = failures
+    feature_result["passed"] = not failures
+    return feature_result
 
 
 def project_seeded_properties(stage0: Path, stage1: Path, stage2: Path,
@@ -553,6 +710,9 @@ def main() -> int:
             return 2
 
         mismatches, counts = project_runner_cases(stage0, stage1, stage2, temporary)
+        p18_feature = project_p18_stage1_feature(stage1, stage2, temporary)
+        if not p18_feature["passed"]:
+            mismatches.append(p18_feature)
         property_mismatch, property_count = project_seeded_properties(
             stage0, stage1, stage2, temporary)
         if property_mismatch is not None:
@@ -608,6 +768,7 @@ def main() -> int:
         runner_failures = sum(1 for row in mismatches if "case" in row)
         property_failures = 1 if property_mismatch is not None else 0
         report = {"stage0_commit": STAGE0_COMMIT,
+                  "p18_stage1_feature": p18_feature,
                   "runner_case_ids": unique_case_ids,
                   "fixture_invocations": len(cases),
                   "runner_case_groups": counts,

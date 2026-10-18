@@ -398,7 +398,7 @@ fn emitted_prelude():
     output = output + "    elif type(descriptor) in (\n"
     output = output + "            getattr(_lt_bootstrap_types, \"MethodDescriptorType\", object),\n"
     output = output + "            getattr(_lt_bootstrap_types, \"WrapperDescriptorType\", object)):\n"
-    output = output + "        if (type(value) is not _lt_bootstrap_types.BuiltinMethodType or\n"
+    output = output + "        if (not isinstance(value, _lt_bootstrap_types.BuiltinMethodType) or\n"
     output = output + "                value.__self__ is not receiver):\n"
     output = output + "            return None\n"
     output = output + "    else:\n"

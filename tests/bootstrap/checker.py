@@ -88,8 +88,124 @@ def compare(manifest: dict, observed_refs: dict[str, list[str]],
         for item in sorted(recorded - observed):
             errors.append(f"stale runner ledger item {name}: {item}")
 
+    negative_callbacks = {"p14_negative/module_callback",
+                          "p14_negative/static_callback"}
+    observed_positive = set(observed_refs.get("POSITIVE", []))
+    observed_runtime_negative = set(observed_refs.get("NEG_RUNTIME", []))
+    if "p14_negative/static_callback" in observed_positive:
+        errors.append("p14_negative/static_callback must remain a runtime-negative Java-host case")
+    for item in sorted(negative_callbacks - observed_runtime_negative):
+        errors.append(f"P14 callback boundary must remain in NEG_RUNTIME: {item}")
+
     cases = manifest.get("runner_cases", {})
     all_cases = {item for values in observed_refs.values() for item in values}
+    deltas = manifest.get("p18_stage0_deltas", {})
+    permitted_deltas = {"p14_negative/module_callback"}
+    for item in sorted(set(deltas) - permitted_deltas):
+        errors.append(f"P18 Stage0 behavior delta is not permitted: {item}")
+    for item in sorted(permitted_deltas - set(deltas)):
+        errors.append(f"required P18 Stage0 behavior delta is missing: {item}")
+    for item, delta in deltas.items():
+        if item == "p14_negative/static_callback":
+            errors.append("p14_negative/static_callback must retain strict Stage0 comparison")
+        decision = cases.get(item)
+        if decision is None:
+            errors.append(f"P18 Stage0 behavior delta has no runner case: {item}")
+        elif decision.get("disposition") != "include":
+            errors.append(f"P18 Stage0 behavior delta must be an included runner case: {item}")
+        if not isinstance(delta, dict):
+            errors.append(f"P18 Stage0 behavior delta is not an object: {item}")
+            continue
+        reason = delta.get("reason", "")
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(f"P18 Stage0 behavior delta has no reason: {item}")
+        legacy = delta.get("fixed_stage0", {})
+        if (legacy.get("phase") != "run" or
+                not isinstance(legacy.get("rc"), int) or
+                isinstance(legacy.get("rc"), bool) or legacy.get("rc") == 0 or
+                not isinstance(legacy.get("stdout"), str) or
+                not isinstance(legacy.get("stderr_contains"), str) or
+                not legacy.get("stderr_contains", "").strip()):
+            errors.append(f"P18 Stage0 behavior delta lacks an explicit fixed-Stage0 rejection: {item}")
+        current = delta.get("stage1_stage2", {})
+        if (current.get("phase") != "run" or
+                not isinstance(current.get("rc"), int) or
+                isinstance(current.get("rc"), bool) or
+                not isinstance(current.get("stdout"), str) or
+                not isinstance(current.get("stderr"), str)):
+            errors.append(f"P18 Stage0 behavior delta lacks an exact Stage1/2 outcome: {item}")
+        for label, expectation in (("fixed_stage0", legacy),
+                                   ("stage1_stage2", current)):
+            if ("output_exists" in expectation and
+                    not isinstance(expectation["output_exists"], bool)):
+                errors.append(
+                    f"P18 Stage0 behavior delta has invalid {label} output expectation: {item}")
+    feature = manifest.get("p18_stage1_feature")
+    if feature is not None:
+        source = feature.get("source")
+        expected = feature.get("expected", {})
+        if not isinstance(source, str) or not source.strip():
+            errors.append("P18 Stage1 feature has no source path")
+        elif not (root / source).is_file():
+            errors.append(f"P18 Stage1 feature source does not exist: {source}")
+        if (expected.get("phase") != "run" or expected.get("rc") != 0 or
+                not isinstance(expected.get("stdout"), str) or
+                not isinstance(expected.get("stderr"), str)):
+            errors.append("P18 Stage1 feature lacks an exact successful outcome")
+    feature_cases = manifest.get("p18_stage1_cases", [])
+    if not isinstance(feature_cases, list):
+        errors.append("P18 Stage1 case inventory must be a list")
+        feature_cases = []
+    seen_feature_cases: set[str] = set()
+    for case in feature_cases:
+        if not isinstance(case, dict):
+            errors.append("P18 Stage1 case inventory contains a non-object entry")
+            continue
+        name = case.get("name")
+        source = case.get("source")
+        expected = case.get("expected", {})
+        if not isinstance(name, str) or not name.startswith("p18_"):
+            errors.append(f"P18 Stage1 case has invalid name: {name!r}")
+        elif name in seen_feature_cases:
+            errors.append(f"duplicate P18 Stage1 case: {name}")
+        else:
+            seen_feature_cases.add(name)
+        if not isinstance(source, str) or not source.strip():
+            errors.append(f"P18 Stage1 case has no source: {name}")
+        if (not isinstance(expected, dict) or expected.get("phase") != "run" or
+                not isinstance(expected.get("rc"), int) or
+                isinstance(expected.get("rc"), bool) or
+                not isinstance(expected.get("stdout"), str)):
+            errors.append(f"P18 Stage1 case lacks an explicit run outcome: {name}")
+            continue
+        markers = expected.get("stderr_contains", [])
+        absent = expected.get("stderr_not_contains", [])
+        if (expected["rc"] == 0 and not isinstance(expected.get("stderr"), str)):
+            errors.append(f"successful P18 Stage1 case lacks exact stderr: {name}")
+        exact_error = expected.get("stderr")
+        has_exact_error = isinstance(exact_error, str) and bool(exact_error.strip())
+        has_error_markers = (isinstance(markers, list) and bool(markers) and
+                             all(isinstance(item, str) and item for item in markers))
+        if expected["rc"] != 0 and not (has_exact_error or has_error_markers):
+            errors.append(f"failing P18 Stage1 case lacks stderr markers: {name}")
+        if (not isinstance(absent, list) or
+                any(not isinstance(item, str) or not item for item in absent)):
+            errors.append(f"P18 Stage1 case has invalid forbidden stderr markers: {name}")
+    callback_arity = next((case for case in feature_cases
+                           if isinstance(case, dict) and
+                           case.get("name") == "p18_callback_wrong_arity"), None)
+    if callback_arity is None:
+        errors.append("P18 Stage1 cases must pin the callback positional-arity boundary")
+    else:
+        source = callback_arity.get("source", "")
+        expected = callback_arity.get("expected", {})
+        stderr = expected.get("stderr", "") if isinstance(expected, dict) else ""
+        if "host.invoke_two(callback)" not in source:
+            errors.append("P18 callback positional-arity case must call the host with two actual arguments")
+        if (not isinstance(stderr, str) or
+                "callback() takes 1 args, got 2" not in stderr or
+                "at p18_callback_wrong_arity.lt:4 in main" not in stderr):
+            errors.append("P18 callback positional-arity case must pin its exact source-located binder error")
     for item in sorted(all_cases - set(cases)):
         errors.append(f"runner case has no Python-target decision: {item}")
     for item in sorted(set(cases) - all_cases):

@@ -245,11 +245,11 @@ NEG_RUNTIME = ["py_lazy_use", "java_lazy_use", "err_index_range",
                "p14_negative/module_builtin_len",
                "p14_negative/static_named", "p14_negative/static_star",
                "p14_negative/static_starstar",
+               "p14_negative/static_callback",
                "p14_negative/module_callback",
                "p14_negative/module_wrapper_callback",
                "p14_negative/module_list_callback",
                "p14_negative/module_nested_callback",
-               "p14_negative/static_callback",
                "p14_negative/static_wrapper_callback",
                "p14_negative/static_list_callback",
                "p14_negative/static_nested_callback",
@@ -414,11 +414,10 @@ P14_RUNTIME_ERROR_MARKERS = {
     "p14_negative/static_named": "named arguments are not supported for Python/Java interop calls",
     "p14_negative/static_star": "argument unpacking is not supported for Python/Java interop calls",
     "p14_negative/static_starstar": "argument unpacking is not supported for Python/Java interop calls",
-    "p14_negative/module_callback": "Latent callable values cannot be passed to Python/Java interop calls",
+    "p14_negative/static_callback": "Latent callable values cannot be passed to Python/Java interop calls",
     "p14_negative/module_wrapper_callback": "Latent callable values cannot be passed to Python/Java interop calls",
     "p14_negative/module_list_callback": "Latent callable values cannot be passed to Python/Java interop calls",
     "p14_negative/module_nested_callback": "Latent callable values cannot be passed to Python/Java interop calls",
-    "p14_negative/static_callback": "Latent callable values cannot be passed to Python/Java interop calls",
     "p14_negative/static_wrapper_callback": "Latent callable values cannot be passed to Python/Java interop calls",
     "p14_negative/static_list_callback": "Latent callable values cannot be passed to Python/Java interop calls",
     "p14_negative/static_nested_callback": "Latent callable values cannot be passed to Python/Java interop calls",
@@ -897,6 +896,11 @@ def main():
             jv_error = next((line for line in jv[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
             ok = ok and py_error == expected and jv_error == expected
+        if name == "p14_negative/module_callback":
+            # Both bridges must reject the returned adapter at the same
+            # boundary rather than accidentally passing the callable.
+            ok = (ok and "callbacks cannot return Latent callable values" in py[2]
+                  and "callbacks cannot return Latent callable values" in jv[2])
         if name in P14_RUNTIME_ERROR_MARKERS:
             marker = P14_RUNTIME_ERROR_MARKERS[name]
             ok = ok and marker in py[2] and marker in jv[2]
@@ -915,6 +919,15 @@ def main():
     if rc != 0:
         fails += 1
         print(f"  {(so + se)[-1500:]}")
+
+    print("== P18 synchronous Python-host callbacks ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS,
+                                                   "test_p18_callbacks.py")],
+                     timeout=300)
+    print(("PASS " if rc == 0 else "FAIL ") + "P18 callback matrix")
+    if rc != 0:
+        fails += 1
+        print(f"  {(so + se)[-2500:]}")
 
     print("== cookbook: py vs java must produce identical stdout, exit 0 ==")
     for name in COOKBOOK:

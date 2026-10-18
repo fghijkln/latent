@@ -12,6 +12,7 @@ import os as _os
 import shutil as _shutil
 import subprocess as _subprocess
 import inspect as _inspect
+import threading as _threading
 import sys as _sys
 import traceback as _traceback
 import types as _types
@@ -320,6 +321,159 @@ def _wv_pyresult(v):
             v, _builtins.bool):
         return _builtins.float(v)
     return v
+
+
+_WV_CALLBACK_MAX_DEPTH = 16
+_WV_CALLBACK_MAX_CONTAINER_DEPTH = 64
+_wv_callback_local = _threading.local()
+
+
+class _WVCallbackScope:
+    """A synchronous, same-thread lifetime for adapters passed to one host call."""
+    def __init__(self):
+        self.owner = _threading.get_ident()
+        self.active = True
+        self.adapters = []
+
+    def close(self):
+        self.active = False
+        for adapter in self.adapters:
+            adapter.function = None
+        self.adapters.clear()
+
+
+def _wv_is_latent_callable(value):
+    return isinstance(value, (_LtFunction, _InteropBoundMethod,
+                              _InteropModuleFunction, _InteropStaticMethod,
+                              _WVCallback))
+
+
+def _wv_callback_is_deferred(value):
+    return (_inspect.isawaitable(value) or _inspect.isgenerator(value) or
+            _inspect.isasyncgen(value))
+
+
+def _wv_callback_reject_deferred(value):
+    if _wv_callback_is_deferred(value):
+        if _inspect.iscoroutine(value):
+            value.close()
+        raise TypeError("synchronous host callbacks do not support async or deferred results")
+    return value
+
+
+def _wv_callback_to_latent(value, ancestors=None, depth=0):
+    """Normalize host callback values; preserve non-container opaque objects."""
+    if depth > _WV_CALLBACK_MAX_CONTAINER_DEPTH:
+        raise TypeError("host callback container nesting exceeds 64 levels")
+    if _wv_is_latent_callable(value):
+        raise TypeError("nested or returned Latent callbacks are unsupported")
+    if isinstance(value, bool) or value is None or isinstance(value, (float, str)):
+        return value
+    if isinstance(value, int):
+        return float(value)
+    if type(value) not in (list, tuple, dict):
+        return value
+    if ancestors is None:
+        ancestors = set()
+    identity = id(value)
+    if identity in ancestors:
+        raise TypeError("cyclic host callback containers are unsupported")
+    ancestors.add(identity)
+    try:
+        if type(value) in (list, tuple):
+            return [_wv_callback_to_latent(item, ancestors, depth + 1)
+                    for item in value]
+        converted = {}
+        for key, item in value.items():
+            _wv_callback_to_latent(key, ancestors, depth + 1)
+            converted[key] = _wv_callback_to_latent(item, ancestors, depth + 1)
+        return converted
+    finally:
+        ancestors.remove(identity)
+
+
+def _wv_callback_to_host(value, ancestors=None, depth=0):
+    """Apply _wv_pyarg numeric rules with bounded, cycle-safe container walking."""
+    if depth > _WV_CALLBACK_MAX_CONTAINER_DEPTH:
+        raise TypeError("callback result container nesting exceeds 64 levels")
+    _wv_callback_reject_deferred(value)
+    if _wv_is_latent_callable(value):
+        raise TypeError("callbacks cannot return Latent callable values")
+    if callable(value):
+        raise TypeError("callbacks cannot return callable values")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e18:
+        if value != 0.0 or _math.copysign(1.0, value) > 0:
+            return int(value)
+    if type(value) not in (list, tuple, dict):
+        return value
+    if ancestors is None:
+        ancestors = set()
+    identity = id(value)
+    if identity in ancestors:
+        raise TypeError("cyclic callback result containers are unsupported")
+    ancestors.add(identity)
+    try:
+        if type(value) in (list, tuple):
+            return [_wv_callback_to_host(item, ancestors, depth + 1)
+                    for item in value]
+        converted = {}
+        for key, item in value.items():
+            _wv_callback_to_host(key, ancestors, depth + 1)
+            converted[key] = _wv_callback_to_host(item, ancestors, depth + 1)
+        return converted
+    finally:
+        ancestors.remove(identity)
+
+
+class _WVCallback:
+    """Short-lived Python callable that enters Latent through its normal binder."""
+    def __init__(self, function, scope):
+        self.function = function
+        self.scope = scope
+        scope.adapters.append(self)
+
+    def __call__(self, *args, **kwargs):
+        scope = self.scope
+        if not scope.active:
+            raise TypeError("host callback scope expired; retained callbacks are unsupported")
+        if _threading.get_ident() != scope.owner:
+            raise TypeError("cross-thread host callbacks are unsupported")
+        if kwargs:
+            raise _LtArgumentError("host callback keyword arguments are unsupported")
+        depth = getattr(_wv_callback_local, "depth", 0)
+        if depth >= _WV_CALLBACK_MAX_DEPTH:
+            raise TypeError("host callback nesting exceeds 16 levels")
+        function = self.function
+        if function is None:
+            raise TypeError("host callback scope expired; retained callbacks are unsupported")
+        _wv_callback_local.depth = depth + 1
+        try:
+            latent_args = [_wv_callback_to_latent(arg) for arg in args]
+            result = _wv_call(function, *latent_args)
+            _wv_callback_reject_deferred(result)
+            return _wv_callback_to_host(result)
+        finally:
+            _wv_callback_local.depth = depth
+
+
+def _wv_pyhost_call(function, args):
+    """Invoke a local Python host callable, adapting only direct Latent functions."""
+    if not any(isinstance(arg, _LtFunction) for arg in args):
+        return _wv_pyresult(function(*[_wv_pyarg(arg) for arg in args]))
+    # Python callables cannot reveal when a host stores or schedules them. The
+    # adapters are therefore made unusable at scope exit, not at storage time.
+    scope = _WVCallbackScope()
+    try:
+        converted = [(_WVCallback(arg, scope) if isinstance(arg, _LtFunction)
+                      else _wv_callback_to_host(arg)) for arg in args]
+        result = function(*converted)
+        _wv_callback_reject_deferred(result)
+        _wv_callback_to_host(result)  # Reject returned adapters, nested callables, cycles, and excessive depth.
+        return _wv_pyresult(result)
+    finally:
+        scope.close()
 
 
 def _wv_pymod(name):
@@ -647,7 +801,7 @@ def _wv_python_bound_method(receiver, attr, value):
             return None
     elif type(descriptor) in (getattr(_types, "MethodDescriptorType", object),
                               getattr(_types, "WrapperDescriptorType", object)):
-        if type(value) is not _types.BuiltinMethodType or value.__self__ is not receiver:
+        if not isinstance(value, _types.BuiltinMethodType) or value.__self__ is not receiver:
             return None
     else:
         return None
@@ -662,7 +816,7 @@ def _wv_call(fn, *args):
     if isinstance(fn, _InteropBoundMethod):
         _wv_reject_interop_args(args)
         if fn._kind == "python":
-            return _wv_pyresult(fn._target(*[_wv_pyarg(a) for a in args]))
+            return _wv_pyhost_call(fn._target, args)
         if fn._kind == "java":
             jvm = _JVM.inst()
             return jvm.req({"op": "call", "target": jvm.target(fn._target),
@@ -671,7 +825,7 @@ def _wv_call(fn, *args):
         raise TypeError("invalid interop bound method")
     if isinstance(fn, _InteropModuleFunction):
         _wv_reject_interop_args(args)
-        return _wv_pyresult(fn._function(*[_wv_pyarg(a) for a in args]))
+        return _wv_pyhost_call(fn._function, args)
     if isinstance(fn, _InteropStaticMethod):
         _wv_reject_interop_args(args)
         jvm = _JVM.inst()
@@ -938,9 +1092,9 @@ def _wv_wcall(h, attr, *args):
                                _wv_method_required_keyword_only(m))(*args)
     if isinstance(h, _LazyMod):
         _wv_reject_interop_args(args)
-        return _wv_pyresult(getattr(h, attr)(*[_wv_pyarg(a) for a in args]))
+        return _wv_pyhost_call(getattr(h, attr), args)
     _wv_reject_interop_args(args)
-    return _wv_pyresult(getattr(h, attr)(*[_wv_pyarg(a) for a in args]))
+    return _wv_pyhost_call(getattr(h, attr), args)
 
 
 def _wv_supercall(receiver, owner, attr, *args):

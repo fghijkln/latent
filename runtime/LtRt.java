@@ -1,6 +1,10 @@
 import java.util.*;
 import java.io.*;
 import java.lang.reflect.Array;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Latent Java-backend runtime.
@@ -349,8 +353,13 @@ public class LtRt {
     public static class PyHandle {
         final String module; // non-null for `py "mod"` handles
         final long id;       // remote object id, -1 for module handles
-        PyHandle(String module) { this.module = module; this.id = -1; }
-        PyHandle(long id) { this.module = null; this.id = id; }
+        final long session;
+        PyHandle(String module) { this.module = module; this.id = -1; this.session = -1; }
+        PyHandle(long id) {
+            this.module = null;
+            this.id = id;
+            this.session = Daemon.trackHandle(this, id);
+        }
         boolean isModule() { return module != null; }
     }
 
@@ -499,17 +508,32 @@ public class LtRt {
                     "argument unpacking is not supported for Python/Java interop calls");
     }
     private static boolean containsInteropCallable(Object value) {
+        return containsInteropCallable(value, new IdentityHashMap<Object, Boolean>(), 0);
+    }
+    private static boolean containsInteropCallable(Object value,
+            IdentityHashMap<Object, Boolean> ancestors, int depth) {
+        if (depth > 64)
+            throw new RuntimeException("interop container nesting exceeds 64 levels");
         if (value instanceof LtFunction || value instanceof InteropBoundMethod ||
                 value instanceof InteropModuleFunction ||
                 value instanceof InteropStaticMethod)
             return true;
-        if (value instanceof List)
-            for (Object item : (List<?>) value)
-                if (containsInteropCallable(item)) return true;
-        if (value instanceof Map)
-            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
-                if (containsInteropCallable(entry.getKey()) ||
-                        containsInteropCallable(entry.getValue())) return true;
+        if (value instanceof List || value instanceof Map) {
+            if (ancestors.put(value, Boolean.TRUE) != null)
+                throw new RuntimeException("cyclic interop containers are unsupported");
+            try {
+                if (value instanceof List) {
+                    for (Object item : (List<?>) value)
+                        if (containsInteropCallable(item, ancestors, depth + 1)) return true;
+                } else {
+                    for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+                        if (containsInteropCallable(entry.getKey(), ancestors, depth + 1) ||
+                                containsInteropCallable(entry.getValue(), ancestors, depth + 1)) return true;
+                }
+            } finally {
+                ancestors.remove(value);
+            }
+        }
         return false;
     }
     private static void rejectInteropCallables(Object[] args) {
@@ -721,12 +745,12 @@ public class LtRt {
             return ((LtFunction) value).invoke(args);
         if (value instanceof InteropBoundMethod) {
             rejectInteropArgs(args);
-            rejectInteropCallables(args);
-            return ((InteropBoundMethod) value).invoke(args);
+            InteropBoundMethod method = (InteropBoundMethod) value;
+            if (method.pythonMethod == null) rejectInteropCallables(args);
+            return method.invoke(args);
         }
         if (value instanceof InteropModuleFunction) {
             rejectInteropArgs(args);
-            rejectInteropCallables(args);
             return ((InteropModuleFunction) value).invoke(args);
         }
         if (value instanceof InteropStaticMethod) {
@@ -993,7 +1017,6 @@ public class LtRt {
     public static Object wcall(Object h, String attr, Object... args) {
         if (h instanceof PyHandle) {
             rejectInteropArgs(args);
-            rejectInteropCallables(args);
             return pycall(h, attr, args);
         }
         if (h instanceof LtClass) {
@@ -1148,10 +1171,51 @@ public class LtRt {
 
     // ---------------- lazy python daemon ----------------
     static class Daemon {
-        private static Daemon instance;
+        private static volatile Daemon instance;
+        private static long nextSession = 1;
+        private final long session = allocateSession();
         private Process proc;
         private BufferedWriter out;
         private BufferedReader in;
+        private volatile boolean closed;
+        private final ReentrantLock rpcLock = new ReentrantLock();
+        private final Deque<Long> requestStack = new ArrayDeque<>();
+        private long nextRequestId = 1;
+        private long lastCallbackInvocationId = 0;
+        private final AtomicLong nextCallbackToken = new AtomicLong(1);
+        private static final ReferenceQueue<PyHandle> HANDLE_QUEUE = new ReferenceQueue<>();
+        private static final Map<String, Integer> HANDLE_COUNTS = new HashMap<>();
+        private static final Set<HandleRef> HANDLE_REFS = new HashSet<>();
+        private final Set<Long> releasedHandles = new LinkedHashSet<>();
+        private static final class HandleRef extends WeakReference<PyHandle> {
+            final long id;
+            final long session;
+            HandleRef(PyHandle handle, long id, long session) {
+                super(handle, HANDLE_QUEUE);
+                this.id = id;
+                this.session = session;
+            }
+        }
+        private static synchronized long allocateSession() { return nextSession++; }
+        private static String handleKey(long session, long id) { return session + ":" + id; }
+        static long trackHandle(PyHandle handle, long id) {
+            Daemon current = instance;
+            if (current == null) return -1;
+            synchronized (HANDLE_COUNTS) {
+                HANDLE_REFS.add(new HandleRef(handle, id, current.session));
+                String key = handleKey(current.session, id);
+                HANDLE_COUNTS.put(key, HANDLE_COUNTS.getOrDefault(key, 0) + 1);
+            }
+            return current.session;
+        }
+        private void clearHandleTracking() {
+            synchronized (HANDLE_COUNTS) {
+                String prefix = session + ":";
+                HANDLE_COUNTS.keySet().removeIf(key -> key.startsWith(prefix));
+                HANDLE_REFS.removeIf(ref -> ref.session == session);
+                releasedHandles.clear();
+            }
+        }
 
         static synchronized Daemon inst() {
             if (instance == null) {
@@ -1205,10 +1269,20 @@ public class LtRt {
         }
 
         private void close() {
-            try { sendRaw("{\"op\":\"quit\"}"); } catch (Exception ignored) {}
+            if (closed) return;
+            closed = true;
+            Process child = proc;
+            // Never inject quit into a stream currently owned by an active exchange.
+            if (child != null && rpcLock.tryLock()) {
+                try {
+                    if (requestStack.isEmpty()) sendRaw("{\"op\":\"quit\"}");
+                } catch (Exception ignored) {}
+                finally { rpcLock.unlock(); }
+            }
+            if (child != null) child.destroy(); // also releases any blocked readLine
+            clearHandleTracking();
             try { if (out != null) out.close(); } catch (Exception ignored) {}
             try { if (in != null) in.close(); } catch (Exception ignored) {}
-            if (proc != null) proc.destroy();
             proc = null;
         }
 
@@ -1218,31 +1292,275 @@ public class LtRt {
             out.flush();
         }
 
-        /** One request -> decoded "value", or throws on daemon error. */
-        private synchronized Object exchange(String req) {
+        private static final class ProtocolException extends RuntimeException {
+            ProtocolException(String message) { super(message); }
+            ProtocolException(String message, Throwable cause) { super(message, cause); }
+        }
+        private static long safeId(Object value, String label, boolean allowZero) {
+            if (!(value instanceof Number) || value instanceof Boolean)
+                throw new ProtocolException("invalid " + label + " ID");
+            double n = ((Number) value).doubleValue();
+            if (!Double.isFinite(n) || n != Math.rint(n) || n < (allowZero ? 0 : 1) ||
+                    n > 9007199254740991d)
+                throw new ProtocolException("invalid " + label + " ID");
+            return (long) n;
+        }
+        private static Map<?, ?> object(Object value, String label) {
+            if (!(value instanceof Map)) throw new ProtocolException("invalid " + label + " frame");
+            return (Map<?, ?>) value;
+        }
+        private static void exactKeys(Map<?, ?> map, String label, String... keys) {
+            Set<String> expected = new HashSet<>(Arrays.asList(keys));
+            if (!map.keySet().equals(expected)) throw new ProtocolException("invalid " + label + " schema");
+        }
+        private static String callbackDescriptor(long token) {
+            return "{\"__lt_callback__\":" + token + "}";
+        }
+        private static String encodeCallbackResult(Object value) {
+            return encodeCallbackResult(value, new IdentityHashMap<Object, Boolean>(), 0);
+        }
+        private static String encodeCallbackResult(Object value,
+                IdentityHashMap<Object, Boolean> ancestors, int depth) {
+            if (depth > 64)
+                throw new RuntimeException("callback result container nesting exceeds 64 levels");
+            if (value instanceof LtFunction || value instanceof InteropBoundMethod ||
+                    value instanceof InteropModuleFunction || value instanceof InteropStaticMethod)
+                throw new RuntimeException("returning a Latent callback is unsupported");
+            if (value instanceof List || value instanceof Map) {
+                if (ancestors.put(value, Boolean.TRUE) != null)
+                    throw new RuntimeException("cyclic callback result containers are unsupported");
+                try {
+                    if (value instanceof List) {
+                        StringBuilder json = new StringBuilder("[");
+                        boolean first = true;
+                        for (Object item : (List<?>) value) {
+                            if (!first) json.append(',');
+                            json.append(encodeCallbackResult(item, ancestors, depth + 1));
+                            first = false;
+                        }
+                        return json.append(']').toString();
+                    }
+                    StringBuilder json = new StringBuilder("{\"__map\":[");
+                    boolean first = true;
+                    for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                        if (!first) json.append(',');
+                        // Validate keys as callback values too; the interop map
+                        // representation stringifies keys, matching encodeArg.
+                        encodeCallbackResult(entry.getKey(), ancestors, depth + 1);
+                        json.append('[').append(Json.str(String.valueOf(entry.getKey())))
+                            .append(',').append(encodeCallbackResult(
+                                entry.getValue(), ancestors, depth + 1)).append(']');
+                        first = false;
+                    }
+                    return json.append("]}").toString();
+                } finally {
+                    ancestors.remove(value);
+                }
+            }
+            return encodeArg(value);
+        }
+        private String argsJson(Object[] args, Map<Long, LtFunction> callbacks) {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < args.length; i++) {
+                if (i != 0) sb.append(',');
+                Object arg = args[i];
+                if (arg instanceof LtFunction) {
+                    long token = callbackToken();
+                    callbacks.put(token, (LtFunction) arg);
+                    sb.append(callbackDescriptor(token));
+                } else {
+                    if (containsInteropCallable(arg))
+                        throw new RuntimeException("Latent callable values cannot be passed to Python/Java interop calls");
+                    sb.append(encodeArg(arg));
+                }
+            }
+            return sb.append(']').toString();
+        }
+        private long callbackToken() {
+            long token = nextCallbackToken.getAndIncrement();
+            if (token > 9007199254740991L)
+                throw new RuntimeException("Python callback token limit exceeded");
+            return token;
+        }
+        private String addReleasedRefs(String payload) {
+            List<Long> refs = new ArrayList<>();
+            synchronized (HANDLE_COUNTS) {
+                HandleRef ref;
+                while ((ref = (HandleRef) HANDLE_QUEUE.poll()) != null) {
+                    HANDLE_REFS.remove(ref);
+                    String key = handleKey(ref.session, ref.id);
+                    Integer count = HANDLE_COUNTS.get(key);
+                    if (count == null) continue;
+                    if (count <= 1) {
+                        HANDLE_COUNTS.remove(key);
+                        if (ref.session == session) releasedHandles.add(ref.id);
+                    } else HANDLE_COUNTS.put(key, count - 1);
+                }
+                refs.addAll(releasedHandles);
+                releasedHandles.clear();
+            }
+            if (refs.isEmpty()) return "{\"kind\":\"request\",\"id\":%d,\"parent\":%d,\"payload\":%s}";
+            StringBuilder ids = new StringBuilder("[");
+            for (int i = 0; i < refs.size(); i++) {
+                if (i != 0) ids.append(',');
+                ids.append(refs.get(i));
+            }
+            ids.append(']');
+            return "{\"kind\":\"request\",\"id\":%d,\"parent\":%d,\"release_refs\":" + ids + ",\"payload\":%s}";
+        }
+        private Object exchange(String req) {
             Map<String, Object> m = exchangeResponse(req);
-            if (m.containsKey("error"))
-                throw new RuntimeException("python error: " + m.get("error"));
+            if (m.containsKey("error")) throw new RuntimeException("python error: " + m.get("error"));
+            if (!m.containsKey("value")) throw new RuntimeException("invalid Python response payload");
             return decodeValue(m.get("value"));
         }
-
         @SuppressWarnings("unchecked")
-        private synchronized Map<String, Object> exchangeResponse(String req) {
+        private Map<String, Object> exchangeResponse(String req) {
+            return exchangeResponse(req, new LinkedHashMap<Long, LtFunction>());
+        }
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> exchangeResponse(String req,
+                Map<Long, LtFunction> callbacks) {
+            if (closed) {
+                callbacks.clear();
+                throw new RuntimeException("python daemon is shut down");
+            }
+            if (!rpcLock.tryLock()) {
+                callbacks.clear();
+                throw new RuntimeException("cross-thread Python RPC is unsupported");
+            }
+            long id = 0;
+            Map<Long, Throwable> callbackErrors = new LinkedHashMap<>();
+            Set<Long> callbackInvocations = new HashSet<>();
             try {
-                sendRaw(req);
-                String line = in.readLine();
-                if (line == null) throw new RuntimeException("python daemon died");
-                Object response = Json.parse(line);
-                if (!(response instanceof Map))
-                    throw new RuntimeException("invalid Python daemon response");
-                return (Map<String, Object>) response;
+                if (requestStack.size() >= 16) throw new RuntimeException("Python RPC depth limit exceeded");
+                id = nextRequestId++;
+                if (id > 9007199254740991L) throw new RuntimeException("Python request ID limit exceeded");
+                long parent = requestStack.isEmpty() ? 0 : requestStack.peek();
+                requestStack.push(id);
+                String framed = addReleasedRefs(req);
+                sendRaw(String.format(java.util.Locale.ROOT, framed, id, parent, req));
+                while (true) {
+                    String line = in.readLine();
+                    if (line == null) throw new RuntimeException("python daemon died");
+                    Object parsed;
+                    try { parsed = Json.parse(line); }
+                    catch (RuntimeException malformed) {
+                        throw new ProtocolException("invalid Python protocol JSON", malformed);
+                    }
+                    Map<?, ?> frame = object(parsed, "Python daemon");
+                    Object kind = frame.get("kind");
+                    if ("callback".equals(kind)) {
+                        exactKeys(frame, "callback", "kind", "id", "parent", "callback", "args");
+                        long cbid = safeId(frame.get("callback"), "callback token", false);
+                        long frameId = safeId(frame.get("id"), "callback invocation", false);
+                        if (safeId(frame.get("parent"), "callback parent", false) != id ||
+                                !callbacks.containsKey(cbid) || !callbackInvocations.add(frameId) ||
+                                frameId <= lastCallbackInvocationId)
+                            throw new ProtocolException("unknown callback token, duplicate ID, or parent mismatch");
+                        lastCallbackInvocationId = frameId;
+                        Object rawArgs = frame.get("args");
+                        if (!(rawArgs instanceof List)) throw new ProtocolException("invalid callback args schema");
+                        Object[] argv = new Object[((List<?>) rawArgs).size()];
+                        for (int i = 0; i < argv.length; i++) argv[i] = decodeValue(((List<?>) rawArgs).get(i));
+                        String reply;
+                        try {
+                            Object result = callbacks.get(cbid).invoke(argv); // retain normal Latent binder
+                            reply = "{\"kind\":\"callback_result\",\"parent\":" + id +
+                                ",\"id\":" + frameId + ",\"value\":" +
+                                encodeCallbackResult(result) + "}";
+                        } catch (ProtocolException fatalProtocolError) {
+                            // A nested RPC protocol violation is fatal; never
+                            // turn it into an ordinary host callback exception.
+                            throw fatalProtocolError;
+                        } catch (Throwable failure) {
+                            long errorId = nextRequestId++;
+                            if (errorId > 9007199254740991L)
+                                throw new RuntimeException("Python callback error ID limit exceeded");
+                            callbackErrors.put(errorId, failure);
+                            String message = failure.getMessage();
+                            if (message == null) message = "";
+                            reply = "{\"kind\":\"callback_result\",\"parent\":" + id +
+                                ",\"id\":" + frameId + ",\"error_id\":" + errorId +
+                                ",\"error_message\":" + Json.str(message) + "}";
+                        }
+                        sendRaw(reply);
+                        continue;
+                    }
+                    if (!"response".equals(kind))
+                        throw new ProtocolException("response ID/direction mismatch");
+                    exactKeys(frame, "response", "kind", "id", "parent", "payload");
+                    if (safeId(frame.get("id"), "response", false) != id ||
+                            safeId(frame.get("parent"), "response parent", true) != parent)
+                        throw new ProtocolException("Python response ID/parent mismatch");
+                    Map<?, ?> payload = object(frame.get("payload"), "response payload");
+                    if (payload.containsKey("callback_error")) {
+                        exactKeys(payload, "callback error payload", "callback_error");
+                        long errorId = safeId(payload.get("callback_error"), "callback error", false);
+                        Throwable original = callbackErrors.get(errorId);
+                        if (original == null) throw new ProtocolException("unknown or expired callback error ID");
+                        throw Daemon.<RuntimeException>throwOriginal(original);
+                    }
+                    if (payload.containsKey("error")) {
+                        exactKeys(payload, "error payload", "error");
+                        if (!(payload.get("error") instanceof String))
+                            throw new ProtocolException("invalid Python error payload schema");
+                    } else if (payload.containsKey("value")) {
+                        exactKeys(payload, "value payload", "value");
+                    } else if (payload.containsKey("bound_method")) {
+                        exactKeys(payload, "bound-method payload", "bound_method");
+                        Object method = payload.get("bound_method");
+                        if (method != null) {
+                            Map<?, ?> value = object(method, "bound-method payload");
+                            exactKeys(value, "bound-method value", "id", "type", "member");
+                            safeId(value.get("id"), "bound method", false);
+                            if (!(value.get("type") instanceof String) ||
+                                    !(value.get("member") instanceof String))
+                                throw new ProtocolException("invalid bound-method value schema");
+                        }
+                    } else if (payload.containsKey("module_function")) {
+                        exactKeys(payload, "module-function payload", "module_function");
+                        Object function = payload.get("module_function");
+                        if (function != null) {
+                            Map<?, ?> value = object(function, "module-function payload");
+                            exactKeys(value, "module-function value", "id", "module", "name");
+                            safeId(value.get("id"), "module function", false);
+                            if (!(value.get("module") instanceof String) ||
+                                    !(value.get("name") instanceof String))
+                                throw new ProtocolException("invalid module-function value schema");
+                        }
+                    } else throw new ProtocolException("invalid Python response payload schema");
+                    return (Map<String, Object>) payload;
+                }
+            } catch (ProtocolException e) {
+                closed = true;
+                if (proc != null) proc.destroy();
+                clearHandleTracking();
+                throw e;
             } catch (IOException e) {
                 throw new RuntimeException("python daemon io error: " + e.getMessage());
+            } finally {
+                callbacks.clear();
+                callbackErrors.clear();
+                callbackInvocations.clear();
+                if (!requestStack.isEmpty() && requestStack.peek() == id) requestStack.pop();
+                rpcLock.unlock();
             }
+        }
+        @SuppressWarnings("unchecked")
+        private static <T extends Throwable> RuntimeException throwOriginal(Throwable failure) throws T {
+            throw (T) failure;
+        }
+
+        private static long currentSession() {
+            Daemon current = instance;
+            return current == null ? -1 : current.session;
         }
 
         private static String targetJson(PyHandle h) {
             if (h.isModule()) return "{\"mod\":" + Json.str(h.module) + "}";
+            if (h.session != currentSession())
+                throw new RuntimeException("stale Python object handle after daemon shutdown");
             return "{\"id\":" + h.id + "}";
         }
 
@@ -1282,36 +1600,22 @@ public class LtRt {
         }
 
         Object callBoundMethod(PyBoundMethodRef method, Object[] args) {
-            StringBuilder request = new StringBuilder(
-                "{\"op\":\"call_bound_method\",\"id\":" + method.id +
-                ",\"args\":[");
-            for (int i = 0; i < args.length; i++) {
-                if (i > 0) request.append(",");
-                request.append(encodeArg(args[i]));
-            }
-            return exchange(request.append("]}").toString());
+            return callArgs("{\"op\":\"call_bound_method\",\"id\":" + method.id, args);
         }
-
         Object callModuleFunction(PyModuleFunctionRef function, Object[] args) {
-            StringBuilder request = new StringBuilder(
-                "{\"op\":\"call_module_function\",\"id\":" + function.id +
-                ",\"args\":[");
-            for (int i = 0; i < args.length; i++) {
-                if (i > 0) request.append(",");
-                request.append(encodeArg(args[i]));
-            }
-            return exchange(request.append("]}").toString());
+            return callArgs("{\"op\":\"call_module_function\",\"id\":" + function.id, args);
         }
-
         Object call(PyHandle h, String attr, Object[] args) {
-            StringBuilder sb = new StringBuilder(
-                "{\"op\":\"call\",\"target\":" + targetJson(h) +
-                ",\"attr\":" + Json.str(attr) + ",\"args\":[");
-            for (int i = 0; i < args.length; i++) {
-                if (i > 0) sb.append(",");
-                sb.append(encodeArg(args[i]));
-            }
-            return exchange(sb.append("]}").toString());
+            return callArgs("{\"op\":\"call\",\"target\":" + targetJson(h) +
+                ",\"attr\":" + Json.str(attr), args);
+        }
+        private Object callArgs(String prefix, Object[] args) {
+            Map<Long, LtFunction> callbacks = new LinkedHashMap<>();
+            String req = prefix + ",\"args\":" + argsJson(args, callbacks) + "}";
+            Map<String, Object> response = exchangeResponse(req, callbacks);
+            if (response.containsKey("error")) throw new RuntimeException("python error: " + response.get("error"));
+            if (!response.containsKey("value")) throw new RuntimeException("invalid Python call response");
+            return decodeValue(response.get("value"));
         }
 
         String repr(PyHandle h) {
@@ -1355,6 +1659,8 @@ public class LtRt {
                     "Latent callable values cannot be passed to Python/Java interop calls");
             if (v instanceof PyHandle) {
                 PyHandle h = (PyHandle) v;
+                if (!h.isModule() && h.session != currentSession())
+                    throw new RuntimeException("stale Python object handle after daemon shutdown");
                 return h.isModule() ? "{\"__mod\":" + Json.str(h.module) + "}"
                                     : "{\"__ref\":" + h.id + "}";
             }
@@ -1510,7 +1816,9 @@ public class LtRt {
                     String k = string();
                     ws();
                     i++; // :
-                    m.put(k, value());
+                    Object v = value();
+                    if (m.containsKey(k)) throw new RuntimeException("duplicate JSON object key");
+                    m.put(k, v);
                     ws();
                     char c = s.charAt(i++);
                     if (c == '}') return m;

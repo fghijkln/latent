@@ -276,7 +276,6 @@
       "p14_negative/java_opaque_callable",
       "p14_negative/module_builtin_len",
       "p14_negative/module_callable_object",
-      "p14_negative/module_callback",
       "p14_negative/module_dynamic_callable",
       "p14_negative/module_list_callback",
       "p14_negative/module_named",
@@ -1483,6 +1482,7 @@
     "test_diagnostics.py",
     "test_differential_properties.py",
     "test_p14_protocol.py",
+    "test_p18_callbacks.py",
     "test_repl.py"
   ],
   "p14_protocol_operations": {
@@ -1695,6 +1695,7 @@
       "p14_negative/static_starstar.lt",
       "p14_negative/static_wrapper_callback.lt",
       "p14_static_method_extraction.lt",
+      "p18_callbacks.lt",
       "p5_closure_capture.lt",
       "p5_global.lt",
       "p5_invalid_calls.lt",
@@ -1797,11 +1798,13 @@
       "test_editor_metadata.py",
       "test_latent_stage1.py",
       "test_p14_protocol.py",
+      "test_p18_callbacks.py",
       "test_repl.py"
     ],
     "python_fixture": [
       "p13_host.py",
-      "p14_host.py"
+      "p14_host.py",
+      "p18_callbacks_host.py"
     ]
   },
   "fixture_decisions": {
@@ -2911,20 +2914,20 @@
     },
     "cookbook_lt/variadic_arguments.lt": {
       "disposition": "include",
-    "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
-  },
-  "java_fixture/P13InteropFixture.java": {
-    "disposition": "exclude",
-    "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it with javac for included Python-target P13 interop cases."
-  },
-  "java_fixture/P14InteropFixture.java": {
-    "disposition": "exclude",
-    "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it with javac for included Python-target P14 interop cases."
-  },
-  "java_fixture/Stage1Overloads.java": {
-    "disposition": "exclude",
-    "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it for included Python-target overload and fixed-seed property cases."
-  },
+      "reason": "Cookbook example or imported support module exercised by the Python-target runner leg; includes Python, Java-interop, and mixed examples rather than excluding cookbook wholesale."
+    },
+    "java_fixture/P13InteropFixture.java": {
+      "disposition": "exclude",
+      "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it with javac for included Python-target P13 interop cases."
+    },
+    "java_fixture/P14InteropFixture.java": {
+      "disposition": "exclude",
+      "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it with javac for included Python-target P14 interop cases."
+    },
+    "java_fixture/Stage1Overloads.java": {
+      "disposition": "exclude",
+      "reason": "Java-only host fixture source, not a Latent target input; the projector compiles it for included Python-target overload and fixed-seed property cases."
+    },
     "test_module/bootstrap/test_checker.py": {
       "disposition": "include",
       "reason": "Focused Python unit tests for ledger baseline acceptance and synthetic unclassified-case rejection."
@@ -2976,6 +2979,18 @@
     "python_fixture/p14_host.py": {
       "disposition": "include",
       "reason": "Python host fixture consumed by target=py P14 module-function interoperability cases."
+    },
+    "tests_lt/p18_callbacks.lt": {
+      "disposition": "include",
+      "reason": "P18 synchronous Python-host callback fixture projected independently through Stage1 and Stage2; it is not a legacy Stage0 runner case."
+    },
+    "python_fixture/p18_callbacks_host.py": {
+      "disposition": "include",
+      "reason": "P18 test host exposes bounded synchronous callback operations and error/recovery cases for the standalone callback matrix and bootstrap feature projection."
+    },
+    "test_module/test_p18_callbacks.py": {
+      "disposition": "include",
+      "reason": "Focused dual-backend callback matrix covering invocation, conversions, failure recovery, expiry, and rejection of unsupported callback forms."
     }
   },
   "auxiliary_tests": {
@@ -3034,6 +3049,126 @@
     "test_bootstrap_smoke.py": {
       "disposition": "include",
       "reason": "Fixed-Stage0 end-to-end checks for the bootstrap emitter, including compile/runtime source mapping, classes and interop, Stage1-to-Stage3 fixed point, dual-root reproducibility, exact artifact manifests, and a source-tree read-only snapshot around both builds; full ledger projection is enforced separately by project_stage0.py."
+    },
+    "test_p18_callbacks.py": {
+      "disposition": "include",
+      "reason": "Runner-invoked P18 dual-backend callback matrix, registered as an auxiliary suite."
+    },
+    "tests/p18_callbacks.lt": {
+      "disposition": "include",
+      "reason": "Standalone P18 Stage1/Stage2 bootstrap feature fixture; compared by the dedicated feature leg, not fixed Stage0."
+    },
+    "tests/python/p18_callbacks_host.py": {
+      "disposition": "include",
+      "reason": "Support host for the P18 callback feature fixture and callback matrix."
     }
-  }
+  },
+  "p18_stage1_feature": {
+    "source": "tests/p18_callbacks.lt",
+    "expected": {
+      "phase": "run",
+      "rc": 0,
+      "stdout": "#1:a #2:bb\n#3:c\n#4:dd\nconversion-ok\none!\n2\nx!xx!x\n32\ncompiled!\nextracted!\npositional:star-arg\npositional:partial\ndefault! | one! | two?\n0,1,2\n",
+      "stderr": ""
+    }
+  },
+  "p18_stage0_deltas": {
+    "p14_negative/module_callback": {
+      "reason": "The fixed Stage0 bridge rejects the Latent callback argument before the Python host runs. P18 allows the callback argument to reach the host, then still rejects the returned Latent callback; the rejection point and diagnostic are intentionally different.",
+      "fixed_stage0": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr_contains": "Latent callable values cannot be passed to Python/Java interop calls"
+      },
+      "stage1_stage2": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: TypeError: callbacks cannot return Latent callable values\nLatent traceback (most recent call last):\n  at p14_negative/module_callback.lt:4 in main\n"
+      }
+    }
+  },
+  "p18_stage1_cases": [
+    {
+      "name": "p18_host_error_caught",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return value\ntry:\n    host.save_then_fail(callback)\ncatch error:\n    say \"caught-host-error\"\nsay host.identity(\"still-usable\")\n",
+      "expected": {
+        "phase": "run",
+        "rc": 0,
+        "stdout": "caught-host-error\nstill-usable\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "p18_deferred_host_result",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return value\nsay host.deferred(callback)\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: TypeError: synchronous host callbacks do not support async or deferred results\nLatent traceback (most recent call last):\n  at p18_deferred_host_result.lt:4 in main\n"
+      }
+    },
+    {
+      "name": "p18_async_host_result",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return value\nsay host.async_deferred(callback)\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: TypeError: synchronous host callbacks do not support async or deferred results\nLatent traceback (most recent call last):\n  at p18_async_host_result.lt:4 in main\n"
+      }
+    },
+    {
+      "name": "p18_callback_returns_deferred",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return host.generator_value()\nsay host.invoke_one(callback)\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: TypeError: synchronous host callbacks do not support async or deferred results\nLatent traceback (most recent call last):\n  at p18_callback_returns_deferred.lt:4 in main\n"
+      }
+    },
+    {
+      "name": "p18_callback_returns_callable",
+      "source": "host = py \"p18_callbacks_host\"\nfn inner(value):\n    return value\nfn callback(value):\n    return inner\nsay host.invoke_one(callback)\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: TypeError: callbacks cannot return Latent callable values\nLatent traceback (most recent call last):\n  at p18_callback_returns_callable.lt:6 in main\n"
+      }
+    },
+    {
+      "name": "p18_host_star_argument",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return value\nsay host.identity(callback, *[])\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls\nLatent traceback (most recent call last):\n  at p18_host_star_argument.lt:4 in main\n"
+      }
+    },
+    {
+      "name": "p18_host_starstar_argument",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return value\nsay host.identity(callback, **{})\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: ArgumentError: argument unpacking is not supported for Python/Java interop calls\nLatent traceback (most recent call last):\n  at p18_host_starstar_argument.lt:4 in main\n"
+      }
+    },
+    {
+      "name": "p18_callback_wrong_arity",
+      "source": "host = py \"p18_callbacks_host\"\nfn callback(value):\n    return value\nsay host.invoke_two(callback)\n",
+      "expected": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: ArgumentError: callback() takes 1 args, got 2\nLatent traceback (most recent call last):\n  at p18_callback_wrong_arity.lt:4 in main\n"
+      }
+    }
+  ]
 }
