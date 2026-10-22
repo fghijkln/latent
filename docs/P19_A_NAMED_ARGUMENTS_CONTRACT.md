@@ -214,14 +214,17 @@ host.strict(1, **{"flag":true})         # 仍拒绝宿主展开
 
 对 P19 后续实现，现有 `host_keyword_callback`、`callback_star_kwargs` 两个 P18 focused 负例会变成受支持绑定正例；`host_named_argument` 不可只删断言：该输入的 `other` 是否被 Python 接受取决于 fixture 签名，必须改成明确的 Python 绑定错误或使用合法签名正例。保留它们的 coverage lineage，不能把删除计作通过。相应 Stage1 feature expectations 若在 ledger 中必须逐项更新。
 
-另有两项**必然变化**的 included runner/projection cases，须保留原 case ID 与源码，不能因目录名含 `negative` 就删除或排除：
+以下三项 included runner/projection cases 显式登记行为变化：原两项转为成功，获批新增的第三项仍为运行期负例、仅改变拒绝来源和诊断。须保留原 case ID 与源码，不能因目录名含 `negative` 就删除或排除：
 
-| 精确 case ID | 固定 Stage0 原行为 | P19 Stage1/2 新行为（两个现有编译目标也须一致成功） |
+| 精确 case ID | 固定 Stage0 原行为 | P19 Stage1/2 新行为（两个现有编译目标也须遵守对应结果） |
 |---|---|---|
 | `p13_negative/python_named` | 编译成功、运行失败；stdout 为空；互操作 named 拒绝诊断与 `python_named.lt:4` | 编译/运行退出码均为 0；stdout、stderr 均为空；实际调用 `Sample.push(value="named")` |
 | `p14_negative/module_named` | 编译成功、运行失败；stdout 为空；`named arguments are not supported for Python/Java interop calls` 与 `module_named.lt:3` | 编译/运行退出码均为 0；stdout、stderr 均为空；实际调用 `scale(value=1)` |
+| `p8_negative/python_interop` | 编译成功、运行退出码为 1；stdout 为空；桥入口 `ArgumentError: named arguments are not supported for Python/Java interop calls`，位置 `python_interop.lt:2` | 编译成功、运行退出码仍为 1；stdout 为空；真实调用 `math.sqrt(value=4)` 后由 Python 抛 `TypeError: math.sqrt() takes no keyword arguments`，位置仍为 `python_interop.lt:2` |
 
 Stage0 的完整旧期望继续取固定 seed 的现有归一化结果，不重写为 P19 成功；后续 delta 记录须钉住实际非零退出码、原诊断和行号。新成功结果不能靠跳过调用达到，N01/N02 另用可观察返回值/副作用验证。`p13_negative/java_named`、`p14_negative/static_named` 继续保留原拒绝、失败状态和源位置，不能随 Python 两项一起转正。
+
+**P19-B 精确修订（2026-10-22，所有者明确批准）：** 仅在原两项之外新增 `p8_negative/python_interop` 这一条 delta。该 fixture 的源码和负例身份不变；变化仅是显式 kwargs 到达 Python 后，原桥拒绝变为 Python 自身的签名 `TypeError`。manifest 与 checker 必须分别钉住固定 Stage0 的完整原拒绝，以及 Stage1/2 的完整归一化新诊断、退出状态和第 2 行位置；不按函数名特殊处理，不反射签名，不转换回旧错误，也不失败后重试。P19 Stage0 delta allowlist 恰为上述三个精确 ID；不新增通配、类别排除或第四项差异，其余历史投影继续严格比较。本修订不启动 P19-C，不改变 callback kwargs 的实施边界。
 
 固定 Stage0 永远不获得 P19 能力。若某既有投影 case 的 Stage1/2 行为确需改变，只能增加**窄而显式**的 delta（准确 case ID、Stage0 原拒绝、Stage1/2 新 stdout/stderr/退出状态/阶段/位置），并更新 checker 与其测试；不得套用通用“命名参数差异忽略”规则。新增功能案例沿用 P18 的 Stage1/2 feature 覆盖模式，不假称 Stage0 支持。所有原 included IDs、fixture 调用、505 个性质样本及 P18 唯一既有 Stage0 delta `p14_negative/module_callback` 保留，不重 pin、不搬到 excluded、不降低原有 projection 合同。
 

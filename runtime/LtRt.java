@@ -448,6 +448,14 @@ public class LtRt {
             this.value = value;
         }
     }
+    private static final class InteropCallArgs {
+        final Object[] positional;
+        final List<NamedArg> named;
+        InteropCallArgs(Object[] positional, List<NamedArg> named) {
+            this.positional = positional;
+            this.named = named;
+        }
+    }
     public static class ArgumentError extends RuntimeException {
         ArgumentError(String message) { super(message); }
     }
@@ -506,6 +514,24 @@ public class LtRt {
             if (arg instanceof StarArg || arg instanceof StarStarArg)
                 throw new ArgumentError(
                     "argument unpacking is not supported for Python/Java interop calls");
+    }
+    private static InteropCallArgs splitInteropArgs(Object[] args) {
+        List<Object> positional = new ArrayList<>();
+        List<NamedArg> named = new ArrayList<>();
+        Set<String> names = new HashSet<>();
+        for (Object arg : args) {
+            if (arg instanceof StarArg || arg instanceof StarStarArg)
+                throw new ArgumentError(
+                    "argument unpacking is not supported for Python/Java interop calls");
+            if (arg instanceof NamedArg) {
+                NamedArg pair = (NamedArg) arg;
+                if (!names.add(pair.name))
+                    throw new ArgumentError("got duplicate named argument '" +
+                        pair.name + "'");
+                named.add(pair);
+            } else positional.add(arg);
+        }
+        return new InteropCallArgs(positional.toArray(), named);
     }
     private static boolean containsInteropCallable(Object value) {
         return containsInteropCallable(value, new IdentityHashMap<Object, Boolean>(), 0);
@@ -744,13 +770,14 @@ public class LtRt {
         if (value instanceof LtFunction)
             return ((LtFunction) value).invoke(args);
         if (value instanceof InteropBoundMethod) {
-            rejectInteropArgs(args);
             InteropBoundMethod method = (InteropBoundMethod) value;
-            if (method.pythonMethod == null) rejectInteropCallables(args);
+            if (method.pythonMethod == null) {
+                rejectInteropArgs(args);
+                rejectInteropCallables(args);
+            }
             return method.invoke(args);
         }
         if (value instanceof InteropModuleFunction) {
-            rejectInteropArgs(args);
             return ((InteropModuleFunction) value).invoke(args);
         }
         if (value instanceof InteropStaticMethod) {
@@ -1016,7 +1043,6 @@ public class LtRt {
     /** Unified call: py handles, java static/instance methods, C.new() constructors. */
     public static Object wcall(Object h, String attr, Object... args) {
         if (h instanceof PyHandle) {
-            rejectInteropArgs(args);
             return pycall(h, attr, args);
         }
         if (h instanceof LtClass) {
@@ -1363,18 +1389,31 @@ public class LtRt {
             StringBuilder sb = new StringBuilder("[");
             for (int i = 0; i < args.length; i++) {
                 if (i != 0) sb.append(',');
-                Object arg = args[i];
-                if (arg instanceof LtFunction) {
-                    long token = callbackToken();
-                    callbacks.put(token, (LtFunction) arg);
-                    sb.append(callbackDescriptor(token));
-                } else {
-                    if (containsInteropCallable(arg))
-                        throw new RuntimeException("Latent callable values cannot be passed to Python/Java interop calls");
-                    sb.append(encodeArg(arg));
-                }
+                sb.append(callArgumentJson(args[i], callbacks));
             }
             return sb.append(']').toString();
+        }
+        private String kwargsJson(List<NamedArg> kwargs,
+                Map<Long, LtFunction> callbacks) {
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < kwargs.size(); i++) {
+                if (i != 0) sb.append(',');
+                NamedArg pair = kwargs.get(i);
+                sb.append('[').append(Json.str(pair.name)).append(',')
+                    .append(callArgumentJson(pair.value, callbacks)).append(']');
+            }
+            return sb.append(']').toString();
+        }
+        private String callArgumentJson(Object arg,
+                Map<Long, LtFunction> callbacks) {
+            if (arg instanceof LtFunction) {
+                long token = callbackToken();
+                callbacks.put(token, (LtFunction) arg);
+                return callbackDescriptor(token);
+            }
+            if (containsInteropCallable(arg))
+                throw new RuntimeException("Latent callable values cannot be passed to Python/Java interop calls");
+            return encodeArg(arg);
         }
         private long callbackToken() {
             long token = nextCallbackToken.getAndIncrement();
@@ -1610,8 +1649,11 @@ public class LtRt {
                 ",\"attr\":" + Json.str(attr), args);
         }
         private Object callArgs(String prefix, Object[] args) {
+            InteropCallArgs separated = splitInteropArgs(args);
             Map<Long, LtFunction> callbacks = new LinkedHashMap<>();
-            String req = prefix + ",\"args\":" + argsJson(args, callbacks) + "}";
+            String req = prefix + ",\"args\":" +
+                argsJson(separated.positional, callbacks) + ",\"kwargs\":" +
+                kwargsJson(separated.named, callbacks) + "}";
             Map<String, Object> response = exchangeResponse(req, callbacks);
             if (response.containsKey("error")) throw new RuntimeException("python error: " + response.get("error"));
             if (!response.containsKey("value")) throw new RuntimeException("invalid Python call response");

@@ -71,7 +71,13 @@ def decode(v):
                 result[str(pair[0])] = decode(pair[1])
             return result
         if len(v) == 1 and "__ref" in v:
-            return _objs[v["__ref"]]
+            ref = v["__ref"]
+            if type(ref) is not int or ref < 1 or ref > 9007199254740991:
+                raise ProtocolAbort("invalid Python object ref")
+            try:
+                return _objs[ref]
+            except KeyError as exc:
+                raise ProtocolAbort("unknown or expired Python object ref %s" % ref) from exc
         if len(v) == 1 and "__num" in v:
             return {"nan": float("nan"), "inf": float("inf"),
                     "-inf": float("-inf")}[v["__num"]]
@@ -328,6 +334,20 @@ def _decoded_args(raw, scope):
     return [_argument(arg, scope) for arg in raw]
 
 
+def _decoded_kwargs(raw, scope):
+    if not isinstance(raw, list):
+        raise ProtocolAbort("invalid request kwargs schema")
+    result = {}
+    for pair in raw:
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ProtocolAbort("invalid request kwargs pair")
+        name, value = pair
+        if not isinstance(name, str) or name in result:
+            raise ProtocolAbort("invalid or duplicate request kwargs name")
+        result[name] = _argument(value, scope)
+    return result
+
+
 def execute(req, scope):
     if type(req) is not dict or not isinstance(req.get("op"), str):
         raise ProtocolAbort("invalid request payload schema")
@@ -338,14 +358,16 @@ def execute(req, scope):
         if method is None:
             raise RuntimeError("stale Python bound-method ref: %s" % method_id)
         args = _decoded_args(req.get("args", []), scope)
-        return {"value": _encode_result(method(*args), scope)}
+        kwargs = _decoded_kwargs(req.get("kwargs", []), scope)
+        return {"value": _encode_result(method(*args, **kwargs), scope)}
     if op == "call_module_function":
         function_id = req.get("id")
         function = _module_functions.get(function_id)
         if function is None:
             raise RuntimeError("stale Python module-function ref: %s" % function_id)
         args = _decoded_args(req.get("args", []), scope)
-        return {"value": _encode_result(function(*args), scope)}
+        kwargs = _decoded_kwargs(req.get("kwargs", []), scope)
+        return {"value": _encode_result(function(*args, **kwargs), scope)}
     if op == "get_module_function":
         raw_target = req["target"]
         function = (module_function(getmod(raw_target["mod"]), req["attr"])
@@ -381,7 +403,8 @@ def execute(req, scope):
     if op == "call":
         fn = getattr(tgt, req["attr"])
         args = _decoded_args(req.get("args", []), scope)
-        return {"value": _encode_result(fn(*args), scope)}
+        kwargs = _decoded_kwargs(req.get("kwargs", []), scope)
+        return {"value": _encode_result(fn(*args, **kwargs), scope)}
     if op == "repr":
         return {"value": str(tgt)}
     if op == "getitem":
@@ -490,14 +513,17 @@ def _valid_request_payload(payload):
     op = payload["op"]
     schemas = {
         "get": ({"op", "target", "attr"},),
-        "call": ({"op", "target", "attr", "args"}, {"op", "target", "attr"}),
+        "call": ({"op", "target", "attr"}, {"op", "target", "attr", "args"},
+                 {"op", "target", "attr", "args", "kwargs"}),
         "repr": ({"op", "target"},),
         "truthy": ({"op", "target"},),
         "getitem": ({"op", "target", "key"},),
         "setattr": ({"op", "target", "attr", "value"},),
         "setitem": ({"op", "target", "key", "value"},),
-        "call_bound_method": ({"op", "id", "args"}, {"op", "id"}),
-        "call_module_function": ({"op", "id", "args"}, {"op", "id"}),
+        "call_bound_method": ({"op", "id"}, {"op", "id", "args"},
+                               {"op", "id", "args", "kwargs"}),
+        "call_module_function": ({"op", "id"}, {"op", "id", "args"},
+                                 {"op", "id", "args", "kwargs"}),
         "get_module_function": ({"op", "target", "attr"},),
         "get_bound_method": ({"op", "target", "attr"},),
         "binop": ({"op", "name", "args"},),
@@ -505,8 +531,24 @@ def _valid_request_payload(payload):
     allowed = schemas.get(op)
     if allowed is None or set(payload) not in allowed:
         return False
-    if "args" in payload and type(payload["args"]) is not list:
-        return False
+    if "args" in payload:
+        if type(payload["args"]) is not list:
+            return False
+        if (op in ("call", "call_bound_method", "call_module_function") and
+                any(not _valid_call_arg_value(value) for value in payload["args"])):
+            return False
+    if "kwargs" in payload:
+        pairs = payload["kwargs"]
+        if type(pairs) is not list:
+            return False
+        names = set()
+        for pair in pairs:
+            if type(pair) is not list or len(pair) != 2:
+                return False
+            name, value = pair
+            if not isinstance(name, str) or name in names or not _valid_codec_value(value):
+                return False
+            names.add(name)
     if "target" in payload:
         target_value = payload["target"]
         if (type(target_value) is not dict or
@@ -519,6 +561,50 @@ def _valid_request_payload(payload):
     if "attr" in payload and not isinstance(payload["attr"], str):
         return False
     return True
+
+
+def _valid_codec_value(value):
+    """Validate the existing value codec without interpreting arbitrary envelopes."""
+    if value is None or type(value) in (bool, str, int):
+        return True
+    if type(value) is float:
+        return math.isfinite(value)
+    if type(value) is list:
+        return all(_valid_codec_value(item) for item in value)
+    if type(value) is not dict or len(value) != 1:
+        return False
+    key, body = next(iter(value.items()))
+    if key == "__lt_callback__":
+        return type(body) is int and 1 <= body <= 9007199254740991
+    if key == "__ref":
+        return type(body) is int and 1 <= body <= 9007199254740991
+    if key == "__mod":
+        return isinstance(body, str)
+    if key == "__num":
+        return body in ("nan", "inf", "-inf")
+    if key == "__map":
+        if type(body) is not list:
+            return False
+        for pair in body:
+            if (type(pair) is not list or len(pair) != 2 or
+                    not isinstance(pair[0], str) or not _valid_codec_value(pair[1])):
+                return False
+        return True
+    return False
+
+
+def _valid_call_arg_value(value):
+    """Validate ordinary call values but leave callback tokens to scope checks."""
+    if type(value) is dict and len(value) == 1 and "__lt_callback__" in value:
+        return True
+    if type(value) is list:
+        return all(_valid_call_arg_value(item) for item in value)
+    if type(value) is dict and len(value) == 1 and "__map" in value:
+        entries = value["__map"]
+        return (type(entries) is list and all(
+            type(pair) is list and len(pair) == 2 and isinstance(pair[0], str) and
+            _valid_call_arg_value(pair[1]) for pair in entries))
+    return _valid_codec_value(value)
 
 
 def _serve(frame):
@@ -547,7 +633,9 @@ def _serve(frame):
     _last_request_id = request_id
     scope = Scope(request_id)
     raw_args = frame["payload"].get("args", [])
-    for raw_arg in raw_args:
+    raw_slots = list(raw_args)
+    raw_slots.extend(pair[1] for pair in frame["payload"].get("kwargs", []))
+    for raw_arg in raw_slots:
         if type(raw_arg) is dict and set(raw_arg) == {"__lt_callback__"}:
             if frame["payload"]["op"] not in ("call", "call_bound_method", "call_module_function"):
                 raise ProtocolAbort("callback descriptor is not valid for this operation")
@@ -583,6 +671,8 @@ def _legacy_request(req):
     # Compatibility for old non-callback raw requests only.
     if _contains_callback_descriptor(req):
         return {"error": "legacy protocol does not support callbacks"}
+    if type(req) is dict and "kwargs" in req:
+        return {"error": "legacy protocol does not support kwargs"}
     scope = Scope(0)
     try:
         return execute(req, scope)

@@ -232,7 +232,7 @@ ERROR_CASES = {
         "fn callback(value):\n"
         "    return value\n"
         'say host.identity(callback, other="x")\n',
-        ("named arguments",), (),
+        ("TypeError", "other", "host_named_argument.lt:4"), (),
     ),
     "host_star_argument": (
         'host = py "p18_callbacks_host"\n'

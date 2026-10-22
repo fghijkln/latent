@@ -352,7 +352,7 @@ P8_RUNTIME_ERROR_MARKERS = {
     "p8_negative/indirect_missing": "Latent runtime error: ArgumentError: pair() missing required argument 'right'",
     "p8_negative/indirect_extra": "Latent runtime error: ArgumentError: pair() takes 2 args, got 3",
     "p8_negative/bound_unknown": "Latent runtime error: ArgumentError: combine() got unexpected named argument 'other'",
-    "p8_negative/python_interop": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
+    "p8_negative/python_interop": "Latent runtime error: TypeError: math.sqrt() takes no keyword arguments",
     "p8_negative/java_interop_method": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
     "p8_negative/java_interop_constructor": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls",
 }
@@ -878,6 +878,16 @@ def main():
     for name in NEG_RUNTIME:
         py = compile_and_run(name, "py")
         jv = compile_and_run(name, "java")
+        if name in {"p13_negative/python_named", "p14_negative/module_named"}:
+            # P19-B: retain the historical IDs and sources, but now both
+            # Python-host call paths must actually succeed without output.
+            ok = all(result[0] == 0 and result[1] == "" and result[2] == ""
+                     for result in (py, jv))
+            print(("PASS " if ok else "FAIL ") + name + " (P19-B success)")
+            if not ok:
+                fails += 1
+                print(f"  py: {py!r}\n  java: {jv!r}")
+            continue
         ok = (py[0] not in (0, "compile-fail", "timeout") and
               jv[0] not in (0, "compile-fail", "timeout") and
               has_source_locations(name, py) and has_source_locations(name, jv))
@@ -895,7 +905,18 @@ def main():
                              if line.startswith("Latent runtime error:")), "")
             jv_error = next((line for line in jv[2].splitlines()
                              if line.startswith("Latent runtime error:")), "")
-            ok = ok and py_error == expected and jv_error == expected
+            if name == "p8_negative/python_interop":
+                # P19-B delegates this native signature error to Python.
+                # Java keeps its existing host-error carrier; pin both the
+                # carrier and the actual Python exception, not its traceback.
+                host_error = expected.removeprefix("Latent runtime error: ")
+                ok = (ok and py[0] == 1 and jv[0] == 1 and
+                      py[1] == "" and jv[1] == "" and py_error == expected and
+                      jv_error == "Latent runtime error: RuntimeException: "
+                                  "python error: Traceback (most recent call last):" and
+                      host_error in jv[2].splitlines())
+            else:
+                ok = ok and py_error == expected and jv_error == expected
         if name == "p14_negative/module_callback":
             # Both bridges must reject the returned adapter at the same
             # boundary rather than accidentally passing the callable.
@@ -928,6 +949,15 @@ def main():
     if rc != 0:
         fails += 1
         print(f"  {(so + se)[-2500:]}")
+
+    print("== P19-B explicit Python-host named arguments ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS,
+                                                   "test_p19_named_host.py")],
+                     timeout=300)
+    print(("PASS " if rc == 0 else "FAIL ") + "P19-B named host matrix")
+    if rc != 0:
+        fails += 1
+        print(f"  {(so + se)[-3500:]}")
 
     print("== cookbook: py vs java must produce identical stdout, exit 0 ==")
     for name in COOKBOOK:
@@ -1008,7 +1038,7 @@ def main():
              len(P11_NEG_COMPILE) +
              len(P12_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
-             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 2)
+             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 3)
     print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 

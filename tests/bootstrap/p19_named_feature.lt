@@ -1,0 +1,24 @@
+host = py "p19_named_host"
+scale = host.scale
+say scale(value=6, factor=7)
+say host.join_values(left="A", right="B", third="?")
+receiver = host.receiver()
+bound_record = receiver.record
+say bound_record(first="left", second="right")
+fn callback(value):
+    return value + "!"
+say host.invoke_named(callback=callback, value="stage")
+say host.invoke_two_named(first=callback, second=callback, value="two")
+say host.scale(value=8)
+say host.strict(value=nil, flag=true)
+host.reset()
+try:
+    host.record(value=host.mark("first", 1), value=host.mark("second", 2))
+catch error:
+    say error
+say host.events()
+say host.body_calls()
+try:
+    scale(**{})
+catch error:
+    say error

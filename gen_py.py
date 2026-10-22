@@ -459,16 +459,51 @@ class _WVCallback:
 
 
 def _wv_pyhost_call(function, args):
-    """Invoke a local Python host callable, adapting only direct Latent functions."""
-    if not any(isinstance(arg, _LtFunction) for arg in args):
-        return _wv_pyresult(function(*[_wv_pyarg(arg) for arg in args]))
+    """Invoke a Python host callable with ordered Latent positional/named args."""
+    _wv_reject_interop_args(tuple(arg for arg in args
+                                  if isinstance(arg, (_LtStarArg,
+                                                      _LtStarStarArg))))
+    seen_names = set()
+    has_callback = False
+    for arg in args:
+        if isinstance(arg, _LtNamedArg):
+            if arg.name in seen_names:
+                raise _LtArgumentError("got duplicate named argument %r" %
+                                       arg.name)
+            seen_names.add(arg.name)
+            value = arg.value
+        else:
+            value = arg
+        if isinstance(value, _LtFunction):
+            has_callback = True
+
+    if not has_callback:
+        converted_args = []
+        converted_kwargs = {}
+        for arg in args:
+            if isinstance(arg, _LtNamedArg):
+                converted_kwargs[arg.name] = _wv_pyarg(arg.value)
+            else:
+                converted_args.append(_wv_pyarg(arg))
+        return _wv_pyresult(function(*converted_args, **converted_kwargs))
     # Python callables cannot reveal when a host stores or schedules them. The
     # adapters are therefore made unusable at scope exit, not at storage time.
     scope = _WVCallbackScope()
     try:
-        converted = [(_WVCallback(arg, scope) if isinstance(arg, _LtFunction)
-                      else _wv_callback_to_host(arg)) for arg in args]
-        result = function(*converted)
+        converted_args = []
+        converted_kwargs = {}
+        for arg in args:
+            named = isinstance(arg, _LtNamedArg)
+            value = arg.value if named else arg
+            if isinstance(value, _LtFunction):
+                converted = _WVCallback(value, scope)
+            else:
+                converted = _wv_callback_to_host(value)
+            if named:
+                converted_kwargs[arg.name] = converted
+            else:
+                converted_args.append(converted)
+        result = function(*converted_args, **converted_kwargs)
         _wv_callback_reject_deferred(result)
         _wv_callback_to_host(result)  # Reject returned adapters, nested callables, cycles, and excessive depth.
         return _wv_pyresult(result)
@@ -814,9 +849,9 @@ def _wv_call(fn, *args):
     if isinstance(fn, _LtFunction):
         return fn(*args)
     if isinstance(fn, _InteropBoundMethod):
-        _wv_reject_interop_args(args)
         if fn._kind == "python":
             return _wv_pyhost_call(fn._target, args)
+        _wv_reject_interop_args(args)
         if fn._kind == "java":
             jvm = _JVM.inst()
             return jvm.req({"op": "call", "target": jvm.target(fn._target),
@@ -824,7 +859,6 @@ def _wv_call(fn, *args):
                             "args": [_jvm_encode(a) for a in args]})
         raise TypeError("invalid interop bound method")
     if isinstance(fn, _InteropModuleFunction):
-        _wv_reject_interop_args(args)
         return _wv_pyhost_call(fn._function, args)
     if isinstance(fn, _InteropStaticMethod):
         _wv_reject_interop_args(args)
@@ -1091,9 +1125,7 @@ def _wv_wcall(h, attr, *args):
                            required_keyword_only=
                                _wv_method_required_keyword_only(m))(*args)
     if isinstance(h, _LazyMod):
-        _wv_reject_interop_args(args)
         return _wv_pyhost_call(getattr(h, attr), args)
-    _wv_reject_interop_args(args)
     return _wv_pyhost_call(getattr(h, attr), args)
 
 

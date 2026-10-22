@@ -23,6 +23,13 @@ STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
 EXPECTED_PROJECTION = {
     "runner_case_ids": 243,
     "fixture_invocations": 244,
+    "p19_stage1_feature_samples": 1,
+    "runner_case_groups": {
+        "positive": 71,
+        "compile-negative": 88,
+        "runtime-negative": 83,
+        "stage0-rejection-stage1-success": 2,
+    },
     "fixed_seed": 0x5EED2026,
     "fixed_seed_property_cases": 505,
 }
@@ -128,6 +135,7 @@ def python_target_cases() -> list[dict[str, Any]]:
     included = {name for name, decision in manifest["runner_cases"].items()
                 if decision["disposition"] == "include"}
     behavior_deltas = manifest.get("p18_stage0_deltas", {})
+    p19_deltas = manifest.get("p19_stage0_deltas", {})
     excluded = set(manifest["runner_cases"]) - included
     observed = {case["name"] for case in cases}
     kinds_by_name: dict[str, str] = {}
@@ -143,6 +151,11 @@ def python_target_cases() -> list[dict[str, Any]]:
     for case in cases:
         if case["name"] in behavior_deltas:
             case["behavior_delta"] = behavior_deltas[case["name"]]
+        if case["name"] in p19_deltas:
+            delta = p19_deltas[case["name"]]
+            if delta["stage1_stage2"]["rc"] == 0:
+                case["kind"] = "stage0-rejection-stage1-success"
+            case["p19_behavior_delta"] = delta
     return [case for case in cases if case["name"] in included]
 
 
@@ -225,7 +238,8 @@ def compile_and_run(label: str, compiler: Path, source: Path, name: str,
         if fixture_result["rc"] != 0:
             return {"phase": "fixture", **fixture_result,
                     "output_exists": output.exists()}
-    if (name.startswith("p18_") or name == "p13_interop_bound_methods" or
+    if (name.startswith("p18_") or name.startswith("p19_") or
+            name == "p13_interop_bound_methods" or
             name.startswith("p13_negative/")) or \
             name in ("p14_module_and_static_values", "p14_static_method_extraction") or \
             name.startswith("p14_negative/"):
@@ -340,6 +354,34 @@ def behavior_delta_failures(name: str, delta: dict[str, Any],
     return failures
 
 
+def p19_behavior_delta_failures(name: str, delta: dict[str, Any],
+                                results: dict[str, dict[str, Any]],
+                                temporary: Path,
+                                source_dir: Path) -> list[str]:
+    """Pin only the explicitly approved P19 Stage0-to-Stage1 behavior changes."""
+    failures: list[str] = []
+    expected_by_stage = {
+        "stage0": delta["fixed_stage0"],
+        "stage1": delta["stage1_stage2"],
+        "stage2": delta["stage1_stage2"],
+    }
+    outcomes = {}
+    for label, expected in expected_by_stage.items():
+        record = results[label]
+        stdout = normalize_text(record["stdout"], temporary, name, source_dir)
+        stderr = normalize_text(record["stderr"], temporary, name, source_dir)
+        actual = (record["phase"], record["rc"], stdout, stderr,
+                  record.get("output_exists", False))
+        outcomes[label] = actual
+        wanted = (expected["phase"], expected["rc"], expected["stdout"],
+                  expected["stderr"], expected.get("output_exists", False))
+        if actual != wanted:
+            failures.append(f"{label} P19 named-interop delta differs from its exact expectation")
+    if outcomes["stage1"] != outcomes["stage2"]:
+        failures.append("Stage1 and Stage2 P19 named-interop delta behavior differs")
+    return failures
+
+
 def summarize(record: dict[str, Any], temporary: Path,
               name: str, source_dir: Path) -> dict[str, Any]:
     return {"phase": record["phase"], "rc": record["rc"],
@@ -392,10 +434,19 @@ def project_runner_cases(stage0: Path, stage1: Path, stage2: Path,
             if kind == "runtime-negative" and (not behavior_delta or label != "stage0") and (
                     record["phase"] != "run" or record["rc"] in (0, "timeout", "error")):
                 failures.append(f"{label} did not produce a runtime failure")
+            if kind == "stage0-rejection-stage1-success" and label != "stage0":
+                expected = spec["p19_behavior_delta"]["stage1_stage2"]
+                if (record["phase"] != expected["phase"] or
+                        record["rc"] != expected["rc"]):
+                    failures.append(
+                        f"{label} P19 Stage1/2 outcome differs from its explicit expectation")
 
         if behavior_delta:
             failures.extend(behavior_delta_failures(
                 name, behavior_delta, results, temporary, source_dir))
+        elif "p19_behavior_delta" in spec:
+            failures.extend(p19_behavior_delta_failures(
+                name, spec["p19_behavior_delta"], results, temporary, source_dir))
         elif kind == "compile-negative":
             normalized = []
             for label, record in results.items():
@@ -544,6 +595,60 @@ def project_p18_stage1_feature(stage1: Path, stage2: Path,
     feature_result["failures"] = failures
     feature_result["passed"] = not failures
     return feature_result
+
+
+def project_p19_stage1_features(stage1: Path, stage2: Path,
+                                temporary: Path) -> dict[str, Any]:
+    """Project independent Latent-to-Python named-call feature fixtures."""
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    features = manifest["p19_stage1_features"]
+    results = []
+    for feature in features:
+        source = ROOT / feature["source"]
+        name = source.stem
+        source_dir = source.parent
+        expected = feature["expected"]
+        records = {}
+        for label, compiler in (("stage1", stage1 / "compiler.py"),
+                                ("stage2", stage2 / "compiler.py")):
+            output = temporary / f"p19-feature-{name}-{label}"
+            clear_output(output)
+            records[label] = compile_and_run(
+                label, compiler, source, name, source_dir, output, temporary)
+        failures = []
+        normalized = {}
+        for label, record in records.items():
+            stdout = normalize_text(record["stdout"], temporary, name, source_dir)
+            stderr = normalize_text(record["stderr"], temporary, name, source_dir)
+            normalized[label] = (record["phase"], record["rc"], stdout, stderr)
+            if record["phase"] != "run":
+                failures.append(f"{label} P19 feature did not compile and run")
+            if record["rc"] != 0:
+                failures.append(f"{label} P19 feature did not exit successfully")
+            if stdout != expected["stdout"]:
+                failures.append(f"{label} P19 feature stdout differs from manifest")
+            if stderr != expected["stderr"]:
+                failures.append(f"{label} P19 feature stderr differs from manifest")
+        if normalized["stage1"] != normalized["stage2"]:
+            failures.append("Stage1 and Stage2 P19 named-host feature behavior differs")
+        results.append({
+            "name": feature["name"],
+            "source": feature["source"],
+            "passed": not failures,
+            "failures": failures,
+            **{label: {"phase": record["phase"], "rc": record["rc"],
+                       "stdout": normalize_text(record["stdout"], temporary,
+                                                name, source_dir)[:1200],
+                       "stderr": normalize_text(record["stderr"], temporary,
+                                                name, source_dir)[:2000]}
+               for label, record in records.items()},
+        })
+    return {"kind": "p19-stage1-named-host-features",
+            "sample_count": len(features),
+            "passed": all(result["passed"] for result in results),
+            "failures": [f"{result['name']}: {failure}"
+                         for result in results for failure in result["failures"]],
+            "cases": results}
 
 
 def project_seeded_properties(stage0: Path, stage1: Path, stage2: Path,
@@ -713,6 +818,9 @@ def main() -> int:
         p18_feature = project_p18_stage1_feature(stage1, stage2, temporary)
         if not p18_feature["passed"]:
             mismatches.append(p18_feature)
+        p19_features = project_p19_stage1_features(stage1, stage2, temporary)
+        if not p19_features["passed"]:
+            mismatches.append(p19_features)
         property_mismatch, property_count = project_seeded_properties(
             stage0, stage1, stage2, temporary)
         if property_mismatch is not None:
@@ -725,6 +833,8 @@ def main() -> int:
         projection_actual = {
             "runner_case_ids": unique_case_ids,
             "fixture_invocations": len(cases),
+            "p19_stage1_feature_samples": p19_features["sample_count"],
+            "runner_case_groups": counts,
             "fixed_seed": properties.DEFAULT_SEED,
             "fixed_seed_property_cases": property_count,
         }
@@ -769,6 +879,8 @@ def main() -> int:
         property_failures = 1 if property_mismatch is not None else 0
         report = {"stage0_commit": STAGE0_COMMIT,
                   "p18_stage1_feature": p18_feature,
+                  "p19_stage1_features": p19_features,
+                  "p19_stage1_feature_count": p19_features["sample_count"],
                   "runner_case_ids": unique_case_ids,
                   "fixture_invocations": len(cases),
                   "runner_case_groups": counts,

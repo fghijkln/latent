@@ -140,6 +140,67 @@ def compare(manifest: dict, observed_refs: dict[str, list[str]],
                     not isinstance(expectation["output_exists"], bool)):
                 errors.append(
                     f"P18 Stage0 behavior delta has invalid {label} output expectation: {item}")
+    p19_deltas = manifest.get("p19_stage0_deltas", {})
+    permitted_p19_deltas = {"p13_negative/python_named",
+                            "p14_negative/module_named",
+                            "p8_negative/python_interop"}
+    for item in sorted(set(p19_deltas) - permitted_p19_deltas):
+        errors.append(f"P19 Stage0 behavior delta is not permitted: {item}")
+    for item in sorted(permitted_p19_deltas - set(p19_deltas)):
+        errors.append(f"required P19 Stage0 behavior delta is missing: {item}")
+    p19_stage0_diagnostics = {
+        "p13_negative/python_named": (
+            "Latent runtime error: ArgumentError: named arguments are not supported "
+            "for Python/Java interop calls\nLatent traceback (most recent call last):\n"
+            "  at p13_negative/python_named.lt:4 in main\n"),
+        "p14_negative/module_named": (
+            "Latent runtime error: ArgumentError: named arguments are not supported "
+            "for Python/Java interop calls\nLatent traceback (most recent call last):\n"
+            "  at p14_negative/module_named.lt:3 in main\n"),
+        "p8_negative/python_interop": (
+            "Latent runtime error: ArgumentError: named arguments are not supported "
+            "for Python/Java interop calls\nLatent traceback (most recent call last):\n"
+            "  at p8_negative/python_interop.lt:2 in main\n"),
+    }
+    p19_stage1_stage2_diagnostics = {
+        "p8_negative/python_interop": (
+            "Latent runtime error: TypeError: math.sqrt() takes no keyword arguments\n"
+            "Latent traceback (most recent call last):\n"
+            "  at p8_negative/python_interop.lt:2 in main\n"),
+    }
+    for item in sorted(p19_deltas):
+        delta = p19_deltas[item]
+        if item not in all_cases:
+            errors.append(f"P19 Stage0 behavior delta has no runner case: {item}")
+        if item not in observed_runtime_negative:
+            errors.append(f"P19 Stage0 behavior delta must retain its runtime-negative runner ID: {item}")
+        decision = cases.get(item)
+        if decision is None or decision.get("disposition") != "include":
+            errors.append(f"P19 Stage0 behavior delta must be an included runner case: {item}")
+        if not isinstance(delta, dict):
+            errors.append(f"P19 Stage0 behavior delta is not an object: {item}")
+            continue
+        if not isinstance(delta.get("reason"), str) or not delta["reason"].strip():
+            errors.append(f"P19 Stage0 behavior delta has no reason: {item}")
+        legacy = delta.get("fixed_stage0", {})
+        if (not isinstance(legacy, dict) or legacy.get("phase") != "run" or
+                legacy.get("rc") != 1 or isinstance(legacy.get("rc"), bool) or
+                legacy.get("stdout") != "" or
+                legacy.get("stderr") != p19_stage0_diagnostics.get(item) or
+                legacy.get("output_exists") is not True):
+            errors.append(f"P19 Stage0 behavior delta lacks the exact pinned Stage0 rejection and source line: {item}")
+        current = delta.get("stage1_stage2", {})
+        expected_current_rc = 1 if item == "p8_negative/python_interop" else 0
+        expected_current_stderr = p19_stage1_stage2_diagnostics.get(item, "")
+        if (not isinstance(current, dict) or current.get("phase") != "run" or
+                current.get("rc") != expected_current_rc or
+                isinstance(current.get("rc"), bool) or
+                current.get("stdout") != "" or
+                current.get("stderr") != expected_current_stderr or
+                current.get("output_exists") is not True):
+            errors.append(f"P19 Stage0 behavior delta lacks its exact Stage1/2 outcome: {item}")
+    if "p14_negative/static_named" in p19_deltas:
+        errors.append("p14_negative/static_named must retain strict Stage0 comparison")
     feature = manifest.get("p18_stage1_feature")
     if feature is not None:
         source = feature.get("source")
@@ -191,6 +252,33 @@ def compare(manifest: dict, observed_refs: dict[str, list[str]],
         if (not isinstance(absent, list) or
                 any(not isinstance(item, str) or not item for item in absent)):
             errors.append(f"P18 Stage1 case has invalid forbidden stderr markers: {name}")
+    p19_features = manifest.get("p19_stage1_features")
+    if not isinstance(p19_features, list) or not p19_features:
+        errors.append("P19 Stage1 feature ledger must contain at least one sample")
+        p19_features = []
+    seen_p19_features: set[str] = set()
+    for feature in p19_features:
+        if not isinstance(feature, dict):
+            errors.append("P19 Stage1 feature ledger contains a non-object entry")
+            continue
+        name = feature.get("name")
+        source = feature.get("source")
+        expected = feature.get("expected", {})
+        if not isinstance(name, str) or not name.startswith("p19_"):
+            errors.append(f"P19 Stage1 feature has invalid name: {name!r}")
+        elif name in seen_p19_features:
+            errors.append(f"duplicate P19 Stage1 feature: {name}")
+        else:
+            seen_p19_features.add(name)
+        if not isinstance(source, str) or not source.startswith("tests/bootstrap/"):
+            errors.append(f"P19 Stage1 feature must use a tests/bootstrap fixture: {name}")
+        elif not (root / source).is_file():
+            errors.append(f"P19 Stage1 feature source does not exist: {source}")
+        if (not isinstance(expected, dict) or expected.get("phase") != "run" or
+                expected.get("rc") != 0 or isinstance(expected.get("rc"), bool) or
+                not isinstance(expected.get("stdout"), str) or
+                expected.get("stderr") != ""):
+            errors.append(f"P19 Stage1 feature must pin successful output and empty stderr: {name}")
     callback_arity = next((case for case in feature_cases
                            if isinstance(case, dict) and
                            case.get("name") == "p18_callback_wrong_arity"), None)

@@ -1483,6 +1483,7 @@
     "test_differential_properties.py",
     "test_p14_protocol.py",
     "test_p18_callbacks.py",
+    "test_p19_named_host.py",
     "test_repl.py"
   ],
   "p14_protocol_operations": {
@@ -1501,6 +1502,7 @@
   },
   "inventories": {
     "tests_lt": [
+      "bootstrap/p19_named_feature.lt",
       "bootstrap_lexer.lt",
       "bootstrap_parser.lt",
       "class_basic.lt",
@@ -1799,12 +1801,15 @@
       "test_latent_stage1.py",
       "test_p14_protocol.py",
       "test_p18_callbacks.py",
+      "test_p19_named_host.py",
+      "test_p19_protocol.py",
       "test_repl.py"
     ],
     "python_fixture": [
       "p13_host.py",
       "p14_host.py",
-      "p18_callbacks_host.py"
+      "p18_callbacks_host.py",
+      "p19_named_host.py"
     ]
   },
   "fixture_decisions": {
@@ -2991,6 +2996,22 @@
     "test_module/test_p18_callbacks.py": {
       "disposition": "include",
       "reason": "Focused dual-backend callback matrix covering invocation, conversions, failure recovery, expiry, and rejection of unsupported callback forms."
+    },
+    "tests_lt/bootstrap/p19_named_feature.lt": {
+      "disposition": "include",
+      "reason": "Independent P19-B Latent-to-Python named-call feature fixture, projected through Stage1 and Stage2 only; not an extra legacy runner ID or fixed-Stage0 case."
+    },
+    "test_module/test_p19_named_host.py": {
+      "disposition": "include",
+      "reason": "P19-B focused dual-backend Latent-to-Python named-host regression matrix, invoked through the existing runner auxiliary path."
+    },
+    "test_module/test_p19_protocol.py": {
+      "disposition": "include",
+      "reason": "Focused P19-B named-argument wire/protocol regression suite invoked by the P19 named-host test."
+    },
+    "python_fixture/p19_named_host.py": {
+      "disposition": "include",
+      "reason": "Python host fixture for P19-B outbound named-host feature and focused regressions; does not implement Python-to-Latent callback kwargs."
     }
   },
   "auxiliary_tests": {
@@ -3061,6 +3082,18 @@
     "tests/python/p18_callbacks_host.py": {
       "disposition": "include",
       "reason": "Support host for the P18 callback feature fixture and callback matrix."
+    },
+    "test_p19_named_host.py": {
+      "disposition": "include",
+      "reason": "P19-B focused dual-backend Latent-to-Python named-host regression matrix, invoked through the existing runner auxiliary path."
+    },
+    "test_p19_protocol.py": {
+      "disposition": "include",
+      "reason": "Focused P19-B named-argument wire/protocol regression suite invoked by the P19 named-host test."
+    },
+    "python/p19_named_host.py": {
+      "disposition": "include",
+      "reason": "Python host fixture for P19-B outbound named-host feature and focused regressions; does not implement Python-to-Latent callback kwargs."
     }
   },
   "p18_stage1_feature": {
@@ -3168,6 +3201,71 @@
         "rc": 1,
         "stdout": "",
         "stderr": "Latent runtime error: ArgumentError: callback() takes 1 args, got 2\nLatent traceback (most recent call last):\n  at p18_callback_wrong_arity.lt:4 in main\n"
+      }
+    }
+  ],
+  "p19_stage0_deltas": {
+    "p13_negative/python_named": {
+      "reason": "P19-B enables only the existing Latent-to-Python named call through the P13 extracted bound-method path; fixed Stage0 remains pinned to its pre-P19 rejection.",
+      "fixed_stage0": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls\nLatent traceback (most recent call last):\n  at p13_negative/python_named.lt:4 in main\n",
+        "output_exists": true
+      },
+      "stage1_stage2": {
+        "phase": "run",
+        "rc": 0,
+        "stdout": "",
+        "stderr": "",
+        "output_exists": true
+      }
+    },
+    "p14_negative/module_named": {
+      "reason": "P19-B enables only the existing Latent-to-Python named call through the P14 extracted module-function path; fixed Stage0 remains pinned to its pre-P19 rejection.",
+      "fixed_stage0": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls\nLatent traceback (most recent call last):\n  at p14_negative/module_named.lt:3 in main\n",
+        "output_exists": true
+      },
+      "stage1_stage2": {
+        "phase": "run",
+        "rc": 0,
+        "stdout": "",
+        "stderr": "",
+        "output_exists": true
+      }
+    },
+    "p8_negative/python_interop": {
+      "reason": "P19-B forwards named arguments through the existing Python interop path; the fixed Stage0 rejection remains pinned while Stage1/2 expose Python's native math.sqrt keyword TypeError.",
+      "fixed_stage0": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: ArgumentError: named arguments are not supported for Python/Java interop calls\nLatent traceback (most recent call last):\n  at p8_negative/python_interop.lt:2 in main\n",
+        "output_exists": true
+      },
+      "stage1_stage2": {
+        "phase": "run",
+        "rc": 1,
+        "stdout": "",
+        "stderr": "Latent runtime error: TypeError: math.sqrt() takes no keyword arguments\nLatent traceback (most recent call last):\n  at p8_negative/python_interop.lt:2 in main\n",
+        "output_exists": true
+      }
+    }
+  },
+  "p19_stage1_features": [
+    {
+      "name": "p19_named_host_calls",
+      "source": "tests/bootstrap/p19_named_feature.lt",
+      "expected": {
+        "phase": "run",
+        "rc": 0,
+        "stdout": "42\nA|B|?\nreceiver|left|right\nstage!\ntwo!|two!\n8\nNone|True\ngot duplicate named argument 'value'\nfirst,second\n0\nargument unpacking is not supported for Python/Java interop calls\n",
+        "stderr": ""
       }
     }
   ]

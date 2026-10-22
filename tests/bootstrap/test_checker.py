@@ -2,6 +2,7 @@
 """Focused regression tests for the Python-target projection ledger checker."""
 import json
 import os
+from collections import Counter
 from pathlib import Path
 import subprocess
 import sys
@@ -202,6 +203,158 @@ class ProjectionLedgerTests(unittest.TestCase):
                          "Latent traceback (most recent call last):\n"
                          "  at p18_callback_wrong_arity.lt:4 in main\n")
 
+    def test_p19_delta_ledger_is_separate_exact_and_preserves_runner_inventory(self):
+        manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
+        deltas = manifest["p19_stage0_deltas"]
+        self.assertEqual(set(deltas), {
+            "p13_negative/python_named", "p14_negative/module_named",
+            "p8_negative/python_interop"})
+        self.assertEqual(set(manifest["p18_stage0_deltas"]), {
+            "p14_negative/module_callback"})
+        for name, line in (("p13_negative/python_named", 4),
+                           ("p14_negative/module_named", 3)):
+            with self.subTest(name=name):
+                delta = deltas[name]
+                old = delta["fixed_stage0"]
+                self.assertEqual((old["phase"], old["rc"], old["stdout"]),
+                                 ("run", 1, ""))
+                self.assertIn(f"at {name}.lt:{line} in main", old["stderr"])
+                new = delta["stage1_stage2"]
+                self.assertEqual((new["phase"], new["rc"], new["stdout"],
+                                  new["stderr"]), ("run", 0, "", ""))
+                self.assertEqual(manifest["runner_cases"][name]["disposition"],
+                                 "include")
+                self.assertIn(name, manifest["runner_references"]["NEG_RUNTIME"])
+
+        p8_delta = deltas["p8_negative/python_interop"]
+        self.assertEqual(p8_delta["fixed_stage0"], {
+            "phase": "run", "rc": 1, "stdout": "",
+            "stderr": ("Latent runtime error: ArgumentError: named arguments are not supported "
+                       "for Python/Java interop calls\n"
+                       "Latent traceback (most recent call last):\n"
+                       "  at p8_negative/python_interop.lt:2 in main\n"),
+            "output_exists": True})
+        self.assertEqual(p8_delta["stage1_stage2"], {
+            "phase": "run", "rc": 1, "stdout": "",
+            "stderr": ("Latent runtime error: TypeError: math.sqrt() takes no keyword arguments\n"
+                       "Latent traceback (most recent call last):\n"
+                       "  at p8_negative/python_interop.lt:2 in main\n"),
+            "output_exists": True})
+
+        cases = project_stage0.python_target_cases()
+        self.assertEqual(len(cases), 244)
+        self.assertEqual(len({case["name"] for case in cases}), 243)
+        self.assertEqual(Counter(case["kind"] for case in cases), {
+            "positive": 71, "compile-negative": 88,
+            "runtime-negative": 83,
+            "stage0-rejection-stage1-success": 2,
+        })
+        self.assertEqual(next(case["kind"] for case in cases
+                              if case["name"] == "p8_negative/python_interop"),
+                         "runtime-negative")
+        self.assertEqual(project_stage0.EXPECTED_PROJECTION[
+            "p19_stage1_feature_samples"], 1)
+        self.assertEqual(project_stage0.EXPECTED_PROJECTION[
+            "runner_case_ids"], 243)
+        self.assertEqual(project_stage0.EXPECTED_PROJECTION[
+            "fixture_invocations"], 244)
+        self.assertEqual(project_stage0.EXPECTED_PROJECTION[
+            "fixed_seed_property_cases"], 505)
+        self.assertIn("p13_negative/java_named",
+                      manifest["runner_references"]["NEG_RUNTIME"])
+        self.assertIn("p14_negative/static_named",
+                      manifest["runner_references"]["NEG_RUNTIME"])
+        self.assertNotIn("p13_negative/java_named", deltas)
+        self.assertNotIn("p14_negative/static_named", deltas)
+        self.assertEqual(
+            (checker.ROOT / "tests/p13_negative/python_named.lt").read_text(
+                encoding="utf-8"),
+            'host_module = py "p13_host"\nhost = host_module.Sample()\n'
+            'method = host.push\nmethod(value="named")\n')
+        self.assertEqual(
+            (checker.ROOT / "tests/p14_negative/module_named.lt").read_text(
+                encoding="utf-8"),
+            'host = py "p14_host"\nscale = host.scale\nscale(value=1)\n')
+
+        widened = json.loads(json.dumps(manifest))
+        widened["p19_stage0_deltas"]["p14_negative/static_named"] = \
+            widened["p19_stage0_deltas"]["p14_negative/module_named"]
+        errors = checker.compare(
+            widened, manifest["runner_references"], manifest["inventories"],
+            manifest["runner_auxiliary_paths"],
+            list(manifest["p14_protocol_operations"]), root=checker.ROOT)
+        self.assertIn(
+            "P19 Stage0 behavior delta is not permitted: p14_negative/static_named",
+            errors)
+
+        wrong_line = json.loads(json.dumps(manifest))
+        wrong_line["p19_stage0_deltas"]["p13_negative/python_named"][
+            "fixed_stage0"]["stderr"] = "not the pinned Stage0 diagnostic\n"
+        errors = checker.compare(
+            wrong_line, manifest["runner_references"], manifest["inventories"],
+            manifest["runner_auxiliary_paths"],
+            list(manifest["p14_protocol_operations"]), root=checker.ROOT)
+        self.assertTrue(any("exact pinned Stage0 rejection and source line: "
+                            "p13_negative/python_named" in error
+                            for error in errors))
+
+        for label, value in (("error class", "Latent runtime error: ArgumentError: "
+                             "math.sqrt() takes no keyword arguments\n"
+                             "Latent traceback (most recent call last):\n"
+                             "  at p8_negative/python_interop.lt:2 in main\n"),
+                            ("source line", "Latent runtime error: TypeError: "
+                             "math.sqrt() takes no keyword arguments\n"
+                             "Latent traceback (most recent call last):\n"
+                             "  at p8_negative/python_interop.lt:3 in main\n")):
+            with self.subTest(mutation=label):
+                mutated = json.loads(json.dumps(manifest))
+                mutated["p19_stage0_deltas"]["p8_negative/python_interop"][
+                    "stage1_stage2"]["stderr"] = value
+                errors = checker.compare(
+                    mutated, manifest["runner_references"],
+                    manifest["inventories"], manifest["runner_auxiliary_paths"],
+                    list(manifest["p14_protocol_operations"]), root=checker.ROOT)
+                self.assertTrue(any(
+                    "exact Stage1/2 outcome: p8_negative/python_interop" in error
+                    for error in errors))
+        wrong_rc = json.loads(json.dumps(manifest))
+        wrong_rc["p19_stage0_deltas"]["p8_negative/python_interop"][
+            "stage1_stage2"]["rc"] = 0
+        errors = checker.compare(
+            wrong_rc, manifest["runner_references"], manifest["inventories"],
+            manifest["runner_auxiliary_paths"],
+            list(manifest["p14_protocol_operations"]), root=checker.ROOT)
+        self.assertTrue(any(
+            "exact Stage1/2 outcome: p8_negative/python_interop" in error
+            for error in errors))
+
+    def test_p19_feature_ledger_is_separate_and_named_host_only(self):
+        manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(manifest["p19_stage1_features"]), 1)
+        feature = manifest["p19_stage1_features"][0]
+        self.assertEqual(feature["name"], "p19_named_host_calls")
+        self.assertEqual(feature["source"],
+                         "tests/bootstrap/p19_named_feature.lt")
+        self.assertEqual(feature["expected"]["phase"], "run")
+        self.assertEqual(feature["expected"]["rc"], 0)
+        self.assertEqual(feature["expected"]["stdout"],
+                         "42\nA|B|?\nreceiver|left|right\nstage!\ntwo!|two!\n8\n"
+                         "None|True\ngot duplicate named argument 'value'\n"
+                         "first,second\n0\nargument unpacking is not supported "
+                         "for Python/Java interop calls\n")
+        self.assertEqual(feature["expected"]["stderr"], "")
+        source = (checker.ROOT / feature["source"]).read_text(encoding="utf-8")
+        self.assertIn('scale(value=6, factor=7)', source)
+        self.assertIn('host.join_values(left="A", right="B", third="?")', source)
+        self.assertIn('bound_record(first="left", second="right")', source)
+        self.assertIn('host.invoke_named(callback=callback, value="stage")', source)
+        self.assertIn('host.invoke_two_named(first=callback, second=callback', source)
+        self.assertIn('value=host.mark("second", 2)', source)
+        self.assertIn('scale(**{})', source)
+        self.assertIn("test_p19_named_host.py", manifest["runner_auxiliary_paths"])
+        self.assertIn("test_p19_protocol.py", manifest["inventories"]["test_module"])
+        self.assertIn("test_p19_protocol.py", manifest["auxiliary_tests"])
+
     def test_java_host_callback_cases_remain_runtime_negative_and_delta_is_narrow(self):
         manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
         references = {name: list(items)
@@ -276,7 +429,11 @@ class ProjectionLedgerTests(unittest.TestCase):
         pending = pending_snapshot_gate.source_entries(checker.ROOT)
         for path in ("tests/bootstrap/pending_snapshot_gate.py",
                      "tests/bootstrap/manifest.json",
+                     "tests/bootstrap/p19_named_feature.lt",
                      "tests/p18_callbacks.lt",
+                     "tests/python/p19_named_host.py",
+                     "tests/test_p19_named_host.py",
+                     "tests/test_p19_protocol.py",
                      "tests/python/p18_callbacks_host.py",
                      "tests/test_p18_callbacks.py"):
             with self.subTest(path=path):
