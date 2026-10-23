@@ -1,5 +1,6 @@
 """Latent -> Python backend."""
 import json
+import keyword
 from nodes import *
 
 PRELUDE = r'''
@@ -47,7 +48,9 @@ def _wv_repr(v):
             return "inf" if v > 0 else "-inf"
         if _math.isnan(v):
             return "nan"
-        if v.is_integer():
+        # Match LtRt.numStr: only render exactly integral values as decimal
+        # integers below 1e16. Larger values use shortest float notation.
+        if v.is_integer() and abs(v) < 1e16:
             return str(int(v))
         # NumPy 2.x reprs scalars as ``np.float64(...)``; normalize to the
         # language's float64 spelling used by the Java backend.
@@ -160,7 +163,22 @@ def _wv_pow(a, b):
     if isinstance(a, float) and isinstance(b, float):
         if a < 0 and _math.isfinite(b) and not b.is_integer():
             return _math.nan
-        return a ** b
+        # Java Math.pow defines unit bases raised to either infinity as NaN;
+        # Python math.pow instead returns 1.0 for (-1.0) ** infinity.
+        if abs(a) == 1.0 and _math.isinf(b):
+            return _math.nan
+        # Java Math.pow returns infinity for zero to a negative power and on
+        # overflow; Python's float power raises instead.
+        if a == 0 and b < 0:
+            odd_negative = (_math.copysign(1.0, a) < 0 and b.is_integer() and
+                            int(abs(b)) % 2 == 1)
+            return -_math.inf if odd_negative else _math.inf
+        try:
+            return _math.pow(a, b)
+        except OverflowError:
+            odd_negative = (a < 0 and b.is_integer() and
+                            int(abs(b)) % 2 == 1)
+            return -_math.inf if odd_negative else _math.inf
     try:
         return a ** b
     except Exception:
@@ -1051,6 +1069,20 @@ def _wv_jclass(name):
 
 # ---------------- unified handle access (py + java) ----------------
 
+def _wv_non_handle_type(h):
+    """Return Latent's display type for values without host handles."""
+    native_types = {type(None): "nil", bool: "bool", float: "num",
+                    str: "str", list: "list", dict: "map"}
+    kind = native_types.get(type(h))
+    if kind is not None:
+        return kind
+    if isinstance(h, (_LtFunction, _InteropBoundMethod,
+                      _InteropModuleFunction, _InteropStaticMethod,
+                      _WVCallback)):
+        return "function"
+    return None
+
+
 def _wv_wgetattr(h, attr):
     if isinstance(h, _JClass):
         jvm = _JVM.inst()
@@ -1090,6 +1122,11 @@ def _wv_wgetattr(h, attr):
         raise AttributeError("no field %r" % attr)
     if isinstance(h, _LtClass):
         raise AttributeError("class %s has no fields" % h._name)
+    # Latent's native scalars and containers are not Python objects to inspect.
+    # Keep opaque Python/Java handles above on their explicit interop paths.
+    kind = _wv_non_handle_type(h)
+    if kind is not None:
+        raise TypeError("attribute access on non-handle value: " + kind)
     value = getattr(h, attr)
     display_member = _wv_python_bound_method(h, attr, value)
     if display_member is not None:
@@ -1126,6 +1163,11 @@ def _wv_wcall(h, attr, *args):
                                _wv_method_required_keyword_only(m))(*args)
     if isinstance(h, _LazyMod):
         return _wv_pyhost_call(getattr(h, attr), args)
+    # Method-call syntax is lowered directly to __wcall (not __wgetattr), so
+    # guard native Latent values and Latent callables here as well.
+    kind = _wv_non_handle_type(h)
+    if kind is not None:
+        raise TypeError("call on non-handle value: " + kind)
     return _wv_pyhost_call(getattr(h, attr), args)
 
 
@@ -1257,6 +1299,7 @@ class Gen:
         self.source_path = source_path
         self.source_map = {}
         self._used_internal_names = set()
+        self._python_name_map = {}
         self._reserved_nodes = set()
         self._missing_name = None
         self._builtins_name = None
@@ -1305,6 +1348,18 @@ class Gen:
             suffix += 1
         self._used_internal_names.add(name)
         return name
+
+    def _python_ident(self, name):
+        """Map Latent identifiers to valid, collision-free Python identifiers."""
+        if not keyword.iskeyword(name):
+            return name
+        if name not in self._python_name_map:
+            candidate = name + "_"
+            while candidate in self._used_internal_names:
+                candidate += "_"
+            self._used_internal_names.add(candidate)
+            self._python_name_map[name] = candidate
+        return self._python_name_map[name]
 
     def _prepare_missing_alias(self):
         self._builtins_name = self._fresh_internal_suffix("_builtins")
@@ -1378,7 +1433,7 @@ class Gen:
                 if name not in all_globals:
                     all_globals.append(name)
         for name in all_globals:
-            self.w(f"{name} = None")
+            self.w(f"{self._python_ident(name)} = None")
         for fn in fns:
             self.w("")
             self.fndef(fn)
@@ -1446,10 +1501,12 @@ class Gen:
         for m in cd.methods:
             self.fndef(m, method=True)
         self.indent -= 1
-        parent = cd.parent.name if cd.parent else "None"
+        parent = self._python_ident(cd.parent.name) if cd.parent else "None"
         methods = ", ".join(
-            f"{json.dumps(m.name)}: _LtMethods.{m.name}" for m in cd.methods)
+            f"{json.dumps(m.name)}: _LtMethods.{self._python_ident(m.name)}"
+            for m in cd.methods)
         for method in cd.methods:
+            py_method_name = self._python_ident(method.name)
             required = required_parameter_count(method.params[1:])
             fixed = fixed_parameter_names(method.params[1:])
             positional = positional_parameter_count(method.params[1:])
@@ -1457,20 +1514,20 @@ class Gen:
                 method.params[1:])
             rest = rest_parameter_name(method.params[1:])
             extra = extra_parameter_name(method.params[1:])
-            self.w(f"_LtMethods.{method.name}._lt_params = "
+            self.w(f"_LtMethods.{py_method_name}._lt_params = "
                    f"{json.dumps(fixed, ensure_ascii=False)}")
-            self.w(f"_LtMethods.{method.name}._lt_required_count = {required}")
-            self.w(f"_LtMethods.{method.name}._lt_positional_count = {positional}")
-            self.w(f"_LtMethods.{method.name}._lt_required_keyword_only = "
+            self.w(f"_LtMethods.{py_method_name}._lt_required_count = {required}")
+            self.w(f"_LtMethods.{py_method_name}._lt_positional_count = {positional}")
+            self.w(f"_LtMethods.{py_method_name}._lt_required_keyword_only = "
                    f"{json.dumps(required_keyword_only, ensure_ascii=False)}")
-            self.w(f"_LtMethods.{method.name}._lt_rest_name = "
+            self.w(f"_LtMethods.{py_method_name}._lt_rest_name = "
                    f"{rest!r}")
-            self.w(f"_LtMethods.{method.name}._lt_extra_name = "
+            self.w(f"_LtMethods.{py_method_name}._lt_extra_name = "
                    f"{extra!r}")
         self.w(f"return _LtClass({json.dumps(cd.source_name, ensure_ascii=False)}, "
                f"{parent}, {{{methods}}})")
         self.indent -= 1
-        self.w(f"{cd.name} = {factory}()")
+        self.w(f"{self._python_ident(cd.name)} = {factory}()")
 
     def _scope_globals(self, stmts):
         out = set()
@@ -1512,24 +1569,28 @@ class Gen:
         self._collect(fn.body, assigned)
         global_names = self._scope_globals(fn.body)
         nonlocal_names = self._scope_nonlocals(fn.body)
-        names = [parameter_name(param)
-                 for param in bound_parameter_order(fn.params)]
-        assigned -= set(names) | global_names | nonlocal_names
-        self.w(f"def {fn.name}({', '.join(names)}):", fn.line,
+        source_names = [parameter_name(param)
+                        for param in bound_parameter_order(fn.params)]
+        names = [self._python_ident(name) for name in source_names]
+        assigned -= set(source_names) | global_names | nonlocal_names
+        self.w(f"def {self._python_ident(fn.name)}({', '.join(names)}):", fn.line,
                fn.source_path)
         self.indent += 1
         if global_names:
-            self.w("global " + ", ".join(sorted(global_names)))
+            self.w("global " + ", ".join(
+                self._python_ident(name) for name in sorted(global_names)))
         if nonlocal_names:
-            self.w("nonlocal " + ", ".join(sorted(nonlocal_names)))
+            self.w("nonlocal " + ", ".join(
+                self._python_ident(name) for name in sorted(nonlocal_names)))
         for name in sorted(assigned):
-            self.w(f"{name} = None")
+            self.w(f"{self._python_ident(name)} = None")
         for param in fn.params:
             if parameter_has_default(param):
-                self.w(f"if {param.name} is {self._missing_name}:",
+                py_param_name = self._python_ident(param.name)
+                self.w(f"if {py_param_name} is {self._missing_name}:",
                        param.line, param.source_path)
                 self.indent += 1
-                self.w(f"{param.name} = {self.expr(param.default)}",
+                self.w(f"{py_param_name} = {self.expr(param.default)}",
                        param.line, param.source_path)
                 self.indent -= 1
         for s in fn.body:
@@ -1538,7 +1599,8 @@ class Gen:
             pass
         self.indent -= 1
         if not method:
-            self.w(f"{fn.name} = _LtFunction({fn.name}, "
+            py_fn_name = self._python_ident(fn.name)
+            self.w(f"{py_fn_name} = _LtFunction({py_fn_name}, "
                    f"{json.dumps(fixed_parameter_names(fn.params), ensure_ascii=False)}, "
                    f"{json.dumps(fn.source_name, ensure_ascii=False)}, "
                    f"required_count={required_parameter_count(fn.params)}, "
@@ -1574,7 +1636,8 @@ class Gen:
         if isinstance(s, FnDef):
             self.fndef(s)
         elif isinstance(s, Assign):
-            self.w(f"{s.name} = {self.expr(s.value)}", s.line, s.source_path)
+            self.w(f"{self._python_ident(s.name)} = {self.expr(s.value)}",
+                   s.line, s.source_path)
         elif isinstance(s, ExprStmt):
             self.w(self.expr(s.expr), s.line, s.source_path)
         elif isinstance(s, If):
@@ -1587,7 +1650,7 @@ class Gen:
             self.w(f"while {self.expr(s.cond)}:", s.line, s.source_path)
             self.suite(s.body)
         elif isinstance(s, For):
-            self.w(f"for {s.var} in _wv_iter({self.expr(s.iter)}):", s.line,
+            self.w(f"for {self._python_ident(s.var)} in _wv_iter({self.expr(s.iter)}):", s.line,
                    s.source_path)
             self.suite(s.body)
         elif isinstance(s, Return):
@@ -1602,7 +1665,8 @@ class Gen:
             # is nil on both backends (not NameError vs javac error)
             error_name = self._fresh_internal("_lt_e")
             message_name = self._fresh_internal("_lt_m")
-            self.w(f"{s.var} = None")
+            py_var = self._python_ident(s.var)
+            self.w(f"{py_var} = None")
             self.w("try:", s.line, s.source_path)
             self.suite(s.body)
             self.w(f"except Exception as {error_name}:")
@@ -1611,7 +1675,7 @@ class Gen:
             self.w(f"{message_name} = {error_name}.args[0] if "
                    f"{error_name}.args and isinstance({error_name}.args[0], str) "
                    f"else str({error_name})")
-            self.w(f"{s.var} = {message_name}")
+            self.w(f"{py_var} = {message_name}")
             for x in s.handler:
                 self.stmt(x)
             self.indent -= 1
@@ -1647,7 +1711,7 @@ class Gen:
         if isinstance(e, Nil):
             return "None"
         if isinstance(e, Name):
-            return e.id
+            return self._python_ident(e.id)
         if isinstance(e, List):
             return "[" + ", ".join(self.expr(x) for x in e.elts) + "]"
         if isinstance(e, Map):
@@ -1667,7 +1731,7 @@ class Gen:
         if isinstance(e, SuperCall):
             receiver = self.expr(e.args[0])
             args = [self.argument(a) for a in e.args[1:]]
-            rendered = ", ".join([receiver, e.owner.name,
+            rendered = ", ".join([receiver, self._python_ident(e.owner.name),
                                     json.dumps(e.method)] + args)
             return f"_wv_supercall({rendered})"
         if isinstance(e, PyImport):

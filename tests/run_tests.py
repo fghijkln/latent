@@ -1030,7 +1030,23 @@ def main():
         fails += 1
         print(f"  {property_output[-3000:]}")
 
-    total = (repl_total + diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
+    print("== security and compiler audit regressions ==")
+    rc, so, se = run([sys.executable, "-m", "unittest", "discover",
+                      "-s", TESTS, "-p", "test_audit_*.py"], timeout=300)
+    audit_output = so + se
+    count_match = re.search(r"Ran (\d+) tests?", audit_output)
+    audit_total = int(count_match.group(1)) if count_match else 1
+    print(("PASS " if rc == 0 else "FAIL ") +
+          f"audit regressions ({audit_total} tests)")
+    if rc != 0:
+        failure_match = re.search(r"FAILED \(([^)]+)\)", audit_output)
+        audit_failures = (sum(int(n) for n in re.findall(
+            r"(?:failures|errors)=(\d+)", failure_match.group(1)))
+            if failure_match else audit_total)
+        fails += max(1, audit_failures)
+        print(f"  {audit_output[-5000:]}")
+
+    total = (audit_total + repl_total + diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
              len(P8_NEG_COMPILE) +
              len(P9_NEG_COMPILE) +

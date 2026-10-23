@@ -203,8 +203,7 @@ class Gen:
             root = next(m for m in modules if m.root)
             self.w(f"{root.init_name}();")
         else:
-            for s in rest:
-                self.stmt(s)
+            self.stmtlist(rest)
         self.ind -= 1
         self.w("} catch (Exception _lt_error) {")
         self.ind += 1
@@ -308,9 +307,9 @@ class Gen:
         by_id = {m.module_id: m for m in modules}
         for dep_id in module.deps:
             self.w(f"{by_id[dep_id].init_name}();")
-        for stmt in module.body:
-            self.stmt(stmt)
-        self.w(f"{module.state_name} = 2;")
+        self.stmtlist(module.body)
+        if not self._always_terminates(module.body):
+            self.w(f"{module.state_name} = 2;")
         self.ind -= 1
         self.w("} catch (Exception _lt_module_error) {")
         self.ind += 1
@@ -388,8 +387,7 @@ class Gen:
                 self.w(f"if (_env.get({java_str(param.name)}) == LtRt.MISSING) "
                        f"_env.setLocal({java_str(param.name)}, "
                        f"{self.expr(param.default)});")
-        for s in fn.body:
-            self.stmt(s)
+        self.stmtlist(fn.body)
         if not self._always_returns(fn.body):
             self.w("return null;")
         self.ind -= 1
@@ -466,19 +464,29 @@ class Gen:
             return f"_env.setLocal({java_str(name)}, {value});"
         return f"{ident(name)} = {value};"
 
-    def _always_returns(self, stmts):
-        if not stmts:
-            return False
-        last = stmts[-1]
-        if isinstance(last, Return):
+    def _stmt_terminates(self, stmt, loop_control=False):
+        if isinstance(stmt, (Return, Throw)):
             return True
-        if isinstance(last, If) and last.else_body:
-            return (self._always_returns(last.then_body) and
-                    self._always_returns(last.else_body))
-        if isinstance(last, Try):
-            return (self._always_returns(last.body) and
-                    self._always_returns(last.handler))
+        if loop_control and isinstance(stmt, (Break, Continue)):
+            return True
+        if isinstance(stmt, If) and stmt.else_body:
+            return (self._always_terminates(stmt.then_body, loop_control) and
+                    self._always_terminates(stmt.else_body, loop_control))
+        if isinstance(stmt, Try):
+            return (self._always_terminates(stmt.body, loop_control) and
+                    self._always_terminates(stmt.handler, loop_control))
         return False
+
+    def _always_terminates(self, stmts, loop_control=False):
+        # A definitely abrupt reachable statement prevents the suite from
+        # completing normally; subsequent source statements are unreachable.
+        return any(self._stmt_terminates(stmt, loop_control)
+                   for stmt in stmts)
+
+    def _always_returns(self, stmts):
+        # `throw` also prevents Java method fall-through, so the generator need
+        # not append its implicit `return null` after an abrupt terminal path.
+        return self._always_terminates(stmts)
 
     def _collect_top(self, stmts, out):
         """Ordered collection of top-level assigned names, descending into
@@ -562,8 +570,7 @@ class Gen:
                    s.line, s.source_path)
             self.ind += 1
             self.w(self._assign(s.var, t))
-            for x in s.body:
-                self.stmt(x)
+            self.stmtlist(s.body, loop_control=True)
             self.ind -= 1
             self.w("}")
         elif isinstance(s, Return):
@@ -574,15 +581,17 @@ class Gen:
         elif isinstance(s, Continue):
             self.w("continue;", s.line, s.source_path)
         elif isinstance(s, Try):
+            error_name = self._fresh_java("_lt_e")
+            message_name = self._fresh_java("_lt_m")
             self.w("try {", s.line, s.source_path)
             self.suite(s.body)
-            self.w("} catch (Exception _lt_e) {")
+            self.w(f"}} catch (Exception {error_name}) {{")
             self.ind += 1
-            self.w("String _lt_m = _lt_e.getMessage();")
-            self.w("if (_lt_m == null) _lt_m = _lt_e.toString();")
-            self.w(self._assign(s.var, "_lt_m"))
-            for x in s.handler:
-                self.stmt(x)
+            self.w(f"String {message_name} = {error_name}.getMessage();")
+            self.w(f"if ({message_name} == null) "
+                   f"{message_name} = {error_name}.toString();")
+            self.w(self._assign(s.var, message_name))
+            self.stmtlist(s.handler, loop_control=True)
             self.ind -= 1
             self.w("}")
         elif isinstance(s, Throw):
@@ -594,9 +603,14 @@ class Gen:
 
     def suite(self, stmts):
         self.ind += 1
-        for s in stmts:
-            self.stmt(s)
+        self.stmtlist(stmts, loop_control=True)
         self.ind -= 1
+
+    def stmtlist(self, stmts, loop_control=False):
+        for stmt in stmts:
+            self.stmt(stmt)
+            if self._stmt_terminates(stmt, loop_control):
+                break
 
     def expr(self, e):
         if isinstance(e, Num):
