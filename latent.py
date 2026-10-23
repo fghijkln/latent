@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import sys
-import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -111,10 +110,18 @@ def _exec_chunk(chunk, ns, checker):
         print(render_error("<repl>", chunk, "semant", str(e)),
               file=sys.stderr)
         return
-    g = gen_py.Gen()
+    # Keep one generator and source map across chunks. Source identifiers are
+    # always mangled, so future chunks cannot overwrite its runtime aliases.
+    g = ns["<latent generator>"]
+    start = len(g.out)
+    physical_start = start + sum(line.count("\n") for line in g.out)
     g._reserve_source_names(prog)
-    g._prepare_missing_alias()
-    g._emit_missing_alias()
+    assigned = set()
+    g._collect(prog.stmts, assigned)
+    for name in sorted(assigned):
+        py_name = g._python_ident(name)
+        if py_name not in ns:
+            g.w(f"{py_name} = None")
     for s in prog.stmts:
         if isinstance(s, nodes.FnDef):
             g.fndef(s)
@@ -123,9 +130,12 @@ def _exec_chunk(chunk, ns, checker):
         else:
             g.stmt(s)
     try:
-        exec(compile("\n".join(g.out) + "\n", "<repl>", "exec"), ns)
-    except Exception:
-        traceback.print_exc()
+        # Padding gives definitions from earlier chunks stable traceback lines.
+        code = "\n" * physical_start + "\n".join(g.out[start:]) + "\n"
+        exec(compile(code, "<repl>", "exec"), ns)
+    except Exception as error:
+        ns[g._runtime_name]["_wv_report_uncaught"](
+            error, g.source_map, "<repl>", "<repl>")
 
 
 def run_repl():
@@ -138,7 +148,13 @@ def run_repl():
 
     def reset():
         ns.clear()
-        exec(gen_py.PRELUDE, ns)
+        ns.update({"__file__": "<repl>", "__name__": "__main__"})
+        generator = gen_py.Gen(source_path="<repl>")
+        generator._prepare_missing_alias()
+        generator._emit_prelude()
+        generator._emit_missing_alias()
+        exec("\n".join(generator.out) + "\n", ns)
+        ns["<latent generator>"] = generator
         checker.__init__()
 
     reset()

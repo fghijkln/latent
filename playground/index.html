@@ -57,9 +57,10 @@ function show() {
   if (tab === "py") { o.textContent = last.python || "(没有生成代码)"; return; }
   if (last.error) { o.className = "err"; o.textContent = last.error; return; }
   let t = last.stdout || "";
-  if (last.truncated) t += "\n…(输出被截断)";
+  if (last.truncated) t += "\n⚠ 输出超限，程序已中止（不是成功完成）";
   if (last.stderr) t += (t ? "\n" : "") + last.stderr;
   if (last.timeout) t += "\n⏱ 超时或超出资源限制，已终止";
+  if (last.exit !== undefined) t += `\n退出码：${last.exit}`;
   o.textContent = t || "(无输出)";
   if (!last.ok) o.className = "err";
 }
@@ -72,8 +73,13 @@ async function run() {
   try {
     const r = await fetch("/api/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({source: src})});
     last = await r.json();
-    $("meta").textContent = (last.ok ? "✓ 成功" : "✗ " + (last.stage || "错误")) + " · " + Math.round(performance.now() - t0) + " ms";
-  } catch (e) { last = {ok: false, error: "请求失败：" + e + "\n（免费实例休眠后首次唤醒可能要几秒，再点一次）"}; }
+    const status = last.truncated ? "⚠ 输出超限，程序已中止" : (last.ok ? "✓ 成功" : "✗ " + (last.stage || "错误"));
+    const exit = last.exit === undefined ? "" : ` · 退出码 ${last.exit}`;
+    $("meta").textContent = status + exit + " · " + Math.round(performance.now() - t0) + " ms";
+  } catch (e) {
+    last = {ok: false, error: "请求失败：" + e + "\n（免费实例休眠后首次唤醒可能要几秒，再点一次）"};
+    $("meta").textContent = "✗ 请求失败 · " + Math.round(performance.now() - t0) + " ms";
+  }
   $("run").disabled = false; tab = "out"; show();
 }
 $("run").onclick = run;

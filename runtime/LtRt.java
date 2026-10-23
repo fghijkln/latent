@@ -67,7 +67,7 @@ public class LtRt {
             r.addAll((List<?>) b);
             return r;
         }
-        throw new RuntimeException("bad + operands: " + typeName(a) + ", " + typeName(b));
+        throw new RuntimeException("bad + operands: " + repr(a) + ", " + repr(b));
     }
 
     public static Object sub(Object a, Object b) {

@@ -34,6 +34,10 @@ MAX_ERR = 8_000
 MAX_REQUEST = MAX_SRC * 4 + 1000
 TIMEOUT = 5
 RUN_TIMEOUT = TIMEOUT + 1
+# A child may use up to 256 MiB; one active child leaves room for the server
+# and compiler within the playground's 512 MiB instance budget.
+MAX_CONCURRENT_RUNS = 1
+_RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
 BODY_TIMEOUT = 5
 BODY_IDLE_TIMEOUT = 2
 HEADER_TIMEOUT = 10
@@ -110,7 +114,7 @@ def _stop_process_group(proc):
             pass
 
 
-def run_program(src):
+def _run_program(src):
     if len(src) > MAX_SRC:
         return {"ok": False, "stage": "input", "error": f"source too long (max {MAX_SRC} chars)"}
     msg = blocked_feature(src)
@@ -191,8 +195,18 @@ def run_program(src):
     errs = output["stderr"].decode("utf-8", "replace").replace(d + "/", "")
     if rc < 0 and not timed_out and not truncated and rc in (-9, -24):
         timed_out = True
-    return {"ok": rc == 0, "stage": "run", "stdout": out, "stderr": errs[-MAX_ERR:],
+    return {"ok": rc == 0 and not truncated and not timed_out, "stage": "run", "stdout": out, "stderr": errs[-MAX_ERR:],
             "exit": rc, "timeout": timed_out, "truncated": truncated, "python": code}
+
+
+def run_program(src, *, wait=True):
+    """Run at most one program at a time; direct callers wait by default."""
+    if not _RUN_SLOTS.acquire(blocking=wait):
+        return {"ok": False, "stage": "capacity", "error": "playground is busy; retry shortly"}
+    try:
+        return _run_program(src)
+    finally:
+        _RUN_SLOTS.release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -205,20 +219,34 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_one_request(self):
         # socket.settimeout is an inactivity limit; this also bounds drip-fed headers.
+        self._header_deadline_lock = threading.Lock()
+        self._headers_parsed = False
         timer = threading.Timer(HEADER_TIMEOUT, self._expire_request)
         timer.daemon = True
+        self._header_deadline_timer = timer
         timer.start()
         try:
             return super().handle_one_request()
         finally:
             timer.cancel()
 
+    def parse_request(self):
+        parsed = super().parse_request()
+        # Do not let the header deadline race with body reads or program execution.
+        with self._header_deadline_lock:
+            self._headers_parsed = True
+            self._header_deadline_timer.cancel()
+        return parsed
+
     def _expire_request(self):
-        try:
-            self.close_connection = True
-            self.connection.shutdown(socket.SHUT_RD)
-        except OSError:
-            pass
+        with self._header_deadline_lock:
+            if self._headers_parsed:
+                return
+            try:
+                self.close_connection = True
+                self.connection.shutdown(socket.SHUT_RD)
+            except OSError:
+                pass
 
     def _send(self, status, body, ctype):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
@@ -284,8 +312,9 @@ class Handler(BaseHTTPRequestHandler):
             src = json.loads(body or b"{}").get("source", "")
         except Exception:
             return self._send(400, json.dumps({"ok": False, "error": "bad json"}), "application/json")
-        res = run_program(str(src))
-        self._send(200, json.dumps(res), "application/json")
+        res = run_program(str(src), wait=False)
+        status = 503 if res.get("stage") == "capacity" else 200
+        self._send(status, json.dumps(res), "application/json")
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))

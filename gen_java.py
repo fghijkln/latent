@@ -14,6 +14,12 @@ JAVA_KW = {
     "null", "var",
 }
 
+# Keep emitted source identifiers in a namespace disjoint from Java keywords,
+# runtime type names, and generated locals. Prefixing every source name (rather
+# than suffixing only collisions) also keeps the mapping injective: e.g. `x`
+# and `x_`, or `class` and `class_`, can never collapse to the same field.
+JAVA_SOURCE_PREFIX = "_lt_user_"
+
 BUILTIN_JAVA = {
     "__say": "LtRt.say", "len": "LtRt.len", "range": "LtRt.range",
     "str": "LtRt.strOf", "int": "LtRt.toInt", "push": "LtRt.push",
@@ -24,7 +30,7 @@ BUILTIN_JAVA = {
 
 
 def ident(name):
-    return name + "_" if name in JAVA_KW else name
+    return JAVA_SOURCE_PREFIX + name
 
 
 def cls_name(stem):
@@ -77,6 +83,7 @@ class Gen:
         self.source_path = source_path
         self.source_map = {}
         self.fn_helpers = {}
+        self.method_helpers = {}
         self.fn_parents = {}
         self.function_nodes = []
         self.scope = None
@@ -125,6 +132,9 @@ class Gen:
 
         for fn in top + methods:
             register(fn, None)
+        for index, method in enumerate(methods):
+            self.method_helpers[id(method)] = self._fresh_java(
+                "_lt_method_" + str(index))
 
     def _walk_nodes(self, value, seen=None):
         if seen is None:
@@ -323,7 +333,8 @@ class Gen:
     def classfield(self, cd):
         names = ", ".join(java_str(m.name) for m in cd.methods)
         lambdas = ", ".join(
-            f"(s, a) -> {cd.name}_{m.name}(s, a)" for m in cd.methods)
+            f"(s, a) -> {self.method_helpers[id(m)]}(s, a)"
+            for m in cd.methods)
         arities = ", ".join(str(len(fixed_parameter_names(m.params[1:])))
                              for m in cd.methods)
         parameters = ", ".join(self.string_array(fixed_parameter_names(m.params[1:]))
@@ -359,7 +370,8 @@ class Gen:
         self.ind -= 1
 
     def methoddef(self, cd, m):
-        self.w(f"static Object {cd.name}_{m.name}(Object self, Object[] args) " + "{",
+        java_name = self.method_helpers[id(m)]
+        self.w(f"static Object {java_name}(Object self, Object[] args) " + "{",
                m.line, m.source_path)
         self.ind += 1
         self.w("Object[] _all_args = new Object[args.length + 1];")

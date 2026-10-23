@@ -1791,6 +1791,13 @@
     ],
     "test_module": [
       "bootstrap/test_checker.py",
+      "test_audit_ci.py",
+      "test_audit_error_messages.py",
+      "test_audit_java_fixes.py",
+      "test_audit_java_identifiers.py",
+      "test_audit_namespace.py",
+      "test_audit_playground.py",
+      "test_audit_python_fixes.py",
       "test_bootstrap_host.py",
       "test_bootstrap_lexer.py",
       "test_bootstrap_parser.py",
@@ -3012,6 +3019,34 @@
     "python_fixture/p19_named_host.py": {
       "disposition": "include",
       "reason": "Python host fixture for P19-B outbound named-host feature and focused regressions; does not implement Python-to-Latent callback kwargs."
+    },
+    "test_module/test_audit_ci.py": {
+      "disposition": "include",
+      "reason": "CI action SHA pin regressions, run by the complete regression suite; no change to fixed-Stage0 behavior expectations."
+    },
+    "test_module/test_audit_java_fixes.py": {
+      "disposition": "include",
+      "reason": "Focused cross-backend abrupt-control-flow and catch-variable isolation regressions, run by the complete regression suite."
+    },
+    "test_module/test_audit_playground.py": {
+      "disposition": "include",
+      "reason": "Bounded playground execution, HTTP admission control, truncation reporting and deadline regressions, run by the complete regression suite."
+    },
+    "test_module/test_audit_python_fixes.py": {
+      "disposition": "include",
+      "reason": "Focused cross-backend numeric, keyword identifier and native attribute access regressions, run by the complete regression suite."
+    },
+    "test_module/test_audit_error_messages.py": {
+      "disposition": "include",
+      "reason": "Focused cross-backend caught addition diagnostics, preserving the fixed-Stage0 Python value-rendering behavior."
+    },
+    "test_module/test_audit_java_identifiers.py": {
+      "disposition": "include",
+      "reason": "Focused cross-backend Java runtime and entry-point identifier collision regressions, run by the complete regression suite."
+    },
+    "test_module/test_audit_namespace.py": {
+      "disposition": "include",
+      "reason": "Focused cross-backend Python runtime namespace isolation and native attribute-write regressions, run by the complete regression suite."
     }
   },
   "auxiliary_tests": {

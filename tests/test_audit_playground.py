@@ -1,5 +1,6 @@
 """Regression tests for bounded playground execution and HTTP request handling."""
 import http.client
+import json
 import os
 import socket
 import sys
@@ -36,6 +37,8 @@ class PlaygroundExecutionTests(unittest.TestCase):
             result = self.execute_generated(code)
         elapsed = time.monotonic() - start
         self.assertTrue(result["truncated"])
+        self.assertFalse(result["ok"])
+        self.assertNotEqual(result["exit"], 0)
         self.assertFalse(result["timeout"])
         self.assertEqual(len(result["stdout"]), 8192)
         self.assertLess(elapsed, 2)
@@ -55,6 +58,8 @@ class PlaygroundExecutionTests(unittest.TestCase):
                 mock.patch.object(app, "RUN_TIMEOUT", 2):
             result = self.execute_generated(code)
         self.assertTrue(result["truncated"])
+        self.assertFalse(result["ok"])
+        self.assertNotEqual(result["exit"], 0)
         self.assertFalse(result["timeout"])
         self.assertGreater(len(result["stdout"]), 0)
         self.assertGreater(len(result["stderr"]), 0)
@@ -69,6 +74,77 @@ class PlaygroundExecutionTests(unittest.TestCase):
         self.assertTrue(result["timeout"])
         self.assertFalse(result["truncated"])
         self.assertLess(time.monotonic() - start, 2)
+
+    def test_direct_runs_are_serialized_by_the_global_slot(self):
+        active = 0
+        peak = 0
+        lock = threading.Lock()
+
+        def fake_run(src):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            return {"ok": True}
+
+        with mock.patch.object(app, "_run_program", side_effect=fake_run):
+            threads = [threading.Thread(target=app.run_program, args=(str(i),)) for i in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=2)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(peak, 1)
+
+    def test_concurrent_requests_bound_real_subprocess_runs(self):
+        active = 0
+        peak = 0
+        lock = threading.Lock()
+        results = []
+        real_run = app._run_program
+
+        def tracked_run(src):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                return real_run(src)
+            finally:
+                with lock:
+                    active -= 1
+
+        code = "import time\nprint('done')\ntime.sleep(0.2)\n"
+        with mock.patch.object(app, "_run_program", side_effect=tracked_run), \
+                mock.patch.object(app, "blocked_feature", return_value=None), \
+                mock.patch.object(app.latent, "compile_src", return_value=(object(), None)), \
+                mock.patch.object(app.gen_py, "generate", return_value=code):
+            threads = [threading.Thread(target=lambda: results.append(app.run_program("sleep")))
+                       for _ in range(3)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=5)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(len(results), 3)
+        self.assertTrue(all(result["ok"] and result["stdout"] == "done\n" for result in results))
+        self.assertEqual(peak, 1)
+
+    def test_global_slot_is_released_when_run_raises(self):
+        with mock.patch.object(app, "_run_program", side_effect=[RuntimeError("boom"), {"ok": True}]):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                app.run_program("first")
+            self.assertEqual(app.run_program("second"), {"ok": True})
+
+    def test_output_limit_is_explained_as_an_interruption_in_the_ui(self):
+        with open(os.path.join(ROOT, "playground", "index.html"), encoding="utf-8") as page:
+            html = page.read()
+        self.assertIn("输出超限，程序已中止", html)
+        self.assertIn("退出码：${last.exit}", html)
+        self.assertIn("✗ 请求失败", html)
 
 
 class PlaygroundHTTPTests(unittest.TestCase):
@@ -120,21 +196,63 @@ class PlaygroundHTTPTests(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 1.5)
 
     def test_drip_fed_header_is_bounded_by_total_deadline(self):
-        sock = socket.create_connection(self.address, timeout=2)
-        sock.settimeout(2)
-        start = time.monotonic()
-        with mock.patch.object(app, "HEADER_TIMEOUT", 0.25):
-            sock.sendall(b"POST /not-a-route HTTP/1.1\r\nHost: localhost\r\nX-Slow:")
-            for _ in range(20):
-                time.sleep(0.05)
+        for attempt in range(3):
+            with self.subTest(attempt=attempt), mock.patch.object(app, "HEADER_TIMEOUT", 0.25):
+                # Patch before connect so the accepted handler always sees this deadline.
+                sock = socket.create_connection(self.address, timeout=2)
+                sock.settimeout(2)
+                start = time.monotonic()
                 try:
-                    sock.sendall(b"a")
-                except OSError:
-                    break
-            while sock.recv(4096):
-                pass
-        sock.close()
-        self.assertLess(time.monotonic() - start, 1.5)
+                    sock.sendall(b"POST /not-a-route HTTP/1.1\r\nHost: localhost\r\nX-Slow:")
+                    for _ in range(20):
+                        time.sleep(0.05)
+                        try:
+                            sock.sendall(b"a")
+                        except OSError:
+                            break
+                    while sock.recv(4096):
+                        pass
+                    self.assertLess(time.monotonic() - start, 1.5)
+                finally:
+                    sock.close()
+
+    def test_header_deadline_does_not_interrupt_a_body_with_its_own_deadline(self):
+        payload = b'{"source":"say 1"}'
+        with mock.patch.object(app, "HEADER_TIMEOUT", 0.25), \
+                mock.patch.object(app, "BODY_TIMEOUT", 1.5), \
+                mock.patch.object(app, "BODY_IDLE_TIMEOUT", 0.8):
+            sock = socket.create_connection(self.address, timeout=2)
+            sock.settimeout(2)
+            try:
+                sock.sendall((f"POST /api/run HTTP/1.1\r\nHost: localhost\r\n"
+                              f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n").encode("ascii"))
+                sock.sendall(payload[:5])
+                time.sleep(0.35)  # Longer than the header deadline, shorter than the body idle deadline.
+                sock.sendall(payload[5:])
+                response = bytearray()
+                while True:
+                    part = sock.recv(4096)
+                    if not part:
+                        break
+                    response.extend(part)
+            finally:
+                sock.close()
+        self.assertIn(b" 200 ", response.split(b"\r\n", 1)[0])
+        body = bytes(response).split(b"\r\n\r\n", 1)[1]
+        self.assertTrue(json.loads(body)["ok"])
+
+    def test_busy_playground_returns_explicit_503(self):
+        payload = b'{"source":"say 1"}'
+        self.assertTrue(app._RUN_SLOTS.acquire(blocking=False))
+        try:
+            response = self.raw_request(f"Content-Length: {len(payload)}\r\n", payload)
+        finally:
+            app._RUN_SLOTS.release()
+        self.assertIn(b" 503 ", response.split(b"\r\n", 1)[0])
+        body = response.split(b"\r\n\r\n", 1)[1]
+        result = json.loads(body)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage"], "capacity")
 
     def test_ordinary_api_request_remains_compatible(self):
         conn = http.client.HTTPConnection(*self.address, timeout=3)

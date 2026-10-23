@@ -67,6 +67,48 @@ class ReplCliTests(unittest.TestCase):
         self.assertIn("42\n", result.stdout)
         self.assertNotIn("Traceback", result.stdout + result.stderr)
 
+    def test_runtime_names_are_isolated_across_chunks_and_reset(self):
+        result = self.invoke(
+            'fn _wv_non_handle_type(value) => nil\n'
+            'type = 13\n'
+            'isinstance = 17\n'
+            '_lt_runtime = 19\n'
+            '_lt_host_builtins = 23\n'
+            '__builtins__ = 29\n'
+            'if false:\n    object = nil\n    _os = nil\n\n'
+            'say [type, isinstance, object, _os]\n'
+            'try:\n    say "".__class__\n'
+            'catch error:\n    say error\n\n'
+            'try:\n    say object.__class__\n'
+            'catch error:\n    say error\n\n'
+            ':reset\n'
+            'say [1, 2]\n'
+            ':quit\n'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertIn('[13, 17, nil, nil]\n', result.stdout)
+        self.assertIn('attribute access on non-handle value: str', result.stdout)
+        self.assertIn('attribute access on non-handle value: nil', result.stdout)
+        self.assertIn('[1, 2]\n', result.stdout)
+
+    def test_runtime_error_in_earlier_definition_is_mapped_and_repl_recovers(self):
+        result = self.invoke(
+            'fn broken(value):\n    return value + "bad"\n\n'
+            '_wv_report_uncaught = 1\n'
+            '_WV_SOURCE_MAP = 2\n'
+            'broken(1)\n'
+            'say "recovered"\n'
+            ':quit\n'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Latent runtime error: TypeError: bad + operands: 1, bad',
+                      result.stderr)
+        self.assertIn('at <repl>:2 in broken', result.stderr)
+        self.assertNotIn('Traceback (most recent call last)', result.stderr)
+        self.assertNotIn('_lt_user_', result.stderr)
+        self.assertIn('recovered\n', result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

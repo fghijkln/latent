@@ -1,6 +1,5 @@
 """Latent -> Python backend."""
 import json
-import keyword
 from nodes import *
 
 PRELUDE = r'''
@@ -1205,6 +1204,9 @@ def _wv_wsetattr(h, attr, v):
                         "field": attr, "value": _jvm_encode(v)})
     if isinstance(h, _LazyMod):
         raise AttributeError("cannot set attribute on a module")
+    kind = _wv_non_handle_type(h)
+    if kind is not None:
+        raise TypeError("cannot set attribute on " + kind)
     setattr(h, attr, _wv_pyarg(v))
     return None
 
@@ -1233,10 +1235,20 @@ def _wv_wsetindex(h, k, v):
 
 
 def _wv_report_uncaught(exc, source_map, source_file, generated_file):
-    """Render mapped Latent frames; retain Python's traceback as a fallback."""
+    """Render concise Latent diagnostics without exposing host tracebacks."""
+    def _summary():
+        try:
+            error_type = type(exc).__name__
+        except Exception:
+            error_type = "Exception"
+        try:
+            message = str(exc)
+        except Exception:
+            message = "<message unavailable>"
+        return error_type + (": " + message if message else "")
+
     def _fallback():
-        _traceback.print_exception(type(exc), exc, exc.__traceback__,
-                                   file=_sys.stderr)
+        _builtins.print("Latent runtime error: " + _summary(), file=_sys.stderr)
 
     try:
         generated_abs = _os.path.abspath(generated_file)
@@ -1254,6 +1266,11 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
                     else:  # compatibility with single-file generated programs
                         source_file, source_line = source_file, source_loc
                     name = frame.f_code.co_name
+                    if name.startswith("_lt_user_"):
+                        try:
+                            name = bytes.fromhex(name[len("_lt_user_"):]).decode("utf-8")
+                        except (ValueError, UnicodeDecodeError):
+                            pass
                     mapped.append((source_file, source_line,
                                    "main" if name == "<module>" else name))
             tb = tb.tb_next
@@ -1261,13 +1278,16 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
             _fallback()
             return
 
-        message = str(exc)
         if isinstance(exc, _LtArgumentError):
             error_type = "ArgumentError"
         elif isinstance(exc, _LtJavaInteropError):
             error_type = "RuntimeException"
         else:
             error_type = type(exc).__name__
+        try:
+            message = str(exc)
+        except Exception:
+            message = "<message unavailable>"
         detail = error_type + (": " + message if message else "")
         _builtins.print("Latent runtime error: " + detail, file=_sys.stderr)
         _builtins.print("Latent traceback (most recent call last):", file=_sys.stderr)
@@ -1278,8 +1298,11 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
         try:
             _fallback()
         except Exception:
-            _builtins.print("Latent runtime error (diagnostic formatting failed)",
-                            file=_sys.stderr)
+            try:
+                _builtins.print("Latent runtime error (diagnostic formatting failed)",
+                                file=_sys.stderr)
+            except Exception:
+                pass
 
 '''
 
@@ -1303,30 +1326,42 @@ class Gen:
         self._reserved_nodes = set()
         self._missing_name = None
         self._builtins_name = None
+        self._runtime_name = None
+        self._runtime_error_name = None
+        self._source_file_name = None
+        self._source_map_name = None
 
     def _reserve_source_names(self, value):
+        def reserve(name):
+            self._used_internal_names.add(self._encoded_source_ident(name))
+
         if isinstance(value, Node):
             if id(value) in self._reserved_nodes:
                 return
             self._reserved_nodes.add(id(value))
             if isinstance(value, Name):
-                self._used_internal_names.add(value.id)
+                reserve(value.id)
             elif isinstance(value, (FnDef, ClassDef, Assign)):
-                self._used_internal_names.add(value.name)
+                reserve(value.name)
                 if isinstance(value, ClassDef):
-                    self._used_internal_names.add(value.source_name)
+                    reserve(value.source_name)
                 if isinstance(value, FnDef):
-                    self._used_internal_names.update(parameter_names(value.params))
+                    for name in parameter_names(value.params):
+                        reserve(name)
             if isinstance(value, ClassRef):
-                self._used_internal_names.add(value.name)
+                reserve(value.name)
                 if value.alias:
-                    self._used_internal_names.add(value.alias)
+                    reserve(value.alias)
             if isinstance(value, (For, Try)):
-                self._used_internal_names.add(value.var)
+                reserve(value.var)
             if isinstance(value, ImportStmt):
-                self._used_internal_names.add(value.alias)
+                reserve(value.alias)
+            if isinstance(value, (GlobalStmt, NonlocalStmt)):
+                for name in value.names:
+                    reserve(name)
             if isinstance(value, ModuleInit):
-                self._used_internal_names.update(value.globals)
+                for name in value.globals:
+                    reserve(name)
             for child in vars(value).values():
                 self._reserve_source_names(child)
         elif isinstance(value, (list, tuple)):
@@ -1350,27 +1385,51 @@ class Gen:
         return name
 
     def _python_ident(self, name):
-        """Map Latent identifiers to valid, collision-free Python identifiers."""
-        if not keyword.iskeyword(name):
-            return name
+        """Encode source identifiers as injective ASCII Python identifiers."""
         if name not in self._python_name_map:
-            candidate = name + "_"
-            while candidate in self._used_internal_names:
-                candidate += "_"
+            candidate = self._encoded_source_ident(name)
             self._used_internal_names.add(candidate)
             self._python_name_map[name] = candidate
         return self._python_name_map[name]
 
+    @staticmethod
+    def _encoded_source_ident(name):
+        return "_lt_user_" + name.encode("utf-8").hex()
+
     def _prepare_missing_alias(self):
-        self._builtins_name = self._fresh_internal_suffix("_builtins")
+        self._builtins_name = None
+        self._runtime_name = None
+        self._runtime_error_name = None
+        self._source_file_name = None
+        self._source_map_name = None
         self._missing_name = self._fresh_internal("_lt_missing")
 
+    def _runtime(self, name):
+        if self._runtime_name is None:
+            return name
+        return f"{self._runtime_name}[{json.dumps(name)}]"
+
+    def _host_builtins(self):
+        return self._builtins_name or "_builtins"
+
     def _emit_missing_alias(self):
-        self.w(f"{self._missing_name} = _LtFunction.MISSING")
+        if self._runtime_name is None:
+            self.w(f"{self._missing_name} = _LtFunction.MISSING")
+        else:
+            self.w(f"{self._missing_name} = {self._runtime('_LtFunction')}.MISSING")
 
     def _emit_prelude(self):
-        prelude = PRELUDE.replace("_builtins", self._builtins_name)
-        self.w(prelude.strip("\n"))
+        self._builtins_name = "_builtins"
+        self._runtime_name = self._fresh_internal("_lt_runtime")
+        self._runtime_error_name = self._fresh_internal("_lt_runtime_error")
+        self._source_file_name = self._fresh_internal("_lt_source_file")
+        self._source_map_name = self._fresh_internal("_lt_source_map")
+        self.w(PRELUDE.strip("\n"))
+        self.w(f"{self._runtime_name} = globals().copy()")
+
+    def _render_output(self):
+        """Return the ordinary Python module emitted by this backend."""
+        return "\n".join(self.out) + "\n"
 
     def w(self, s="", source_line=None, source_path=None):
         physical_line = len(self.out) + 1 + sum(x.count("\n") for x in self.out)
@@ -1390,6 +1449,11 @@ class Gen:
         clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
         rest = [s for s in prog.stmts
                 if not isinstance(s, (FnDef, ClassDef))]
+        declared = {s.name for s in fns} | {s.name for s in clss}
+        module_names = set()
+        self._collect(rest, module_names)
+        for name in sorted(module_names - declared):
+            self.w(f"{self._python_ident(name)} = None")
         for fn in fns:
             self.w("")
             self.fndef(fn)
@@ -1397,9 +1461,9 @@ class Gen:
             self.w("")
             self.classdef(cd)
         self.w("")
-        self.w(f"_WV_SOURCE_FILE = {json.dumps(self.source_path, ensure_ascii=False)}")
+        self.w(f"{self._source_file_name} = {json.dumps(self.source_path, ensure_ascii=False)}")
         source_map_line = len(self.out)
-        self.w("_WV_SOURCE_MAP = {}")
+        self.w(f"{self._source_map_name} = {{}}")
         if rest:
             self.w("")
             self.w('if __name__ == "__main__":')
@@ -1409,15 +1473,15 @@ class Gen:
             for s in rest:
                 self.stmt(s)
             self.indent -= 1
-            self.w("except Exception as _wv_error:")
+            self.w(f"except {self._host_builtins()}.Exception as {self._runtime_error_name}:")
             self.indent += 1
-            self.w("_wv_report_uncaught(_wv_error, _WV_SOURCE_MAP, "
-                   "_WV_SOURCE_FILE, __file__)")
-            self.w("raise SystemExit(1)")
+            self.w(f"{self._runtime('_wv_report_uncaught')}({self._runtime_error_name}, "
+                   f"{self._source_map_name}, {self._source_file_name}, __file__)")
+            self.w(f"raise {self._host_builtins()}.SystemExit(1)")
             self.indent -= 1
             self.indent -= 1
-        self.out[source_map_line] = f"_WV_SOURCE_MAP = {self.source_map!r}"
-        return "\n".join(self.out) + "\n"
+        self.out[source_map_line] = f"{self._source_map_name} = {self.source_map!r}"
+        return self._render_output()
 
     def generate_modules(self, prog):
         self._emit_prelude()
@@ -1445,7 +1509,8 @@ class Gen:
             self.w(f"{module.state_name} = 0")
             self.w(f"def {module.init_name}():")
             self.indent += 1
-            global_names = [module.state_name] + list(module.globals)
+            global_names = [module.state_name] + [
+                self._python_ident(name) for name in module.globals]
             self.w("global " + ", ".join(global_names))
             self.w(f"if {module.state_name} == 2:")
             self.indent += 1
@@ -1453,7 +1518,7 @@ class Gen:
             self.indent -= 1
             self.w(f"if {module.state_name} == 1:")
             self.indent += 1
-            self.w('raise RuntimeError("cyclic module initialization")')
+            self.w(f'raise {self._host_builtins()}.RuntimeError("cyclic module initialization")')
             self.indent -= 1
             self.w(f"{module.state_name} = 1")
             self.w("try:")
@@ -1465,16 +1530,16 @@ class Gen:
                 self.stmt(stmt)
             self.w(f"{module.state_name} = 2")
             self.indent -= 1
-            self.w("except Exception:")
+            self.w(f"except {self._host_builtins()}.Exception:")
             self.indent += 1
             self.w(f"{module.state_name} = 0")
             self.w("raise")
             self.indent -= 1
             self.indent -= 1
         self.w("")
-        self.w(f"_WV_SOURCE_FILE = {json.dumps(root_path, ensure_ascii=False)}")
+        self.w(f"{self._source_file_name} = {json.dumps(root_path, ensure_ascii=False)}")
         source_map_line = len(self.out)
-        self.w("_WV_SOURCE_MAP = {}")
+        self.w(f"{self._source_map_name} = {{}}")
         self.w("")
         self.w('if __name__ == "__main__":')
         self.indent += 1
@@ -1482,18 +1547,18 @@ class Gen:
         self.indent += 1
         self.w(f"{root.init_name}()")
         self.indent -= 1
-        self.w("except Exception as _wv_error:")
+        self.w(f"except {self._host_builtins()}.Exception as {self._runtime_error_name}:")
         self.indent += 1
-        self.w("_wv_report_uncaught(_wv_error, _WV_SOURCE_MAP, "
-               "_WV_SOURCE_FILE, __file__)")
-        self.w("raise SystemExit(1)")
+        self.w(f"{self._runtime('_wv_report_uncaught')}({self._runtime_error_name}, "
+               f"{self._source_map_name}, {self._source_file_name}, __file__)")
+        self.w(f"raise {self._host_builtins()}.SystemExit(1)")
         self.indent -= 1
         self.indent -= 1
-        self.out[source_map_line] = f"_WV_SOURCE_MAP = {self.source_map!r}"
-        return "\n".join(self.out) + "\n"
+        self.out[source_map_line] = f"{self._source_map_name} = {self.source_map!r}"
+        return self._render_output()
 
     def classdef(self, cd):
-        factory = self._fresh_internal("_lt_make_class_" + cd.name)
+        factory = self._fresh_internal("_lt_make_class")
         self.w(f"def {factory}():")
         self.indent += 1
         self.w("class _LtMethods:")
@@ -1524,7 +1589,7 @@ class Gen:
                    f"{rest!r}")
             self.w(f"_LtMethods.{py_method_name}._lt_extra_name = "
                    f"{extra!r}")
-        self.w(f"return _LtClass({json.dumps(cd.source_name, ensure_ascii=False)}, "
+        self.w(f"return {self._runtime('_LtClass')}({json.dumps(cd.source_name, ensure_ascii=False)}, "
                f"{parent}, {{{methods}}})")
         self.indent -= 1
         self.w(f"{self._python_ident(cd.name)} = {factory}()")
@@ -1600,7 +1665,7 @@ class Gen:
         self.indent -= 1
         if not method:
             py_fn_name = self._python_ident(fn.name)
-            self.w(f"{py_fn_name} = _LtFunction({py_fn_name}, "
+            self.w(f"{py_fn_name} = {self._runtime('_LtFunction')}({py_fn_name}, "
                    f"{json.dumps(fixed_parameter_names(fn.params), ensure_ascii=False)}, "
                    f"{json.dumps(fn.source_name, ensure_ascii=False)}, "
                    f"required_count={required_parameter_count(fn.params)}, "
@@ -1650,7 +1715,7 @@ class Gen:
             self.w(f"while {self.expr(s.cond)}:", s.line, s.source_path)
             self.suite(s.body)
         elif isinstance(s, For):
-            self.w(f"for {self._python_ident(s.var)} in _wv_iter({self.expr(s.iter)}):", s.line,
+            self.w(f"for {self._python_ident(s.var)} in {self._runtime('_wv_iter')}({self.expr(s.iter)}):", s.line,
                    s.source_path)
             self.suite(s.body)
         elif isinstance(s, Return):
@@ -1669,18 +1734,18 @@ class Gen:
             self.w(f"{py_var} = None")
             self.w("try:", s.line, s.source_path)
             self.suite(s.body)
-            self.w(f"except Exception as {error_name}:")
+            self.w(f"except {self._host_builtins()}.Exception as {error_name}:")
             self.indent += 1
             # KeyError str() adds quotes; args[0] is the clean message
             self.w(f"{message_name} = {error_name}.args[0] if "
-                   f"{error_name}.args and isinstance({error_name}.args[0], str) "
-                   f"else str({error_name})")
+                   f"{error_name}.args and {self._host_builtins()}.isinstance({error_name}.args[0], "
+                   f"{self._host_builtins()}.str) else {self._host_builtins()}.str({error_name})")
             self.w(f"{py_var} = {message_name}")
             for x in s.handler:
                 self.stmt(x)
             self.indent -= 1
         elif isinstance(s, Throw):
-            self.w(f"raise Exception(_wv_repr({self.expr(s.value)}))", s.line,
+            self.w(f"raise {self._host_builtins()}.Exception({self._runtime('_wv_repr')}({self.expr(s.value)}))", s.line,
                    s.source_path)
         else:
             raise Exception(f"py backend: unexpected {type(s).__name__}")
@@ -1693,12 +1758,12 @@ class Gen:
 
     def argument(self, arg):
         if isinstance(arg, NamedArg):
-            return f"_wv_named({json.dumps(arg.name, ensure_ascii=False)}, " \
+            return f"{self._runtime('_wv_named')}({json.dumps(arg.name, ensure_ascii=False)}, " \
                    f"{self.expr(arg.value)})"
         if isinstance(arg, StarArg):
-            return f"_wv_star({self.expr(arg.value)})"
+            return f"{self._runtime('_wv_star')}({self.expr(arg.value)})"
         if isinstance(arg, StarStarArg):
-            return f"_wv_starstar({self.expr(arg.value)})"
+            return f"{self._runtime('_wv_starstar')}({self.expr(arg.value)})"
         return self.expr(arg)
 
     def expr(self, e):
@@ -1725,51 +1790,51 @@ class Gen:
         if isinstance(e, Call):
             args = ", ".join(self.argument(a) for a in e.args)
             if isinstance(e.func, Name) and e.func.id in BUILTIN_PY:
-                return f"{BUILTIN_PY[e.func.id]}({args})"
+                return f"{self._runtime(BUILTIN_PY[e.func.id])}({args})"
             suffix = ", " + args if args else ""
-            return f"_wv_call({self.expr(e.func)}{suffix})"
+            return f"{self._runtime('_wv_call')}({self.expr(e.func)}{suffix})"
         if isinstance(e, SuperCall):
             receiver = self.expr(e.args[0])
             args = [self.argument(a) for a in e.args[1:]]
             rendered = ", ".join([receiver, self._python_ident(e.owner.name),
                                     json.dumps(e.method)] + args)
-            return f"_wv_supercall({rendered})"
+            return f"{self._runtime('_wv_supercall')}({rendered})"
         if isinstance(e, PyImport):
-            return f"_wv_pymod({self.expr(e.module_expr)})"
+            return f"{self._runtime('_wv_pymod')}({self.expr(e.module_expr)})"
         if isinstance(e, JavaImport):
-            return f"_wv_jclass({self.expr(e.class_expr)})"
+            return f"{self._runtime('_wv_jclass')}({self.expr(e.class_expr)})"
         raise Exception(f"py backend: unexpected {type(e).__name__}")
 
     def num(self, v):
         if v != v:
-            return 'float("nan")'
+            return f'{self._host_builtins()}.float("nan")'
         if v == float("inf"):
-            return 'float("inf")'
+            return f'{self._host_builtins()}.float("inf")'
         if v == float("-inf"):
-            return 'float("-inf")'
+            return f'{self._host_builtins()}.float("-inf")'
         return repr(v)
 
     def binop(self, e):
         l, r = self.expr(e.left), self.expr(e.right)
         op = e.op
         if op == "+":
-            return f"_wv_add({l}, {r})"
+            return f"{self._runtime('_wv_add')}({l}, {r})"
         if op == "-":
-            return f"_wv_sub({l}, {r})"
+            return f"{self._runtime('_wv_sub')}({l}, {r})"
         if op == "*":
-            return f"_wv_mul({l}, {r})"
+            return f"{self._runtime('_wv_mul')}({l}, {r})"
         if op == "/":
-            return f"_wv_div({l}, {r})"
+            return f"{self._runtime('_wv_div')}({l}, {r})"
         if op == "%":
-            return f"_wv_mod({l}, {r})"
+            return f"{self._runtime('_wv_mod')}({l}, {r})"
         if op == "**":
-            return f"_wv_pow({l}, {r})"
+            return f"{self._runtime('_wv_pow')}({l}, {r})"
         if op == "==":
-            return f"_wv_eq({l}, {r})"
+            return f"{self._runtime('_wv_eq')}({l}, {r})"
         if op == "!=":
-            return f"(not _wv_eq({l}, {r}))"
+            return f"(not {self._runtime('_wv_eq')}({l}, {r}))"
         if op in ("<", "<=", ">", ">="):
-            return f"(_wv_cmp({l}, {r}) {op} 0)"
+            return f"({self._runtime('_wv_cmp')}({l}, {r}) {op} 0)"
         if op == "and":
             return f"({l} and {r})"
         if op == "or":
