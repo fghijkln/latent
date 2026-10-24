@@ -18,6 +18,7 @@ JAVA_KW = {
 # runtime type names, and generated locals. UTF-8 hex encoding makes every
 # source identifier Java-safe and keeps the mapping injective.
 JAVA_SOURCE_PREFIX = "_lt_user_"
+TOP_LEVEL_HELPER_CHUNK_SIZE = 64
 
 BUILTIN_JAVA = {
     "__say": "LtRt.say", "len": "LtRt.len", "range": "LtRt.range",
@@ -90,6 +91,7 @@ class Gen:
         self.used_java_names = set()
         self.try_names = {}
         self.try_depth = 0
+        self.module_helpers = {}
 
     def _fresh_java(self, base):
         name = base
@@ -180,6 +182,12 @@ class Gen:
         clss = class_order([s for s in prog.stmts if isinstance(s, ClassDef)])
         rest = [s for s in prog.stmts
                 if not isinstance(s, (FnDef, ClassDef, ModuleInit))]
+        entry_helpers = self._top_level_helpers(rest, "entry") if not modules else []
+        self.module_helpers = {
+            module.module_id: self._top_level_helpers(
+                module.body, f"module_{index}")
+            for index, module in enumerate(modules)
+        }
         gnames = []
         if modules:
             for module in modules:
@@ -221,6 +229,9 @@ class Gen:
         if modules:
             root = next(m for m in modules if m.root)
             self.w(f"{root.init_name}();")
+        elif entry_helpers:
+            for helper_name, _ in entry_helpers:
+                self.w(f"{helper_name}();")
         else:
             self.stmtlist(rest)
         self.ind -= 1
@@ -238,6 +249,13 @@ class Gen:
         self.w("}")
         self.ind -= 1
         self.w("}")
+        for helper_name, statements in entry_helpers:
+            self.w("")
+            self.top_level_helper(helper_name, statements)
+        for module in modules:
+            for helper_name, statements in self.module_helpers[module.module_id]:
+                self.w("")
+                self.top_level_helper(helper_name, statements)
         for cd in clss:
             for m in cd.methods:
                 self.w("")
@@ -251,28 +269,13 @@ class Gen:
         self.w("")
         self.w("private static final String _LT_SOURCE_FILE = " +
                java_str(self.source_path) + ";")
-        self.w("private static int _lt_sourceLine(int generatedLine) {")
-        self.ind += 1
-        self.w("switch (generatedLine) {")
-        self.ind += 1
-        for generated_line, source_loc in sorted(self.source_map.items()):
-            self.w(f"case {generated_line}: return {source_loc[1]};")
-        self.w("default: return 0;")
-        self.ind -= 1
-        self.w("}")
-        self.ind -= 1
-        self.w("}")
-        self.w("private static String _lt_sourceFile(int generatedLine) {")
-        self.ind += 1
-        self.w("switch (generatedLine) {")
-        self.ind += 1
-        for generated_line, source_loc in sorted(self.source_map.items()):
-            self.w(f"case {generated_line}: return {java_str(source_loc[0])};")
-        self.w(f"default: return {java_str(self.source_path)};")
-        self.ind -= 1
-        self.w("}")
-        self.ind -= 1
-        self.w("}")
+        source_map = sorted(self.source_map.items())
+        self.source_map_method(
+            "_lt_sourceLine", "int", source_map, "0",
+            lambda location: str(location[1]))
+        self.source_map_method(
+            "_lt_sourceFile", "String", source_map,
+            java_str(self.source_path), lambda location: java_str(location[0]))
         self.w("private static void _lt_reportError(Exception error) {")
         self.ind += 1
         self.w("try {")
@@ -314,6 +317,37 @@ class Gen:
         self.w("}")
         return "\n".join(self.out) + "\n"
 
+    def source_map_method(self, name, return_type, entries, default, render):
+        chunks = [entries[start:start + 512]
+                  for start in range(0, len(entries), 512)] or [[]]
+        helper_names = ([self._fresh_java(f"{name}_{index}")
+                         for index in range(len(chunks))]
+                        if len(chunks) > 1 else [name])
+        if len(chunks) > 1:
+            self.w(f"private static {return_type} {name}(int generatedLine) " + "{")
+            self.ind += 1
+            for index, chunk in enumerate(chunks):
+                if index == len(chunks) - 1:
+                    self.w(f"return {helper_names[index]}(generatedLine);")
+                else:
+                    self.w(f"if (generatedLine <= {chunk[-1][0]}) "
+                           f"return {helper_names[index]}(generatedLine);")
+            self.ind -= 1
+            self.w("}")
+        for helper_name, chunk in zip(helper_names, chunks):
+            self.w(f"private static {return_type} {helper_name}(int generatedLine) "
+                   + "{")
+            self.ind += 1
+            self.w("switch (generatedLine) {")
+            self.ind += 1
+            for generated_line, source_loc in chunk:
+                self.w(f"case {generated_line}: return {render(source_loc)};")
+            self.w(f"default: return {default};")
+            self.ind -= 1
+            self.w("}")
+            self.ind -= 1
+            self.w("}")
+
     def module_init(self, module, modules):
         self.w(f"private static void {module.init_name}() throws Exception " + "{")
         self.ind += 1
@@ -326,7 +360,12 @@ class Gen:
         by_id = {m.module_id: m for m in modules}
         for dep_id in module.deps:
             self.w(f"{by_id[dep_id].init_name}();")
-        self.stmtlist(module.body)
+        helpers = self.module_helpers[module.module_id]
+        if helpers:
+            for helper_name, _ in helpers:
+                self.w(f"{helper_name}();")
+        else:
+            self.stmtlist(module.body)
         if not self._always_terminates(module.body):
             self.w(f"{module.state_name} = 2;")
         self.ind -= 1
@@ -336,6 +375,22 @@ class Gen:
         self.w("throw _lt_module_error;")
         self.ind -= 1
         self.w("}")
+        self.ind -= 1
+        self.w("}")
+
+    def _top_level_helpers(self, stmts, label):
+        if len(stmts) <= TOP_LEVEL_HELPER_CHUNK_SIZE:
+            return []
+        helpers = []
+        for start in range(0, len(stmts), TOP_LEVEL_HELPER_CHUNK_SIZE):
+            name = self._fresh_java(f"_lt_top_{label}_{len(helpers)}")
+            helpers.append((name, stmts[start:start + TOP_LEVEL_HELPER_CHUNK_SIZE]))
+        return helpers
+
+    def top_level_helper(self, name, stmts):
+        self.w(f"private static void {name}() throws Exception " + "{")
+        self.ind += 1
+        self.stmtlist(stmts)
         self.ind -= 1
         self.w("}")
 

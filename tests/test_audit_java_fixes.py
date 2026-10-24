@@ -141,6 +141,15 @@ for item in [0]:
 say x
 '''
 MODULE_FUNCTION_REBIND_STDOUT = "1\n<function x>\n"
+CLASS_FUNCTION_COLLISION_SOURCE = '''\
+if true:
+    fn A():
+        return 1
+class A:
+    fn value(self):
+        return 2
+say A()
+'''
 NUMERIC_UNICODE_SOURCE = '''\
 math = py "math"
 tiny = math.ulp(0.0)
@@ -241,6 +250,36 @@ class TestAuditJavaFixes(unittest.TestCase):
                     self.assertEqual(result.stdout, MODULE_FUNCTION_REBIND_STDOUT)
                     self.assertEqual(result.stderr, "")
 
+    def test_module_block_function_cannot_reuse_top_level_class_name(self):
+        with tempfile.TemporaryDirectory(prefix="latent-audit-class-fn-collision-") as tmp:
+            temp = Path(tmp)
+            source = temp / "audit_class_fn_collision.lt"
+            source.write_text(CLASS_FUNCTION_COLLISION_SOURCE, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / ("collision-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("semant error: duplicate definition 'A'",
+                                  result.stderr)
+                    self.assertNotIn("already defined", result.stderr)
+
+            module_main = temp / "main_collision.lt"
+            module_main.write_text('import "dep.lt" as dep\nsay 1\n',
+                                   encoding="utf-8")
+            (temp / "dep.lt").write_text(CLASS_FUNCTION_COLLISION_SOURCE,
+                                         encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target, imported_module=True):
+                    outdir = temp / ("module-collision-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(module_main, target, outdir)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("semant error: duplicate definition 'A'",
+                                  result.stderr)
+                    self.assertNotIn("already defined", result.stderr)
+
     def test_nonfinite_numeric_and_unicode_ordering_match_both_targets(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-numeric-unicode-") as tmp:
             temp = Path(tmp)
@@ -277,6 +316,42 @@ class TestAuditJavaFixes(unittest.TestCase):
                              gen_java.generate(nested, "NestedTry"))
         self.assertEqual(len(catches), 2)
         self.assertNotEqual(catches[0], catches[1])
+
+    def test_1808_top_level_try_blocks_compile_and_run_on_java(self):
+        source_text = "".join(
+            'try:\n    say "ok"\ncatch error:\n    say error\n'
+            for _ in range(1808))
+        with tempfile.TemporaryDirectory(prefix="latent-audit-many-top-tries-") as tmp:
+            temp = Path(tmp)
+            source = temp / "many_top_tries.lt"
+            source.write_text(source_text, encoding="utf-8")
+            outdir = temp / "java"
+            outdir.mkdir()
+            result = p18.compile_and_run(source, "java", outdir)
+            self.assertEqual(result.returncode, 0,
+                             f"stdout={result.stdout[-200:]!r}, "
+                             f"stderr={result.stderr[-1600:]!r}")
+            self.assertEqual(result.stdout, "ok\n" * 1808)
+            self.assertEqual(result.stderr, "")
+
+    def test_large_module_init_uses_java_helpers(self):
+        module_source = "".join(
+            'try:\n    say "module"\ncatch error:\n    say error\n'
+            for _ in range(65))
+        with tempfile.TemporaryDirectory(prefix="latent-audit-large-module-init-") as tmp:
+            temp = Path(tmp)
+            source = temp / "main.lt"
+            source.write_text('import "dep.lt" as dep\nsay 9\n',
+                              encoding="utf-8")
+            (temp / "dep.lt").write_text(module_source, encoding="utf-8")
+            outdir = temp / "java"
+            outdir.mkdir()
+            result = p18.compile_and_run(source, "java", outdir)
+            self.assertEqual(result.returncode, 0,
+                             f"stdout={result.stdout[-200:]!r}, "
+                             f"stderr={result.stderr[-1600:]!r}")
+            self.assertEqual(result.stdout, "module\n" * 65 + "9\n")
+            self.assertEqual(result.stderr, "")
 
     def test_module_init_block_functions_compile_on_both_targets(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-module-fn-") as tmp:
