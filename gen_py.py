@@ -1,5 +1,6 @@
 """Latent -> Python backend."""
 import json
+import os
 from nodes import *
 
 PRELUDE = r'''
@@ -1306,6 +1307,10 @@ def _wv_report_uncaught(exc, source_map, source_file, generated_file):
 
 '''
 
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "verifier.py"), encoding="utf-8") as _vf:
+    VERIFIER_SOURCE = _vf.read()
+
 BUILTIN_PY = {
     "__say": "_wv_say", "len": "_wv_len", "range": "_wv_range",
     "str": "_wv_str", "int": "_wv_int", "push": "_wv_push",
@@ -1426,6 +1431,10 @@ class Gen:
         self._source_file_name = self._fresh_internal("_lt_source_file")
         self._source_map_name = self._fresh_internal("_lt_source_map")
         self.w(PRELUDE.strip("\n"))
+        # The verifier is the trusted core: inlined verbatim, installed over the
+        # runtime before user code can see any transition.
+        self.w(VERIFIER_SOURCE.strip("\n"))
+        self.w("_lt_vf_install(globals())")
         self.w(f"{self._runtime_name} = globals().copy()")
 
     def _render_output(self):
@@ -1789,7 +1798,9 @@ class Gen:
             return self.binop(e)
         if isinstance(e, UnOp):
             a = self.expr(e.operand)
-            return f"(-{a})" if e.op == "-" else f"(not {a})"
+            if e.op == "-":
+                return f"{self._runtime('_wv_neg')}({a})"
+            return f"(not {a})"
         if isinstance(e, Call):
             args = ", ".join(self.argument(a) for a in e.args)
             if isinstance(e.func, Name) and e.func.id in BUILTIN_PY:
