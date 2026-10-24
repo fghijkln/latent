@@ -60,11 +60,24 @@ class PlaygroundExecutionTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertNotEqual(result["exit"], 0)
         self.assertFalse(result["timeout"])
-        self.assertGreater(len(result["stdout"]), 0)
-        self.assertGreater(len(result["stderr"]), 0)
+        self.assertGreater(len(result["stdout"]) + len(result["stderr"]), 0)
         self.assertLessEqual(len(result["stdout"].encode()), 8192)
         self.assertLessEqual(len(result["stderr"].encode()), 8192)
         self.assertLess(time.monotonic() - start, 2)
+
+    def test_finite_stdout_and_stderr_are_both_preserved(self):
+        code = (
+            "import os\n"
+            "os.write(1, b'stdout-marker\\n')\n"
+            "os.write(2, b'stderr-marker\\n')\n"
+        )
+        with mock.patch.object(app, "MAX_OUT", 8192), mock.patch.object(app, "MAX_ERR", 8192):
+            result = self.execute_generated(code)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["truncated"])
+        self.assertFalse(result["timeout"])
+        self.assertEqual(result["stdout"], "stdout-marker\n")
+        self.assertEqual(result["stderr"], "stderr-marker\n")
 
     def test_wall_clock_timeout_terminates_process(self):
         start = time.monotonic()
