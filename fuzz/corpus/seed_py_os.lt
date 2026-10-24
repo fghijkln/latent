@@ -1,0 +1,30 @@
+# py_os.lt -- os.path, pathlib, collections, random, itertools.
+# random is seeded so the output is deterministic.
+
+os = py "os"
+say os.path.basename("/a/b/c.txt")
+say os.path.join("a", "b")
+say os.path.splitext("archive.tar.gz")
+
+pathlib = py "pathlib"
+p = pathlib.Path("/a/b/c.txt")
+say p.name
+say p.suffix
+
+collections = py "collections"
+builtins = py "builtins"
+c = collections.Counter("abracadabra")
+say c.most_common(2)
+d = collections.deque([1, 2, 3])
+d.appendleft(0)
+say builtins.list(d)
+say d.pop()
+
+random = py "random"
+random.seed(42)
+say random.randint(1, 100)
+say random.choice(["x", "y", "z"])
+
+itertools = py "itertools"
+say builtins.list(itertools.chain([1, 2], [3, 4]))
+say builtins.list(itertools.islice(itertools.count(10), 3))

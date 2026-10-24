@@ -1,0 +1,11 @@
+# java_bigdecimal.lt -- exact decimal arithmetic.
+# BigDecimal/BigInteger are kept as objects (never flattened to
+# double), so 0.1 + 0.2 is exactly 0.3 here.
+
+BD = java "java.math.BigDecimal"
+a = BD.new("0.1")
+b = BD.new("0.2")
+say a.add(b).toString()
+say a.multiply(b).toString()
+say BD.new("1").divide(BD.new("3"), 10, 4).toString()
+say a.compareTo(b)

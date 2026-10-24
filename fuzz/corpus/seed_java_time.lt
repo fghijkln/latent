@@ -1,0 +1,13 @@
+# java_time.lt -- java.time: dates, datetimes, arithmetic.
+
+LD = java "java.time.LocalDate"
+d = LD.of(2026, 10, 5)
+say d.toString()
+say d.plusDays(3).toString()
+say d.getDayOfWeek().toString()
+say d.isLeapYear()
+
+LDT = java "java.time.LocalDateTime"
+t = LDT.of(2026, 10, 5, 12, 0, 0)
+say t.plusHours(36).toString()
+say t.getHour()

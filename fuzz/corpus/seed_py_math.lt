@@ -1,0 +1,22 @@
+# py_math.lt -- Python math / statistics / builtins, from Latent.
+# run: python3 latent.py py_math.lt -t py -o out --run
+#      python3 latent.py py_math.lt -t java -o out --run
+
+math = py "math"
+say math.floor(3.7)
+say math.gcd(12, 18)
+say math.factorial(10)
+say math.isclose(0.1 + 0.2, 0.3)
+
+statistics = py "statistics"
+say statistics.mean([1, 2, 3, 4])
+say statistics.median([1, 2, 3, 4, 5])
+
+# py "builtins" unlocks list()/sorted()/sum()/... for interop values,
+# e.g. materializing a lazy iterator returned from another module.
+builtins = py "builtins"
+itertools = py "itertools"
+say builtins.list(itertools.accumulate([1, 2, 3, 4]))
+say builtins.sorted([3, 1, 2])
+say builtins.sum([1, 2, 3])
+say builtins.list(builtins.enumerate(["a", "b"]))

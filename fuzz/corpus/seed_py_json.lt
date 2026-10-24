@@ -1,0 +1,9 @@
+# py_json.lt -- JSON round-trips. Plain dicts/lists cross the
+# interop boundary as values, so json output stays native data.
+
+json = py "json"
+s = json.dumps({"name": "latent", "tags": ["py", "java"], "n": 3})
+say s
+t = json.loads(s)
+say t
+say t["tags"]

@@ -1,0 +1,21 @@
+# P14: module functions and Java static method families as Latent values.
+fn return_value(action):
+    return action
+
+fn capture(action):
+    fn saved(value):
+        return action(value)
+    return saved
+
+math = py "math"
+sqrt = return_value(math.sqrt)
+say sqrt
+say sqrt(25)
+saved_sqrt = capture(sqrt)
+say saved_sqrt(36)
+
+Math = java "java.lang.Math"
+power = return_value(Math.pow)
+say power
+say power(2, 3)
+say Math.pow(2, 3)  # Direct calls still use the original path.
