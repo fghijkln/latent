@@ -4,7 +4,9 @@ WORKDIR /app
 COPY *.py ./
 COPY runtime ./runtime
 COPY playground/app.py playground/index.html ./playground/
-RUN useradd -m -u 10001 runner && chown -R runner /app
+RUN useradd -m -u 10001 runner \
+    && chown -R root:root /app \
+    && chmod -R a-w /app
 USER runner
 ENV PORT=8080 PYTHONUNBUFFERED=1
 EXPOSE 8080

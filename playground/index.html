@@ -54,7 +54,12 @@ function show() {
   $("t-out").className = tab === "out" ? "on" : ""; $("t-py").className = tab === "py" ? "on" : "";
   const o = $("out"); o.className = "";
   if (!last) return;
-  if (tab === "py") { o.textContent = last.python || "(没有生成代码)"; return; }
+  if (tab === "py") {
+    let code = last.python || "(没有生成代码)";
+    if (last.python_truncated) code = "⚠ 生成代码已截断，仅显示返回上限内的前缀；此内容不完整。\n\n" + code;
+    o.textContent = code;
+    return;
+  }
   if (last.error) { o.className = "err"; o.textContent = last.error; return; }
   let t = last.stdout || "";
   if (last.truncated) t += "\n⚠ 输出超限，程序已中止（不是成功完成）";

@@ -1791,6 +1791,7 @@
     ],
     "test_module": [
       "bootstrap/test_checker.py",
+      "test_audit_addendum.py",
       "test_audit_ci.py",
       "test_audit_error_messages.py",
       "test_audit_java_fixes.py",
@@ -3019,6 +3020,10 @@
     "python_fixture/p19_named_host.py": {
       "disposition": "include",
       "reason": "Python host fixture for P19-B outbound named-host feature and focused regressions; does not implement Python-to-Latent callback kwargs."
+    },
+    "test_module/test_audit_addendum.py": {
+      "disposition": "include",
+      "reason": "Focused addendum regressions for incremental code-generation source maps and bounded Playground HTTP errors/responses, run by the complete regression suite."
     },
     "test_module/test_audit_ci.py": {
       "disposition": "include",

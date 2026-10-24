@@ -31,6 +31,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_SRC = 20_000
 MAX_OUT = 64_000
 MAX_ERR = 8_000
+MAX_PYTHON_BYTES = 64 * 1024
+MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_REQUEST = MAX_SRC * 4 + 1000
 TIMEOUT = 5
 RUN_TIMEOUT = TIMEOUT + 1
@@ -43,26 +45,41 @@ BODY_IDLE_TIMEOUT = 2
 HEADER_TIMEOUT = 10
 READ_CHUNK = 8_192
 TERMINATE_GRACE = 0.1
+MAX_AST_DEPTH = 128
 BLOCKED = (nodes.PyImport, nodes.JavaImport, nodes.ImportStmt)
+
+
+class AstDepthError(ValueError):
+    pass
 
 
 def _walk(node, seen=None):
     seen = seen if seen is not None else set()
-    if id(node) in seen:
-        return
-    seen.add(id(node))
-    yield node
-    if isinstance(node, nodes.Node):
-        children = vars(node).values()
-    elif isinstance(node, (list, tuple)):
-        children = node
-    elif isinstance(node, dict):
-        children = node.values()
-    else:
-        return
-    for c in children:
-        if isinstance(c, (nodes.Node, list, tuple, dict)):
-            yield from _walk(c, seen)
+    stack = [(node, 0)]
+    while stack:
+        value, depth = stack.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, nodes.Node):
+            depth += 1
+            if depth > MAX_AST_DEPTH:
+                line = getattr(value, "line", 1)
+                col = getattr(value, "col", 1)
+                raise AstDepthError(
+                    f"{line}:{col}: source nesting exceeds maximum supported "
+                    f"depth ({MAX_AST_DEPTH})")
+            yield value
+            children = list(vars(value).values())
+        elif isinstance(value, (list, tuple)):
+            children = list(value)
+        elif isinstance(value, dict):
+            children = list(value.values())
+        else:
+            continue
+        for child in reversed(children):
+            if isinstance(child, (nodes.Node, list, tuple, dict)):
+                stack.append((child, depth))
 
 
 def blocked_feature(src):
@@ -85,6 +102,22 @@ def _limits():
     resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
     resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+
+
+def _compile_failure(src, message):
+    return {
+        "ok": False,
+        "stage": "parse",
+        "error": latent.render_error("main.lt", src, "parse", message),
+    }
+
+
+def _python_preview(code):
+    encoded = code.encode("utf-8")
+    if len(encoded) <= MAX_PYTHON_BYTES:
+        return code, False
+    preview = encoded[:MAX_PYTHON_BYTES].decode("utf-8", "ignore")
+    return preview, True
 
 
 def _stop_process_group(proc):
@@ -117,15 +150,24 @@ def _stop_process_group(proc):
 def _run_program(src):
     if len(src) > MAX_SRC:
         return {"ok": False, "stage": "input", "error": f"source too long (max {MAX_SRC} chars)"}
-    msg = blocked_feature(src)
-    if msg:
-        return {"ok": False, "stage": "playground", "error": latent.render_error("main.lt", src, "playground", msg)}
-    prog, err = latent.compile_src(src, "main.lt")
+    try:
+        msg = blocked_feature(src)
+        if msg:
+            return {"ok": False, "stage": "playground", "error": latent.render_error("main.lt", src, "playground", msg)}
+        prog, err = latent.compile_src(src, "main.lt")
+    except AstDepthError as e:
+        return _compile_failure(src, str(e))
+    except RecursionError:
+        return _compile_failure(
+            src, "1:1: source nesting exceeds the compiler's safe depth")
     if err:
         kind, raw = err
         return {"ok": False, "stage": kind, "error": latent.render_error("main.lt", src, kind, raw)}
     try:
         code = gen_py.generate(prog, source_path="main.lt")
+    except RecursionError:
+        return _compile_failure(
+            src, "1:1: source nesting exceeds the compiler's safe depth")
     except Exception as e:  # codegen bug
         return {"ok": False, "stage": "codegen", "error": f"codegen error: {e}"}
     with tempfile.TemporaryDirectory() as d:
@@ -195,8 +237,10 @@ def _run_program(src):
     errs = output["stderr"].decode("utf-8", "replace").replace(d + "/", "")
     if rc < 0 and not timed_out and not truncated and rc in (-9, -24):
         timed_out = True
+    python_preview, python_truncated = _python_preview(code)
     return {"ok": rc == 0 and not truncated and not timed_out, "stage": "run", "stdout": out, "stderr": errs[-MAX_ERR:],
-            "exit": rc, "timeout": timed_out, "truncated": truncated, "python": code}
+            "exit": rc, "timeout": timed_out, "truncated": truncated,
+            "python": python_preview, "python_truncated": python_truncated}
 
 
 def run_program(src, *, wait=True):
@@ -257,6 +301,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_json(self, status, body):
+        data = json.dumps(body).encode("utf-8")
+        if len(data) > MAX_JSON_RESPONSE_BYTES:
+            status = 500
+            data = json.dumps({
+                "ok": False,
+                "stage": "response",
+                "error": "response exceeded the maximum size",
+            }).encode("utf-8")
+        return self._send(status, data, "application/json")
+
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as f:
@@ -275,17 +330,16 @@ class Handler(BaseHTTPRequestHandler):
             raw_length = raw_length.strip()
             if not raw_length or any(ch < "0" or ch > "9" for ch in raw_length):
                 self.close_connection = True
-                return self._send(400, json.dumps({"ok": False, "error": "invalid content length"}),
-                                  "application/json")
+                return self._send_json(400, {"ok": False, "error": "invalid content length"})
             normalized = raw_length.lstrip("0") or "0"
             maximum = str(MAX_REQUEST)
             if len(normalized) > len(maximum) or (len(normalized) == len(maximum) and normalized > maximum):
                 self.close_connection = True
-                return self._send(413, json.dumps({"ok": False, "error": "too large"}), "application/json")
+                return self._send_json(413, {"ok": False, "error": "too large"})
             n = int(normalized)
         if n > MAX_REQUEST:
             self.close_connection = True
-            return self._send(413, json.dumps({"ok": False, "error": "too large"}), "application/json")
+            return self._send_json(413, {"ok": False, "error": "too large"})
 
         body = bytearray()
         deadline = time.monotonic() + BODY_TIMEOUT
@@ -293,28 +347,29 @@ class Handler(BaseHTTPRequestHandler):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self.close_connection = True
-                return self._send(408, json.dumps({"ok": False, "error": "request body timed out"}),
-                                  "application/json")
+                return self._send_json(408, {"ok": False, "error": "request body timed out"})
             self.connection.settimeout(min(BODY_IDLE_TIMEOUT, remaining))
             try:
                 chunk = self.rfile.read1(min(READ_CHUNK, n - len(body)))
             except (socket.timeout, TimeoutError):
                 self.close_connection = True
-                return self._send(408, json.dumps({"ok": False, "error": "request body timed out"}),
-                                  "application/json")
+                return self._send_json(408, {"ok": False, "error": "request body timed out"})
             if not chunk:
                 self.close_connection = True
-                return self._send(400, json.dumps({"ok": False, "error": "incomplete request body"}),
-                                  "application/json")
+                return self._send_json(400, {"ok": False, "error": "incomplete request body"})
             body.extend(chunk)
         self.connection.settimeout(HEADER_TIMEOUT)
         try:
-            src = json.loads(body or b"{}").get("source", "")
+            payload = json.loads(body or b"{}")
         except Exception:
-            return self._send(400, json.dumps({"ok": False, "error": "bad json"}), "application/json")
+            return self._send_json(400, {"ok": False, "error": "bad json"})
+        if not isinstance(payload, dict):
+            return self._send_json(
+                400, {"ok": False, "error": "JSON body must be an object"})
+        src = payload.get("source", "")
         res = run_program(str(src), wait=False)
         status = 503 if res.get("stage") == "capacity" else 200
-        self._send(status, json.dumps(res), "application/json")
+        self._send_json(status, res)
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))

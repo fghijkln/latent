@@ -1319,6 +1319,7 @@ class Gen:
     def __init__(self, source_path="<src>"):
         self.out = []
         self.indent = 0
+        self._physical_line_count = 0
         self.source_path = source_path
         self.source_map = {}
         self._used_internal_names = set()
@@ -1432,8 +1433,10 @@ class Gen:
         return "\n".join(self.out) + "\n"
 
     def w(self, s="", source_line=None, source_path=None):
-        physical_line = len(self.out) + 1 + sum(x.count("\n") for x in self.out)
-        self.out.append("    " * self.indent + s)
+        line = "    " * self.indent + s
+        physical_line = self._physical_line_count + 1
+        self.out.append(line)
+        self._physical_line_count += line.count("\n") + 1
         if source_line:
             self.source_map[physical_line] = (source_path or self.source_path,
                                               source_line)
