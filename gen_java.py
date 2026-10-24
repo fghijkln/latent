@@ -86,6 +86,8 @@ class Gen:
         self.fn_parents = {}
         self.function_nodes = []
         self.scope = None
+        self.module_env_name = None
+        self.module_fn_args_name = None
         self.used_java_names = set()
 
     def _fresh_java(self, base):
@@ -120,6 +122,12 @@ class Gen:
         top = [s for s in prog.stmts if isinstance(s, FnDef)]
         methods = [m for s in prog.stmts if isinstance(s, ClassDef)
                    for m in s.methods]
+        module_functions = []
+        for stmt in prog.stmts:
+            if isinstance(stmt, ModuleInit):
+                module_functions.extend(self._nested_functions(stmt.body))
+            elif not isinstance(stmt, (FnDef, ClassDef)):
+                module_functions.extend(self._nested_functions([stmt]))
 
         def register(fn, parent):
             self.fn_helpers[id(fn)] = self._fresh_java("_lt_fn_body_" +
@@ -129,11 +137,19 @@ class Gen:
             for child in self._nested_functions(fn.body):
                 register(child, fn)
 
-        for fn in top + methods:
+        for fn in top + methods + module_functions:
             register(fn, None)
+        self.module_env_name = self._fresh_java("_lt_module_env")
+        self.module_fn_args_name = self._fresh_java("_lt_module_fn_args")
         for index, method in enumerate(methods):
             self.method_helpers[id(method)] = self._fresh_java(
                 "_lt_method_" + str(index))
+
+    def _emit_module_env(self, stmts):
+        names = sorted({fn.name for fn in self._nested_functions(stmts)})
+        if names:
+            self.w(f"LtRt.Env {self.module_env_name} = new LtRt.Env(null, "
+                   f"{self.string_array(names)});")
 
     def _walk_nodes(self, value, seen=None):
         if seen is None:
@@ -212,6 +228,7 @@ class Gen:
             root = next(m for m in modules if m.root)
             self.w(f"{root.init_name}();")
         else:
+            self._emit_module_env(rest)
             self.stmtlist(rest)
         self.ind -= 1
         self.w("} catch (Exception _lt_error) {")
@@ -316,6 +333,7 @@ class Gen:
         by_id = {m.module_id: m for m in modules}
         for dep_id in module.deps:
             self.w(f"{by_id[dep_id].init_name}();")
+        self._emit_module_env(module.body)
         self.stmtlist(module.body)
         if not self._always_terminates(module.body):
             self.w(f"{module.state_name} = 2;")
@@ -547,6 +565,7 @@ class Gen:
         if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
+            closure_env = "_env" if self.scope is not None else self.module_env_name
             closure = f"LtRt.function({self.string_array(fixed_parameter_names(s.params))}, " \
                       f"{required_parameter_count(s.params)}, " \
                       f"{positional_parameter_count(s.params)}, " \
@@ -554,8 +573,15 @@ class Gen:
                       f"{java_str(s.source_name)}, " \
                       f"{self._nullable_string(rest_parameter_name(s.params))}, " \
                       f"{self._nullable_string(extra_parameter_name(s.params))}, " \
-                      f"args -> {self.fn_helpers[id(s)]}(_env, args))"
-            self.w(self._assign(s.name, closure), s.line, s.source_path)
+                      f"{self.module_fn_args_name} -> " \
+                      f"{self.fn_helpers[id(s)]}({closure_env}, " \
+                      f"{self.module_fn_args_name}))"
+            if self.scope is None:
+                assignment = (f"{self.module_env_name}.setLocal(" \
+                              f"{java_str(s.name)}, {closure});")
+            else:
+                assignment = self._assign(s.name, closure)
+            self.w(assignment, s.line, s.source_path)
         elif isinstance(s, Assign):
             self.w(self._assign(s.name, self.expr(s.value)), s.line,
                    s.source_path)

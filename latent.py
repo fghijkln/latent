@@ -266,7 +266,12 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
     if args.target == "py":
-        code = gen_py.generate(prog, source_path=os.path.realpath(args.src))
+        try:
+            code = gen_py.generate(prog, source_path=os.path.realpath(args.src))
+        except Exception as e:
+            print(f"{args.src}: codegen error: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            return 1
         out = os.path.join(outdir, stem + ".py")
         with open(out, "w", encoding="utf-8") as f:
             f.write(code)
@@ -295,8 +300,13 @@ def main():
     else:
         import gen_java
         cls = gen_java.cls_name(stem)
-        code = gen_java.generate(prog, cls,
-                                 source_path=os.path.realpath(args.src))
+        try:
+            code = gen_java.generate(prog, cls,
+                                     source_path=os.path.realpath(args.src))
+        except Exception as e:
+            print(f"{args.src}: codegen error: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            return 1
         main_java = os.path.join(outdir, cls + ".java")
         with open(main_java, "w", encoding="utf-8") as f:
             f.write(code)

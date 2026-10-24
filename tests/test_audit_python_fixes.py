@@ -181,6 +181,41 @@ say -a
 HOST_ARITHMETIC_STDOUT = "9\n5\n14\n3.5\n1\n49\n-7\n"
 
 
+def boolean_native_arithmetic_cases():
+    cases = [
+        ("-true", "bad unary - operand: bool"),
+        ("true - -0.0", "bad - operand: bool"),
+        ("1 ** true", "bad ** operand: bool"),
+        ("(not 0) * 0", "bad * operand: bool"),
+    ]
+    bools = ("true", "false", "(not 0)")
+    numbers = ("0.0", "2.0")
+    reprs = {"true": "true", "false": "false", "(not 0)": "true",
+             "0.0": "0", "2.0": "2"}
+    for op in ("+", "-", "*", "/", "%", "**"):
+        for boolean in bools:
+            for number in numbers:
+                for left, right in ((boolean, number), (number, boolean)):
+                    if op == "+":
+                        expected = (f"bad + operands: {reprs[left]}, "
+                                    f"{reprs[right]}")
+                    else:
+                        expected = f"bad {op} operand: bool"
+                    cases.append((f"{left} {op} {right}", expected))
+    return cases
+
+
+def boolean_native_arithmetic_source():
+    return "".join(
+        f"try:\n    say {expression}\n"
+        f"catch error:\n    say error\n"
+        for expression, _ in boolean_native_arithmetic_cases())
+
+
+BOOLEAN_NATIVE_ARITHMETIC_STDOUT = "".join(
+    expected + "\n" for _, expected in boolean_native_arithmetic_cases())
+
+
 def run_case(temp: Path, stem: str, source_text: str, target: str):
     source = temp / (stem + ".lt")
     source.write_text(source_text, encoding="utf-8")
@@ -224,6 +259,12 @@ class AuditPythonFixes(unittest.TestCase):
         self.run_both_targets("audit_boolean_arithmetic",
                               BOOLEAN_ARITHMETIC_SOURCE,
                               BOOLEAN_ARITHMETIC_STDOUT)
+
+    def test_supplied_boolean_arithmetic_cases_match_bounded_numeric_matrix(self):
+        self.run_both_targets(
+            "audit_boolean_native_matrix",
+            boolean_native_arithmetic_source(),
+            BOOLEAN_NATIVE_ARITHMETIC_STDOUT)
 
     def test_python_host_handles_keep_all_arithmetic_operator_families(self):
         self.run_both_targets("audit_host_arithmetic",
