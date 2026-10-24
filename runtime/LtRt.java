@@ -95,7 +95,9 @@ public class LtRt {
             return Daemon.inst().binop("__mod__", a, b);
         double x = num(a, "%"), y = num(b, "%");
         if (y == 0) throw new RuntimeException("division by zero");
-        return x - y * Math.floor(x / y); // floored, matches Python backend
+        double result = x % y;
+        if (result != 0 && (result < 0) != (y < 0)) result += y;
+        return result == 0 ? Math.copySign(0.0, y) : result;
     }
 
     public static Object pow(Object a, Object b) {
@@ -156,7 +158,7 @@ public class LtRt {
             return x > y ? 1 : (x < y ? -1 : 0);
         }
         if (a instanceof String && b instanceof String)
-            return ((String) a).compareTo((String) b);
+            return JReflect.compareCodePoints((String) a, (String) b);
         throw new RuntimeException("bad " + op + " operands: " + typeName(a) + ", " + typeName(b));
     }
 
@@ -290,6 +292,8 @@ public class LtRt {
         if (x instanceof Boolean) return (Boolean) x ? 1.0 : 0.0;
         if (x instanceof Double) {
             double d = (Double) x;
+            if (!Double.isFinite(d))
+                throw new ArgumentError("int() of " + repr(x));
             return d >= 0 ? Math.floor(d) : Math.ceil(d);
         }
         if (x instanceof String) {

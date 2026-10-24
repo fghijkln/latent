@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import tempfile
 from pathlib import Path
 import sys
@@ -126,6 +127,50 @@ if true:
         return 1
 say hidden()
 '''
+MODULE_FUNCTION_REBIND_SOURCE = '''\
+fn h():
+    return 0
+if true:
+    fn h():
+        return 1
+say h()
+x = 5
+for item in [0]:
+    fn x():
+        return 2
+say x
+'''
+MODULE_FUNCTION_REBIND_STDOUT = "1\n<function x>\n"
+NUMERIC_UNICODE_SOURCE = '''\
+math = py "math"
+tiny = math.ulp(0.0)
+say 1 % tiny
+say -1 % tiny
+say math.nan % 2
+say 2 % math.nan
+say 1 % math.inf
+say -1 % math.inf
+say 1 % -math.inf
+say -1 % -math.inf
+say 1 ** math.nan
+try:
+    say int(math.inf)
+catch error:
+    say error
+try:
+    say int(-math.inf)
+catch error:
+    say error
+try:
+    say int(math.nan)
+catch error:
+    say error
+say "\ue000" < "😀"
+say "😀" < "\ue000"
+'''
+NUMERIC_UNICODE_STDOUT = (
+    "0\n0\nnan\nnan\n1\ninf\n-inf\n-1\nnan\n"
+    "int() of inf\nint() of -inf\nint() of nan\ntrue\nfalse\n")
 
 
 def run_case(temp: Path, target: str):
@@ -168,7 +213,7 @@ class TestAuditJavaFixes(unittest.TestCase):
                     self.assertEqual(result.stdout, NESTED_FUNCTION_STDOUT)
                     self.assertEqual(result.stderr, "")
 
-    def test_module_block_function_names_remain_semantically_inaccessible(self):
+    def test_module_block_function_names_bind_in_module_scope(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-hidden-fn-") as tmp:
             temp = Path(tmp)
             source = temp / "audit_hidden_module_fn.lt"
@@ -178,22 +223,71 @@ class TestAuditJavaFixes(unittest.TestCase):
                     outdir = temp / ("hidden-" + target)
                     outdir.mkdir()
                     result = p18.compile_and_run(source, target, outdir)
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("semant error: undefined name 'hidden'",
-                                  result.stderr)
-                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "1\n")
+                    self.assertEqual(result.stderr, "")
+
+    def test_module_block_functions_rebind_existing_module_names(self):
+        with tempfile.TemporaryDirectory(prefix="latent-audit-fn-rebind-") as tmp:
+            temp = Path(tmp)
+            source = temp / "audit_module_fn_rebind.lt"
+            source.write_text(MODULE_FUNCTION_REBIND_SOURCE, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / ("rebind-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, MODULE_FUNCTION_REBIND_STDOUT)
+                    self.assertEqual(result.stderr, "")
+
+    def test_nonfinite_numeric_and_unicode_ordering_match_both_targets(self):
+        with tempfile.TemporaryDirectory(prefix="latent-audit-numeric-unicode-") as tmp:
+            temp = Path(tmp)
+            source = temp / "audit_numeric_unicode.lt"
+            source.write_text(NUMERIC_UNICODE_SOURCE, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / ("numeric-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, NUMERIC_UNICODE_STDOUT)
+                    self.assertEqual(result.stderr, "")
+
+    def test_many_sibling_try_blocks_have_linear_java_output_growth(self):
+        def generated_length(count):
+            source = "".join(
+                f'try:\n    throw "{i}"\ncatch error:\n    say error\n'
+                for i in range(count))
+            program, error = latent.compile_src(source, "try_growth.lt")
+            self.assertIsNone(error)
+            return gen_java.generate(program, "TryGrowth")
+
+        short = generated_length(100)
+        long = generated_length(200)
+        self.assertLess(len(long), len(short) * 2.3)
+
+        nested, error = latent.compile_src(
+            'try:\n    try:\n        throw "x"\n    catch inner:\n'
+            '        say inner\ncatch outer:\n    say outer\n',
+            "nested_try.lt")
+        self.assertIsNone(error)
+        catches = re.findall(r"catch \(Exception (_*lt_e)\)",
+                             gen_java.generate(nested, "NestedTry"))
+        self.assertEqual(len(catches), 2)
+        self.assertNotEqual(catches[0], catches[1])
 
     def test_module_init_block_functions_compile_on_both_targets(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-module-fn-") as tmp:
             temp = Path(tmp)
             source = temp / "main.lt"
-            source.write_text('import "dep.lt" as dep\nsay 9\n',
+            source.write_text('import "dep.lt" as dep\nsay dep.hidden()\nsay 9\n',
                               encoding="utf-8")
             (temp / "dep.lt").write_text(
                 "if true:\n"
                 "    fn hidden():\n"
-                "        return 1\n"
-                "say 4\n",
+                "        return 1\n",
                 encoding="utf-8")
             for target in TARGETS:
                 with self.subTest(target=target):
@@ -204,7 +298,7 @@ class TestAuditJavaFixes(unittest.TestCase):
                         result.returncode, 0,
                         f"{target}: stdout={result.stdout!r}, "
                         f"stderr={result.stderr[-1600:]!r}")
-                    self.assertEqual(result.stdout, "4\n9\n")
+                    self.assertEqual(result.stdout, "1\n9\n")
                     self.assertEqual(result.stderr, "")
 
     def test_java_cli_reports_codegen_failures_without_host_traceback(self):

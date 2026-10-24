@@ -120,10 +120,34 @@ def _assigned_names(stmts):
 
 def _module_globals(stmts):
     out = set()
+    out.update(_top_level_block_functions(stmts))
     for stmt in stmts:
         if isinstance(stmt, (nodes.FnDef, nodes.ClassDef, nodes.ImportStmt)):
             continue
         out.update(_assigned_names([stmt]))
+    return out
+
+
+def _top_level_block_functions(stmts):
+    out = set()
+
+    def collect(items):
+        for item in items:
+            if isinstance(item, nodes.FnDef):
+                out.add(item.name)
+            elif isinstance(item, nodes.If):
+                collect(item.then_body)
+                collect(item.else_body or [])
+            elif isinstance(item, (nodes.For, nodes.While)):
+                collect(item.body)
+            elif isinstance(item, nodes.Try):
+                collect(item.body)
+                collect(item.handler)
+
+    for stmt in stmts:
+        if not isinstance(stmt, (nodes.FnDef, nodes.ClassDef,
+                                 nodes.ImportStmt)):
+            collect([stmt])
     return out
 
 
@@ -134,6 +158,8 @@ def _module_symbols(stmts):
             symbols[stmt.name] = "function"
         elif isinstance(stmt, nodes.ClassDef):
             symbols[stmt.name] = "class"
+    for name in _top_level_block_functions(stmts):
+        symbols.setdefault(name, "function")
     for name in _module_globals(stmts):
         symbols.setdefault(name, "variable")
     return symbols
@@ -141,7 +167,7 @@ def _module_symbols(stmts):
 
 def _bound_names(stmts):
     """Collect module and function-local bindings for import alias checks."""
-    out = set()
+    out = _top_level_block_functions(stmts)
     for stmt in stmts:
         if isinstance(stmt, nodes.FnDef):
             out.add(stmt.name)
@@ -356,7 +382,7 @@ def _rewrite_stmt(stmt, unit, locals_=None, module_top=False):
     if isinstance(stmt, nodes.NonlocalStmt):
         return stmt
     if isinstance(stmt, nodes.FnDef):
-        if module_top:
+        if module_top or locals_ is None:
             stmt.name = unit.symbols[stmt.name][1]
         visible = set(locals_ or ()) | _function_locals(stmt)
         visible.difference_update(_scope_globals(stmt.body))
@@ -633,7 +659,7 @@ def compile_module_graph(root_path):
             global_names = [unit.symbols[name][1]
                             for name in sorted(unit.globals)
                             if name in unit.symbols and
-                            unit.symbols[name][0] == "variable"]
+                            unit.symbols[name][0] in ("variable", "function")]
             init = nodes.ModuleInit(unit.module_id, deps, body,
                                     global_names,
                                     unit.init_name, unit.state_name,

@@ -86,9 +86,10 @@ class Gen:
         self.fn_parents = {}
         self.function_nodes = []
         self.scope = None
-        self.module_env_name = None
         self.module_fn_args_name = None
         self.used_java_names = set()
+        self.try_names = {}
+        self.try_depth = 0
 
     def _fresh_java(self, base):
         name = base
@@ -139,17 +140,10 @@ class Gen:
 
         for fn in top + methods + module_functions:
             register(fn, None)
-        self.module_env_name = self._fresh_java("_lt_module_env")
         self.module_fn_args_name = self._fresh_java("_lt_module_fn_args")
         for index, method in enumerate(methods):
             self.method_helpers[id(method)] = self._fresh_java(
                 "_lt_method_" + str(index))
-
-    def _emit_module_env(self, stmts):
-        names = sorted({fn.name for fn in self._nested_functions(stmts)})
-        if names:
-            self.w(f"LtRt.Env {self.module_env_name} = new LtRt.Env(null, "
-                   f"{self.string_array(names)});")
 
     def _walk_nodes(self, value, seen=None):
         if seen is None:
@@ -228,7 +222,6 @@ class Gen:
             root = next(m for m in modules if m.root)
             self.w(f"{root.init_name}();")
         else:
-            self._emit_module_env(rest)
             self.stmtlist(rest)
         self.ind -= 1
         self.w("} catch (Exception _lt_error) {")
@@ -333,7 +326,6 @@ class Gen:
         by_id = {m.module_id: m for m in modules}
         for dep_id in module.deps:
             self.w(f"{by_id[dep_id].init_name}();")
-        self._emit_module_env(module.body)
         self.stmtlist(module.body)
         if not self._always_terminates(module.body):
             self.w(f"{module.state_name} = 2;")
@@ -522,7 +514,10 @@ class Gen:
         blocks (if/while/for/try). FnDef/ClassDef bodies are separate
         scopes and never appear here."""
         for s in stmts:
-            if isinstance(s, Assign):
+            if isinstance(s, FnDef):
+                if s.name not in out:
+                    out.append(s.name)
+            elif isinstance(s, Assign):
                 if s.name not in out:
                     out.append(s.name)
             elif isinstance(s, For):
@@ -565,7 +560,7 @@ class Gen:
         if isinstance(s, (GlobalStmt, NonlocalStmt)):
             return
         if isinstance(s, FnDef):
-            closure_env = "_env" if self.scope is not None else self.module_env_name
+            closure_env = "_env" if self.scope is not None else "null"
             closure = f"LtRt.function({self.string_array(fixed_parameter_names(s.params))}, " \
                       f"{required_parameter_count(s.params)}, " \
                       f"{positional_parameter_count(s.params)}, " \
@@ -577,8 +572,7 @@ class Gen:
                       f"{self.fn_helpers[id(s)]}({closure_env}, " \
                       f"{self.module_fn_args_name}))"
             if self.scope is None:
-                assignment = (f"{self.module_env_name}.setLocal(" \
-                              f"{java_str(s.name)}, {closure});")
+                assignment = f"{ident(s.name)} = {closure};"
             else:
                 assignment = self._assign(s.name, closure)
             self.w(assignment, s.line, s.source_path)
@@ -618,8 +612,11 @@ class Gen:
         elif isinstance(s, Continue):
             self.w("continue;", s.line, s.source_path)
         elif isinstance(s, Try):
-            error_name = self._fresh_java("_lt_e")
-            message_name = self._fresh_java("_lt_m")
+            if self.try_depth not in self.try_names:
+                self.try_names[self.try_depth] = (
+                    self._fresh_java("_lt_e"), self._fresh_java("_lt_m"))
+            error_name, message_name = self.try_names[self.try_depth]
+            self.try_depth += 1
             self.w("try {", s.line, s.source_path)
             self.suite(s.body)
             self.w(f"}} catch (Exception {error_name}) {{")
@@ -631,6 +628,7 @@ class Gen:
             self.stmtlist(s.handler, loop_control=True)
             self.ind -= 1
             self.w("}")
+            self.try_depth -= 1
         elif isinstance(s, Throw):
             self.w(f"throw new RuntimeException("
                    f"(String) LtRt.strOf({self.expr(s.value)}));", s.line,

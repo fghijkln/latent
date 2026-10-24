@@ -26,6 +26,7 @@ class Checker:
         self.classes = {}     # name -> ClassDef (top level)
         self.globals = set()
         self.module_bindings = set()
+        self.dynamic_module_names = set()
         self.top_class_types = {}
 
     def run(self, prog):
@@ -60,6 +61,13 @@ class Checker:
                         _err(m.params[0], f"method {s.name}.{m.name} receiver must be a required positional parameter")
                 self.classes[s.name] = s
         self.module_bindings = self._top_bindings(prog.stmts)
+        top_level_code = [s for s in prog.stmts
+                          if not isinstance(s, (FnDef, ClassDef))]
+        nested = {}
+        self._collect_nested_defs(top_level_code, nested)
+        self.dynamic_module_names.update(nested)
+        self.globals.update(nested)
+        self.module_bindings.update(nested)
         self._seed_top_class_types(prog.stmts)
         self._validate_inheritance()
         # generated Java method names must not collide with user functions
@@ -114,6 +122,14 @@ class Checker:
                 self.classes[s.name] = s
         self.module_bindings.update(self.functions)
         self.module_bindings.update(self.classes)
+        nested_by_module = {}
+        for m in modules:
+            nested = {}
+            self._collect_nested_defs(m.body, nested)
+            nested_by_module[m.module_id] = set(nested)
+            self.dynamic_module_names.update(nested)
+            self.globals.update(nested)
+            self.module_bindings.update(nested)
         self._validate_inheritance()
         self._seed_top_class_types([m.body for m in modules])
         for cname, cd in self.classes.items():
@@ -137,6 +153,7 @@ class Checker:
         function_names = set(self.functions) | set(self.classes)
         for m in modules:
             visible = set(function_names)
+            visible.update(nested_by_module[m.module_id])
             for dep_id in m.deps:
                 dep = by_id[dep_id]
                 visible.update(dep.globals)
@@ -224,7 +241,9 @@ class Checker:
 
         def visit(items):
             for item in items:
-                if isinstance(item, (FnDef, ClassDef, ImportStmt)):
+                if isinstance(item, FnDef):
+                    out.add(item.name)
+                elif isinstance(item, (ClassDef, ImportStmt)):
                     continue
                 if isinstance(item, Assign):
                     out.add(item.name)
@@ -742,6 +761,8 @@ class Checker:
             if name in scope["params"] or name in scope["assigned"]:
                 return ("local", scope)
             scope = scope["parent"]
+        if name in self.dynamic_module_names and name in self.globals:
+            return ("global", None)
         if name in self.functions:
             return ("function", None)
         if name in self.classes:
@@ -891,12 +912,16 @@ class Checker:
             if name in scope["params"] or name in scope["assigned"]:
                 return scope["class_types"].get(name)
             if name in scope["globals"]:
-                return self.classes.get(name)
+                return None if name in self.dynamic_module_names else \
+                    self.classes.get(name)
             if name in scope["nonlocals"]:
                 return None
             scope = scope["parent"]
         if ctx is not None:
-            return self.classes.get(name)
+            return None if name in self.dynamic_module_names else \
+                self.classes.get(name)
+        if name in self.dynamic_module_names:
+            return None
         return self.top_class_types.get(name) or self.classes.get(name)
 
     def _seed_top_class_types(self, groups):

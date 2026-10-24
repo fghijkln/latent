@@ -159,7 +159,7 @@ def _wv_mod(a, b):
     if isinstance(a, float) and isinstance(b, float):
         if b == 0:
             raise ZeroDivisionError("division by zero")
-        return a - b * _math.floor(a / b)
+        return a % b
     if not _wv_host_operation(a, b):
         _wv_bad_numeric_operands(a, b, "%")
     try:
@@ -172,9 +172,9 @@ def _wv_pow(a, b):
     if isinstance(a, float) and isinstance(b, float):
         if a < 0 and _math.isfinite(b) and not b.is_integer():
             return _math.nan
-        # Java Math.pow defines unit bases raised to either infinity as NaN;
-        # Python math.pow instead returns 1.0 for (-1.0) ** infinity.
-        if abs(a) == 1.0 and _math.isinf(b):
+        # Java Math.pow returns NaN for unit bases with non-finite exponents;
+        # Python math.pow returns 1.0 for these cases.
+        if abs(a) == 1.0 and not _math.isfinite(b):
             return _math.nan
         # Java Math.pow returns infinity for zero to a negative power and on
         # overflow; Python's float power raises instead.
@@ -259,6 +259,8 @@ def _wv_int(x):
     if isinstance(x, bool):
         return float(int(x))
     if isinstance(x, float):
+        if not _math.isfinite(x):
+            raise _LtArgumentError("int() of " + _wv_repr(x))
         return float(_math.trunc(x))
     if isinstance(x, str):
         return float(int(x.strip()))
