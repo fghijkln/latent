@@ -8,7 +8,6 @@ import threading
 import time
 import unittest
 from unittest import mock
-from http.server import ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -139,6 +138,46 @@ class PlaygroundExecutionTests(unittest.TestCase):
                 app.run_program("first")
             self.assertEqual(app.run_program("second"), {"ok": True})
 
+    def test_same_client_cannot_hold_multiple_run_or_queue_slots(self):
+        running = app._RUN_ADMISSION.acquire("198.51.100.1", wait=True)
+        try:
+            self.assertIsNotNone(running)
+            self.assertIsNone(
+                app._RUN_ADMISSION.acquire("198.51.100.1", wait=True))
+
+            queued = []
+            started = threading.Event()
+
+            def wait_as_other_client():
+                started.set()
+                queued.append(app._RUN_ADMISSION.acquire(
+                    "198.51.100.2", wait=True))
+
+            waiter = threading.Thread(target=wait_as_other_client)
+            waiter.start()
+            self.assertTrue(started.wait(timeout=1))
+            time.sleep(0.05)
+            self.assertTrue(waiter.is_alive())
+        finally:
+            app._RUN_ADMISSION.release(running)
+        waiter.join(timeout=2)
+        self.assertFalse(waiter.is_alive())
+        self.assertEqual(len(queued), 1)
+        self.assertIsNotNone(queued[0])
+        app._RUN_ADMISSION.release(queued[0])
+
+    def test_playground_rejects_boolean_arithmetic_before_attribute_access(self):
+        sources = (
+            "x = true + false\nsay x.__class__.__base__.__subclasses__()\n",
+            "x = -true\nsay x.__class__.__base__.__subclasses__()\n",
+        )
+        for source in sources:
+            with self.subTest(source=source.splitlines()[0]):
+                result = app.run_program(source)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["stage"], "run")
+                self.assertIn("bad ", result["stderr"])
+
     def test_output_limit_is_explained_as_an_interruption_in_the_ui(self):
         with open(os.path.join(ROOT, "playground", "index.html"), encoding="utf-8") as page:
             html = page.read()
@@ -150,7 +189,7 @@ class PlaygroundExecutionTests(unittest.TestCase):
 class PlaygroundHTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        cls.server = app.BoundedThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.address = cls.server.server_address
@@ -243,16 +282,65 @@ class PlaygroundHTTPTests(unittest.TestCase):
 
     def test_busy_playground_returns_explicit_503(self):
         payload = b'{"source":"say 1"}'
-        self.assertTrue(app._RUN_SLOTS.acquire(blocking=False))
+        running = app._RUN_ADMISSION.acquire("127.0.0.1", wait=True)
+        self.assertIsNotNone(running)
         try:
             response = self.raw_request(f"Content-Length: {len(payload)}\r\n", payload)
         finally:
-            app._RUN_SLOTS.release()
+            app._RUN_ADMISSION.release(running)
         self.assertIn(b" 503 ", response.split(b"\r\n", 1)[0])
         body = response.split(b"\r\n\r\n", 1)[1]
         result = json.loads(body)
         self.assertFalse(result["ok"])
         self.assertEqual(result["stage"], "capacity")
+
+    def test_live_http_connections_are_bounded(self):
+        from http.server import BaseHTTPRequestHandler
+
+        entered = threading.Event()
+        release = threading.Event()
+
+        class BlockingHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                entered.set()
+                release.wait(timeout=2)
+                self.send_response(200)
+                self.send_header("Content-Length", "3")
+                self.end_headers()
+                self.wfile.write(b"ok\n")
+
+            def log_message(self, _format, *_args):
+                pass
+
+        server = app.BoundedThreadingHTTPServer(
+            ("127.0.0.1", 0), BlockingHandler,
+            max_connections=1, max_per_ip=1)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        first = socket.create_connection(server.server_address, timeout=2)
+        second = None
+        try:
+            first.sendall(
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n"
+                b"Connection: close\r\n\r\n")
+            self.assertTrue(entered.wait(timeout=2))
+            second = socket.create_connection(server.server_address, timeout=2)
+            second.settimeout(2)
+            response = second.recv(1024)
+            self.assertIn(b" 503 ", response.split(b"\r\n", 1)[0])
+        finally:
+            release.set()
+            first.settimeout(2)
+            try:
+                first.recv(1024)
+            except OSError:
+                pass
+            first.close()
+            if second is not None:
+                second.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_ordinary_api_request_remains_compatible(self):
         conn = http.client.HTTPConnection(*self.address, timeout=3)

@@ -69,6 +69,17 @@ EXPECTED_CLASS_STDOUT = (
     "first-helper\n"
     "second-helper\n"
 )
+UNICODE_IDENTIFIER_SOURCE = '''\
+x² = "value"
+fn read²(x²):
+    return x² + "!"
+class Class²:
+    fn value(self):
+        return x²
+say read²(x²)
+say Class².new().value()
+'''
+EXPECTED_UNICODE_STDOUT = "value!\nvalue\n"
 
 
 class TestAuditJavaIdentifiers(unittest.TestCase):
@@ -105,6 +116,24 @@ class TestAuditJavaIdentifiers(unittest.TestCase):
                         f"{target}: stdout={result.stdout!r}, "
                         f"stderr={result.stderr[-1600:]!r}")
                     self.assertEqual(result.stdout, EXPECTED_CLASS_STDOUT)
+                    self.assertEqual(result.stderr, "")
+
+    def test_non_java_identifier_names_are_mangled_without_language_change(self):
+        with tempfile.TemporaryDirectory(
+                prefix="latent-java-unicode-identifiers-") as tmp:
+            root = Path(tmp)
+            source = root / "unicode_identifiers.lt"
+            source.write_text(UNICODE_IDENTIFIER_SOURCE, encoding="utf-8")
+            for target in ("py", "java"):
+                with self.subTest(target=target):
+                    outdir = root / target
+                    outdir.mkdir()
+                    result = harness.compile_and_run(source, target, outdir)
+                    self.assertEqual(
+                        result.returncode, 0,
+                        f"{target}: stdout={result.stdout!r}, "
+                        f"stderr={result.stderr[-1600:]!r}")
+                    self.assertEqual(result.stdout, EXPECTED_UNICODE_STDOUT)
                     self.assertEqual(result.stderr, "")
 
 

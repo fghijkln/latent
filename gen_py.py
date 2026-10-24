@@ -112,8 +112,10 @@ def _wv_add(a, b):
         return a + b
     if isinstance(a, list) and isinstance(b, list):
         return a + b
+    if not _wv_host_operation(a, b):
+        raise TypeError("bad + operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
     try:  # remote objects (py handles): let Python do it
-        return a + b
+        return _wv_pyresult(a + b)
     except Exception:
         raise TypeError("bad + operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -121,8 +123,10 @@ def _wv_add(a, b):
 def _wv_sub(a, b):
     if isinstance(a, float) and isinstance(b, float):
         return a - b
+    if not _wv_host_operation(a, b):
+        _wv_bad_numeric_operands(a, b, "-")
     try:
-        return a - b
+        return _wv_pyresult(a - b)
     except Exception:
         raise TypeError("bad - operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -130,8 +134,10 @@ def _wv_sub(a, b):
 def _wv_mul(a, b):
     if isinstance(a, float) and isinstance(b, float):
         return a * b
+    if not _wv_host_operation(a, b):
+        _wv_bad_numeric_operands(a, b, "*")
     try:
-        return a * b
+        return _wv_pyresult(a * b)
     except Exception:
         raise TypeError("bad * operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -141,8 +147,10 @@ def _wv_div(a, b):
         if b == 0:
             raise ZeroDivisionError("division by zero")
         return a / b
+    if not _wv_host_operation(a, b):
+        _wv_bad_numeric_operands(a, b, "/")
     try:
-        return a / b
+        return _wv_pyresult(a / b)
     except Exception:
         raise TypeError("bad / operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -152,8 +160,10 @@ def _wv_mod(a, b):
         if b == 0:
             raise ZeroDivisionError("division by zero")
         return a - b * _math.floor(a / b)
+    if not _wv_host_operation(a, b):
+        _wv_bad_numeric_operands(a, b, "%")
     try:
-        return a % b
+        return _wv_pyresult(a % b)
     except Exception:
         raise TypeError("bad %% operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -178,8 +188,10 @@ def _wv_pow(a, b):
             odd_negative = (a < 0 and b.is_integer() and
                             int(abs(b)) % 2 == 1)
             return -_math.inf if odd_negative else _math.inf
+    if not _wv_host_operation(a, b):
+        _wv_bad_numeric_operands(a, b, "**")
     try:
-        return a ** b
+        return _wv_pyresult(a ** b)
     except Exception:
         raise TypeError("bad ** operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -187,8 +199,10 @@ def _wv_pow(a, b):
 def _wv_neg(a):
     if isinstance(a, float):
         return -a
+    if not _wv_host_operand(a):
+        _wv_bad_numeric_operands(a, None, "unary -")
     try:
-        return -a
+        return _wv_pyresult(-a)
     except Exception:
         raise TypeError("bad unary - operand: " + _wv_repr(a))
 
@@ -1070,7 +1084,7 @@ def _wv_jclass(name):
 
 def _wv_non_handle_type(h):
     """Return Latent's display type for values without host handles."""
-    native_types = {type(None): "nil", bool: "bool", float: "num",
+    native_types = {type(None): "nil", bool: "bool", int: "num", float: "num",
                     str: "str", list: "list", dict: "map"}
     kind = native_types.get(type(h))
     if kind is not None:
@@ -1080,6 +1094,31 @@ def _wv_non_handle_type(h):
                       _WVCallback)):
         return "function"
     return None
+
+
+def _wv_host_operand(value):
+    """Identify host values allowed to use Python's operator protocol."""
+    return (_wv_non_handle_type(value) is None and
+            not isinstance(value, (_LtObj, _LtClass)))
+
+
+def _wv_host_operation(a, b):
+    """A fallback needs at least one opaque host value, never just Latent values."""
+    return _wv_host_operand(a) or _wv_host_operand(b)
+
+
+def _wv_bad_numeric_operands(a, b, op):
+    values = (a,) if op == "unary -" else (a, b)
+    for value in values:
+        if isinstance(value, float):
+            continue
+        kind = _wv_non_handle_type(value)
+        if kind is not None:
+            raise TypeError("bad %s operand: %s" % (op, kind))
+        if isinstance(value, _LtObj):
+            raise TypeError("bad %s operand: LtObj" % op)
+        if isinstance(value, _LtClass):
+            raise TypeError("bad %s operand: LtClass" % op)
 
 
 def _wv_wgetattr(h, attr):
@@ -1370,11 +1409,7 @@ class Gen:
                 self._reserve_source_names(child)
 
     def _fresh_internal(self, base):
-        name = base
-        while name in self._used_internal_names:
-            name = "_" + name
-        self._used_internal_names.add(name)
-        return name
+        return self._fresh_internal_suffix(base)
 
     def _fresh_internal_suffix(self, base):
         name = base
@@ -1789,7 +1824,9 @@ class Gen:
             return self.binop(e)
         if isinstance(e, UnOp):
             a = self.expr(e.operand)
-            return f"(-{a})" if e.op == "-" else f"(not {a})"
+            if e.op == "-":
+                return f"{self._runtime('_wv_neg')}({a})"
+            return f"(not {a})"
         if isinstance(e, Call):
             args = ", ".join(self.argument(a) for a in e.args)
             if isinstance(e.func, Name) and e.func.id in BUILTIN_PY:

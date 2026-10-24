@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from playground import app
 import gen_py
+import latent
 
 
 class CodegenPhysicalLineTests(unittest.TestCase):
@@ -33,6 +34,17 @@ class CodegenPhysicalLineTests(unittest.TestCase):
         )
         self.assertEqual(generator._render_output(),
                          "        first\nembedded\n        next\n")
+
+
+class InternalNameGrowthTests(unittest.TestCase):
+    def test_many_classes_use_bounded_internal_factory_names(self):
+        source = "".join(
+            f"class C{index}:\n    fn value(self):\n        return {index}\n"
+            for index in range(1000))
+        program, error = latent.compile_src(source, "many_classes.lt")
+        self.assertIsNone(error)
+        generated = gen_py.generate(program, source_path="many_classes.lt")
+        self.assertLess(len(generated), 1_000_000)
 
 
 class PlaygroundAddendumHTTPTests(unittest.TestCase):
@@ -97,6 +109,26 @@ class PlaygroundAddendumHTTPTests(unittest.TestCase):
         self.assertEqual(result["stage"], "parse")
         self.assertIn("source nesting exceeds maximum supported depth", result["error"])
         self.assertNotIn("Traceback", result["error"])
+        self.assertLess(len(body), 4_096)
+
+    def test_150_term_addition_is_not_mistaken_for_unsafe_nesting(self):
+        source = "say " + "+".join(["1"] * 150) + "\n"
+        status, body = self.post(source)
+        result = json.loads(body)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["stdout"], "150\n")
+
+    def test_deep_unary_expression_returns_structured_error(self):
+        source = "say " + ("-" * (app.MAX_AST_DEPTH + 24)) + "1\n"
+        status, body = self.post(source)
+        result = json.loads(body)
+
+        self.assertEqual(status, 200)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage"], "parse")
+        self.assertNotIn("Traceback", body.decode("utf-8"))
         self.assertLess(len(body), 4_096)
 
     def test_generated_python_field_and_complete_json_body_are_bounded(self):

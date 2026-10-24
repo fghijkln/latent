@@ -15,9 +15,8 @@ JAVA_KW = {
 }
 
 # Keep emitted source identifiers in a namespace disjoint from Java keywords,
-# runtime type names, and generated locals. Prefixing every source name (rather
-# than suffixing only collisions) also keeps the mapping injective: e.g. `x`
-# and `x_`, or `class` and `class_`, can never collapse to the same field.
+# runtime type names, and generated locals. UTF-8 hex encoding makes every
+# source identifier Java-safe and keeps the mapping injective.
 JAVA_SOURCE_PREFIX = "_lt_user_"
 
 BUILTIN_JAVA = {
@@ -30,7 +29,7 @@ BUILTIN_JAVA = {
 
 
 def ident(name):
-    return JAVA_SOURCE_PREFIX + name
+    return JAVA_SOURCE_PREFIX + name.encode("utf-8").hex()
 
 
 def cls_name(stem):

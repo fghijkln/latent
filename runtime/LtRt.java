@@ -1017,7 +1017,7 @@ public class LtRt {
             throw new RuntimeException("no field '" + attr + "'");
         }
         if (h instanceof LtClass)
-            throw new RuntimeException("cannot read fields on a class");
+            throw new RuntimeException("class " + ((LtClass) h).name + " has no fields");
         if (h instanceof JReflect.JClass) {
             JReflect.JClass owner = (JReflect.JClass) h;
             if (JReflect.hasPublicStaticField(owner, attr))

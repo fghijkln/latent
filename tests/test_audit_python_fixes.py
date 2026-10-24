@@ -128,6 +128,57 @@ DIRECT_CALL_STDOUT = (
     "call on non-handle value: bool\n"
     "call on non-handle value: nil\n"
     "call on non-handle value: function\n")
+BOOLEAN_ARITHMETIC_SOURCE = '''\
+try:
+    say true + false
+catch error:
+    say error
+try:
+    say true - false
+catch error:
+    say error
+try:
+    say true * false
+catch error:
+    say error
+try:
+    say true / false
+catch error:
+    say error
+try:
+    say true % false
+catch error:
+    say error
+try:
+    say true ** false
+catch error:
+    say error
+try:
+    say -true
+catch error:
+    say error
+'''
+BOOLEAN_ARITHMETIC_STDOUT = (
+    "bad + operands: true, false\n"
+    "bad - operand: bool\n"
+    "bad * operand: bool\n"
+    "bad / operand: bool\n"
+    "bad % operand: bool\n"
+    "bad ** operand: bool\n"
+    "bad unary - operand: bool\n")
+HOST_ARITHMETIC_SOURCE = '''\
+decimal = py "decimal"
+a = decimal.Decimal("7")
+b = decimal.Decimal("2")
+say a + b
+say a - b
+say a * b
+say a / b
+say a % b
+say a ** b
+say -a
+'''
+HOST_ARITHMETIC_STDOUT = "9\n5\n14\n3.5\n1\n49\n-7\n"
 
 
 def run_case(temp: Path, stem: str, source_text: str, target: str):
@@ -168,6 +219,16 @@ class AuditPythonFixes(unittest.TestCase):
     def test_direct_method_calls_cannot_bypass_attribute_guard(self):
         self.run_both_targets("audit_py_direct_call", DIRECT_CALL_SOURCE,
                               DIRECT_CALL_STDOUT)
+
+    def test_boolean_arithmetic_never_falls_through_to_python_operators(self):
+        self.run_both_targets("audit_boolean_arithmetic",
+                              BOOLEAN_ARITHMETIC_SOURCE,
+                              BOOLEAN_ARITHMETIC_STDOUT)
+
+    def test_python_host_handles_keep_all_arithmetic_operator_families(self):
+        self.run_both_targets("audit_host_arithmetic",
+                              HOST_ARITHMETIC_SOURCE,
+                              HOST_ARITHMETIC_STDOUT)
 
 
 if __name__ == "__main__":

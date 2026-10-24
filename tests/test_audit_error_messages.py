@@ -25,11 +25,19 @@ try:
     say {"x": 1} + false
 catch error:
     say error
+class FieldError:
+    fn present(self):
+        return 1
+try:
+    say FieldError.missing
+catch error:
+    say error
 '''
 EXPECTED = ('bad + operands: 1, a\n'
             'bad + operands: nil, a\n'
             'bad + operands: [1, "a"], nil\n'
-            'bad + operands: {"x": 1}, false\n')
+            'bad + operands: {"x": 1}, false\n'
+            'class FieldError has no fields\n')
 
 
 class CaughtErrorMessageTests(unittest.TestCase):

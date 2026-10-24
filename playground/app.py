@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LATENT_DIR = os.environ.get("LATENT_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,18 +40,79 @@ RUN_TIMEOUT = TIMEOUT + 1
 # A child may use up to 256 MiB; one active child leaves room for the server
 # and compiler within the playground's 512 MiB instance budget.
 MAX_CONCURRENT_RUNS = 1
-_RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
+MAX_QUEUED_RUNS = 4
+RUN_QUEUE_TIMEOUT = 2
+MAX_HTTP_CONNECTIONS = 64
+MAX_HTTP_CONNECTIONS_PER_IP = 4
 BODY_TIMEOUT = 5
 BODY_IDLE_TIMEOUT = 2
 HEADER_TIMEOUT = 10
 READ_CHUNK = 8_192
 TERMINATE_GRACE = 0.1
-MAX_AST_DEPTH = 128
+MAX_AST_DEPTH = 400
 BLOCKED = (nodes.PyImport, nodes.JavaImport, nodes.ImportStmt)
 
 
 class AstDepthError(ValueError):
     pass
+
+
+class _RunTicket:
+    def __init__(self, client_ip):
+        self.client_ip = client_ip
+        self.ready = threading.Event()
+
+
+class _RunAdmission:
+    """FIFO execution admission with a short bounded HTTP wait queue."""
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._running = None
+        self._waiting = deque()
+        self._clients = set()
+
+    def acquire(self, client_ip, *, wait):
+        ticket = _RunTicket(client_ip)
+        with self._lock:
+            if client_ip is not None and client_ip in self._clients:
+                return None
+            if self._running is None:
+                self._running = ticket
+                if client_ip is not None:
+                    self._clients.add(client_ip)
+                return ticket
+            if not wait or len(self._waiting) >= MAX_QUEUED_RUNS:
+                return None
+            self._waiting.append(ticket)
+            if client_ip is not None:
+                self._clients.add(client_ip)
+
+        timeout = RUN_QUEUE_TIMEOUT if client_ip is not None else None
+        if ticket.ready.wait(timeout):
+            return ticket
+        with self._lock:
+            if self._running is ticket:
+                return ticket
+            try:
+                self._waiting.remove(ticket)
+            except ValueError:
+                return ticket
+            if client_ip is not None:
+                self._clients.discard(client_ip)
+        return None
+
+    def release(self, ticket):
+        with self._lock:
+            if self._running is not ticket:
+                raise RuntimeError("execution admission released out of order")
+            if ticket.client_ip is not None:
+                self._clients.discard(ticket.client_ip)
+            self._running = self._waiting.popleft() if self._waiting else None
+            if self._running is not None:
+                self._running.ready.set()
+
+
+_RUN_ADMISSION = _RunAdmission()
 
 
 def _walk(node, seen=None):
@@ -243,14 +305,70 @@ def _run_program(src):
             "python": python_preview, "python_truncated": python_truncated}
 
 
-def run_program(src, *, wait=True):
-    """Run at most one program at a time; direct callers wait by default."""
-    if not _RUN_SLOTS.acquire(blocking=wait):
+def run_program(src, *, wait=True, client_ip=None):
+    """Run one program at a time; HTTP callers get a short, fair bounded queue."""
+    ticket = _RUN_ADMISSION.acquire(client_ip, wait=wait)
+    if ticket is None:
         return {"ok": False, "stage": "capacity", "error": "playground is busy; retry shortly"}
     try:
         return _run_program(src)
     finally:
-        _RUN_SLOTS.release()
+        _RUN_ADMISSION.release(ticket)
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """Bound live handler threads and reject excess connections before spawning."""
+    daemon_threads = True
+    block_on_close = False
+
+    def __init__(self, server_address, request_handler, *,
+                 max_connections=MAX_HTTP_CONNECTIONS,
+                 max_per_ip=MAX_HTTP_CONNECTIONS_PER_IP):
+        self._connection_slots = threading.BoundedSemaphore(max_connections)
+        self._max_per_ip = max_per_ip
+        self._connections_lock = threading.Lock()
+        self._connections_by_ip = {}
+        super().__init__(server_address, request_handler)
+
+    def process_request(self, request, client_address):
+        client_ip = client_address[0]
+        with self._connections_lock:
+            active = self._connections_by_ip.get(client_ip, 0)
+            admitted = (active < self._max_per_ip and
+                        self._connection_slots.acquire(blocking=False))
+            if admitted:
+                self._connections_by_ip[client_ip] = active + 1
+        if not admitted:
+            try:
+                request.settimeout(0.2)
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._release_connection(client_ip)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release_connection(client_address[0])
+
+    def _release_connection(self, client_ip):
+        with self._connections_lock:
+            active = self._connections_by_ip[client_ip] - 1
+            if active:
+                self._connections_by_ip[client_ip] = active
+            else:
+                del self._connections_by_ip[client_ip]
+            self._connection_slots.release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -367,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(
                 400, {"ok": False, "error": "JSON body must be an object"})
         src = payload.get("source", "")
-        res = run_program(str(src), wait=False)
+        res = run_program(str(src), wait=True, client_ip=self.client_address[0])
         status = 503 if res.get("stage") == "capacity" else 200
         self._send_json(status, res)
 
@@ -378,4 +496,4 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
     print(f"Latent Playground on :{port}", flush=True)
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    BoundedThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
