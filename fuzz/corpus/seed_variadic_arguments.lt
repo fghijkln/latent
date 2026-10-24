@@ -1,0 +1,6 @@
+fn collect(head, width=2, *items, **options):
+    return [head, width, items, options]
+
+say collect("default")
+say collect(*["card", 3, "extra"], **{"color": "blue"})
+say collect(head="keyword", **{"width": 4, "border": true})

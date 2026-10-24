@@ -1,0 +1,19 @@
+# py_datetime.lt -- dates, datetimes, arithmetic, formatting.
+
+dt = py "datetime"
+d = dt.date(2026, 10, 5)
+say d
+say d.year
+say d.strftime("%Y-%m-%d")
+
+# date - date -> timedelta (opaque handle, attributes still work)
+delta = dt.date(2026, 10, 5) - dt.date(2026, 10, 1)
+say delta.days
+
+# datetime + timedelta (positional args only: timedelta(days, seconds))
+noon = dt.datetime(2026, 10, 5, 12, 0, 0)
+later = noon + dt.timedelta(1, 43200)
+say later.strftime("%Y-%m-%d %H:%M")
+
+# parsing back from a string
+say dt.datetime.strptime("2026-10-05", "%Y-%m-%d").date()

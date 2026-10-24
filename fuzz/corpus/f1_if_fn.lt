@@ -1,0 +1,4 @@
+if true:
+    fn m():
+        return 1
+say 9

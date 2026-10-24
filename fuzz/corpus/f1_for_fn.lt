@@ -1,0 +1,4 @@
+for i in [1]:
+    fn k():
+        return i
+say 7

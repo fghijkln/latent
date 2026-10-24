@@ -1,0 +1,10 @@
+fn configure(host, port=80, *, secure, timeout=5):
+    return [host, port, secure, timeout]
+
+say configure("api.example", secure=true)
+say configure(host="edge.example", timeout=nil, secure=false)
+
+fn collect(command, *parts, mode, retry=2, **extra):
+    return [command, parts, mode, retry, extra]
+
+say collect("build", "clean", "test", mode="safe", verbose=true)

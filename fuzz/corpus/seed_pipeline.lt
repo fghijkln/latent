@@ -1,0 +1,81 @@
+# pipeline.lt -- 旗舰 demo：双生态销售数据管道。
+#
+# 同一个程序里混用两个生态：
+#   Python: 写 CSV 文件、re 切分、numpy 求均值
+#   Java:   NIO 读文件、BigDecimal 精确求和、java.time 打时间戳
+#   Latent: Report 类、try/catch 跳过坏行
+# 双后端输出逐字节一致。
+
+# ---- 1. Python 写一份销售 CSV（含两行坏数据） ----
+builtins = py "builtins"
+f = builtins.open("/tmp/latent_cookbook_sales.csv", "w")
+f.write("apple,12.50\n")
+f.write("banana,8.25\n")
+f.write("BROKEN ROW\n")
+f.write("cherry,3.75\n")
+f.write("durian,xx\n")
+f.write("egg,20.00\n")
+f.close()
+
+# ---- 2. Java NIO 读回（String 按值返回，两端都是 Latent 串） ----
+Files = java "java.nio.file.Files"
+Paths = java "java.nio.file.Paths"
+lines = Files.readAllLines(Paths.get("/tmp/latent_cookbook_sales.csv"))
+
+# ---- 3. Report 类：行数、坏行、精确总额、金额列表 ----
+BigD = java "java.math.BigDecimal"
+
+class Report:
+    fn init(self, name):
+        self.name = name
+        self.rows = 0
+        self.bad = 0
+        self.total = BigD.new("0")
+        self.amounts = []
+
+    fn add(self, item, amount_s):
+        total2 = self.total.add(BigD.new(amount_s))  # 先验证：坏输入在这里抛
+        amt = builtins.float(amount_s)
+        self.rows = self.rows + 1
+        self.total = total2
+        self.amounts = self.amounts + [amt]
+
+    fn skip(self):
+        self.bad = self.bad + 1
+
+    fn summary(self):
+        return "${self.name}: ${self.rows} ok, ${self.bad} bad, total ${self.total}"
+
+r = Report.new("sales")
+
+# ---- 4. 逐行解析；坏行 try/catch 跳过 ----
+re = py "re"
+for raw in lines:
+    line = str(raw)
+    if line == "":
+        continue
+    try:
+        parts = re.split(",", line)
+        if len(parts) != 2:
+            throw "bad columns: $line"
+        r.add(parts[0], parts[1])   # float("xx") 在这里抛错
+    catch e:
+        r.skip()
+
+# ---- 5. numpy 均值（Python 生态） ----
+np = py "numpy"
+say "mean: ${np.mean(r.amounts)}"
+
+# ---- 6. 汇总 + 时间戳（Java 生态） ----
+say r.summary()
+LocalDate = java "java.time.LocalDate"
+say "report date: ${LocalDate.now()}"
+
+# ---- 7. 写报告文件并验读，然后清理 ----
+out = builtins.open("/tmp/latent_cookbook_report.txt", "w")
+out.write(r.summary())
+out.close()
+say Files.readString(Paths.get("/tmp/latent_cookbook_report.txt"))
+Files.deleteIfExists(Paths.get("/tmp/latent_cookbook_sales.csv"))
+Files.deleteIfExists(Paths.get("/tmp/latent_cookbook_report.txt"))
+say "cleaned"

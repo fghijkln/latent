@@ -1,0 +1,11 @@
+# java_nio.lt -- file IO with java.nio.file.
+
+Paths = java "java.nio.file.Paths"
+Files = java "java.nio.file.Files"
+p = Paths.get("/tmp/latent_cookbook_nio.txt")
+Files.writeString(p, "hello latent\nline2\n")
+say Files.readString(p)
+say Files.size(p)
+say Files.exists(p)
+Files.deleteIfExists(p)
+say Files.exists(p)
