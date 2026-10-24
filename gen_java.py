@@ -185,8 +185,8 @@ class Gen:
         entry_helpers = self._top_level_helpers(rest, "entry") if not modules else []
         self.module_helpers = {
             module.module_id: self._top_level_helpers(
-                module.body, f"module_{index}")
-            for index, module in enumerate(modules)
+                module.body, module.init_name)
+            for module in modules
         }
         gnames = []
         if modules:
@@ -299,8 +299,18 @@ class Gen:
         self.w("System.err.println(\"Latent traceback (most recent call last):\");")
         self.ind -= 1
         self.w("}")
+        self.w("String functionName = frame.getMethodName();")
+        self.w('int helperStart = functionName.indexOf("_lt_top_");')
+        self.w("int chunkSeparator = functionName.lastIndexOf('_');")
+        self.w("if (helperStart >= 0 && chunkSeparator > helperStart) {")
+        self.ind += 1
+        self.w("String helperLabel = functionName.substring(helperStart + "
+               '"_lt_top_".length(), chunkSeparator);')
+        self.w('functionName = helperLabel.equals("entry") ? "main" : helperLabel;')
+        self.ind -= 1
+        self.w("}")
         self.w("System.err.println(\"  at \" + _lt_sourceFile(frame.getLineNumber()) + \":\" + "
-               "sourceLine + \" in \" + frame.getMethodName());")
+               "sourceLine + \" in \" + functionName);")
         self.w("mappedFrames++;")
         self.ind -= 1
         self.w("}")

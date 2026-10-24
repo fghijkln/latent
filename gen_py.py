@@ -244,11 +244,19 @@ def _wv_len(x):
     raise TypeError("len() of " + _wv_repr(x))
 
 
+# shortcut: cap eager ranges at 1M items; revisit when ranges become lazy.
 def _wv_range(a, b=None):
     if b is None:
         a, b = 0.0, a
-    return [float(i) for i in range(int(_math.trunc(_wv_num(a))),
-                                   int(_math.trunc(_wv_num(b))))]
+    lo, hi = _wv_num(a), _wv_num(b)
+    if not _math.isfinite(lo) or not _math.isfinite(hi):
+        raise _LtArgumentError("range() arguments must be finite")
+    start, stop = int(_math.trunc(lo)), int(_math.trunc(hi))
+    length = stop - start
+    if length > 1_000_000:
+        raise _LtArgumentError(
+            "range() result too large (maximum 1000000 items)")
+    return [_builtins.float(i) for i in _builtins.range(start, stop)]
 
 
 def _wv_str(x):

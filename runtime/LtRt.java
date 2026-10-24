@@ -1,5 +1,7 @@
 import java.util.*;
 import java.io.*;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.lang.reflect.Array;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -19,6 +21,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *   py handle -> PyHandle (lazy: python3 starts on first actual use)
  */
 public class LtRt {
+    // shortcut: cap eager ranges at 1M items; revisit when ranges become lazy.
+    private static final int MAX_RANGE_ITEMS = 1_000_000;
 
     // ---------------- truthiness ----------------
     public static boolean truthy(Object v) {
@@ -184,6 +188,8 @@ public class LtRt {
     static String numStr(double d) {
         if (Double.isNaN(d)) return "nan";
         if (Double.isInfinite(d)) return d > 0 ? "inf" : "-inf";
+        if (d == Double.MIN_VALUE) return "5e-324";
+        if (d == -Double.MIN_VALUE) return "-5e-324";
         if (d == Math.rint(d) && Math.abs(d) < 1e16) return Long.toString((long) d);
         String s = Double.toString(d); // 3.14 | 1.0E16 | 1.234E-7
         int e = s.indexOf('E');
@@ -281,8 +287,27 @@ public class LtRt {
 
     public static Object range(Object a, Object b) {
         double lo = num(a, "range"), hi = num(b, "range");
-        List<Object> r = new ArrayList<>();
-        for (long i = (long) lo; i < (long) hi; i++) r.add((double) i);
+        if (!Double.isFinite(lo) || !Double.isFinite(hi))
+            throw new ArgumentError("range() arguments must be finite");
+        // Convert the exact binary values so small ranges beyond long stay correct.
+        BigInteger start = new BigDecimal(lo).toBigInteger();
+        BigInteger stop = new BigDecimal(hi).toBigInteger();
+        BigInteger length = stop.subtract(start);
+        if (length.signum() <= 0) return new ArrayList<>();
+        if (length.compareTo(BigInteger.valueOf(MAX_RANGE_ITEMS)) > 0)
+            throw new ArgumentError(
+                "range() result too large (maximum 1000000 items)");
+        int count = length.intValue();
+        List<Object> r = new ArrayList<>(count);
+        try {
+            long first = start.longValueExact();
+            long end = stop.longValueExact();
+            for (long i = first; i < end; i++) r.add((double) i);
+        } catch (ArithmeticException outsideLongRange) {
+            BigInteger i = start;
+            for (int n = 0; n < count; n++, i = i.add(BigInteger.ONE))
+                r.add(i.doubleValue());
+        }
         return r;
     }
 

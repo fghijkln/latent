@@ -61,6 +61,18 @@ def render_error(path, src, kind, raw_msg):
     return f"{path}: {kind} error: {raw_msg}"
 
 
+def _java_compile_diagnostics(stdout, stderr):
+    output = (stdout or "") + (stderr or "")
+    lowered = output.lower()
+    size_errors = ("code too large", "too many constants", "constant pool",
+                   "constant string too long",
+                   "utf8 representation for string")
+    if any(marker in lowered for marker in size_errors):
+        return ("error: generated Java program is too large for javac "
+                "(bytecode or constant-pool limit)\n")
+    return output
+
+
 def _needs_more(buf):
     """True while the buffer holds an open block. In Latent a physical
     line ending with ':' is always a block header (fn/if/while/for/try/
@@ -324,7 +336,8 @@ def main():
                   "compile. Install one, or use -t py.", file=sys.stderr)
             return 1
         if r.returncode != 0:
-            print(r.stdout, r.stderr, file=sys.stderr)
+            print(_java_compile_diagnostics(r.stdout, r.stderr), end="",
+                  file=sys.stderr)
             return 1
         # compile classes into a separate dir so ltpy.py lookup via
         # code-source dir still works? No - keep classes next to sources:

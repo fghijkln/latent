@@ -66,6 +66,7 @@ class Checker:
         nested = {}
         self._collect_nested_defs(top_level_code, nested)
         self._reject_class_function_collisions(nested)
+        self._reject_class_binding_collisions(top_level_code)
         self.dynamic_module_names.update(nested)
         self.globals.update(nested)
         self.module_bindings.update(nested)
@@ -128,6 +129,7 @@ class Checker:
             nested = {}
             self._collect_nested_defs(m.body, nested)
             self._reject_class_function_collisions(nested)
+            self._reject_class_binding_collisions(m.body)
             nested_by_module[m.module_id] = set(nested)
             self.dynamic_module_names.update(nested)
             self.globals.update(nested)
@@ -312,6 +314,28 @@ class Checker:
         for name, node in nested.items():
             if name in self.classes:
                 _err(node, f"duplicate definition {node.source_name!r}")
+
+    def _reject_class_binding_collisions(self, stmts):
+        def visit(items):
+            for node in items:
+                if isinstance(node, Assign):
+                    name = node.name
+                elif isinstance(node, (For, Try)):
+                    name = node.var
+                else:
+                    name = None
+                if name in self.classes:
+                    _err(node, f"duplicate definition "
+                         f"{self.classes[name].source_name!r}")
+                if isinstance(node, If):
+                    visit(node.then_body)
+                    visit(node.else_body or [])
+                elif isinstance(node, (For, While)):
+                    visit(node.body)
+                elif isinstance(node, Try):
+                    visit(node.body)
+                    visit(node.handler)
+        visit(stmts)
 
     def fn_body(self, fn, classdef=None, parent_ctx=None):
         assigned = set()

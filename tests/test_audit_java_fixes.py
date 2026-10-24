@@ -162,6 +162,10 @@ say -1 % math.inf
 say 1 % -math.inf
 say -1 % -math.inf
 say 1 ** math.nan
+say tiny
+say -tiny
+Double = java "java.lang.Double"
+say Double.valueOf(tiny)
 try:
     say int(math.inf)
 catch error:
@@ -178,8 +182,31 @@ say "\ue000" < "😀"
 say "😀" < "\ue000"
 '''
 NUMERIC_UNICODE_STDOUT = (
-    "0\n0\nnan\nnan\n1\ninf\n-inf\n-1\nnan\n"
+    "0\n0\nnan\nnan\n1\ninf\n-inf\n-1\nnan\n5e-324\n-5e-324\n"
+    "5e-324\n"
     "int() of inf\nint() of -inf\nint() of nan\ntrue\nfalse\n")
+RANGE_LIMIT_SOURCE = '''\
+math = py "math"
+say len(range(1000000))
+say len(range(2 ** 63, 2 ** 63 + 2048))
+try:
+    values = range(1000001)
+catch error:
+    say error
+try:
+    values = range(2 ** 63)
+catch error:
+    say error
+try:
+    values = range(math.inf)
+catch error:
+    say error
+'''
+RANGE_LIMIT_STDOUT = (
+    "1000000\n2048\n"
+    "range() result too large (maximum 1000000 items)\n"
+    "range() result too large (maximum 1000000 items)\n"
+    "range() arguments must be finite\n")
 
 
 def run_case(temp: Path, target: str):
@@ -280,6 +307,51 @@ class TestAuditJavaFixes(unittest.TestCase):
                                   result.stderr)
                     self.assertNotIn("already defined", result.stderr)
 
+    def test_top_level_bindings_cannot_reuse_top_level_class_names(self):
+        class_source = (
+            "class A:\n"
+            "    fn value(self):\n"
+            "        return 1\n")
+        cases = {
+            "assignment": class_source + "A = 5\n",
+            "for target": class_source + "for A in [5]:\n    say A\n",
+            "catch target": class_source +
+                            'try:\n    throw "x"\ncatch A:\n    say A\n',
+            "unreachable assignment": class_source + "if false:\n    A = 1\n",
+            "assignment before class": "A = 5\n" + class_source,
+        }
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-class-binding-collision-") as tmp:
+            temp = Path(tmp)
+            for case, text in cases.items():
+                source = temp / (case.replace(" ", "_") + ".lt")
+                source.write_text(text, encoding="utf-8")
+                for target in TARGETS:
+                    with self.subTest(case=case, target=target):
+                        outdir = temp / (source.stem + "-" + target)
+                        outdir.mkdir()
+                        result = p18.compile_and_run(source, target, outdir)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(
+                            "semant error: duplicate definition 'A'",
+                            result.stderr)
+                        self.assertNotIn("already defined", result.stderr)
+
+            root = temp / "main_class_binding.lt"
+            root.write_text('import "dep.lt" as dep\nsay 1\n',
+                            encoding="utf-8")
+            (temp / "dep.lt").write_text(class_source + "A = 5\n",
+                                         encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(case="imported module", target=target):
+                    outdir = temp / ("module-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(root, target, outdir)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        "semant error: duplicate definition 'A'",
+                        result.stderr)
+
     def test_nonfinite_numeric_and_unicode_ordering_match_both_targets(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-numeric-unicode-") as tmp:
             temp = Path(tmp)
@@ -293,6 +365,35 @@ class TestAuditJavaFixes(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout, NUMERIC_UNICODE_STDOUT)
                     self.assertEqual(result.stderr, "")
+
+    def test_range_limit_and_large_endpoints_match_both_targets(self):
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-range-limit-") as tmp:
+            temp = Path(tmp)
+            source = temp / "range_limit.lt"
+            source.write_text(RANGE_LIMIT_SOURCE, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, RANGE_LIMIT_STDOUT)
+                    self.assertEqual(result.stderr, "")
+            uncaught = temp / "range_uncaught.lt"
+            uncaught.write_text("values = range(2 ** 63)\n",
+                                encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target, uncaught=True):
+                    outdir = temp / (target + "-uncaught")
+                    outdir.mkdir()
+                    result = p18.compile_and_run(uncaught, target, outdir)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(
+                        "Latent runtime error: ArgumentError: "
+                        "range() result too large (maximum 1000000 items)",
+                        result.stderr)
+                    self.assertRegex(result.stderr, r"range_uncaught\.lt:1 in main$")
 
     def test_many_sibling_try_blocks_have_linear_java_output_growth(self):
         def generated_length(count):
@@ -353,6 +454,35 @@ class TestAuditJavaFixes(unittest.TestCase):
             self.assertEqual(result.stdout, "module\n" * 65 + "9\n")
             self.assertEqual(result.stderr, "")
 
+    def test_chunked_top_level_errors_use_python_frame_names(self):
+        entry = ("".join(f"say {i}\n" for i in range(64)) +
+                 'throw "entry-boundary"\n')
+        module_body = ("".join(f"say {i}\n" for i in range(64)) +
+                       'throw "module-boundary"\n')
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-top-helper-frames-") as tmp:
+            temp = Path(tmp)
+            entry_source = temp / "entry_frame.lt"
+            entry_source.write_text(entry, encoding="utf-8")
+            module_source = temp / "module_frame.lt"
+            module_source.write_text(
+                'import "dep.lt" as dep\nsay 1\n', encoding="utf-8")
+            (temp / "dep.lt").write_text(module_body, encoding="utf-8")
+            cases = ((entry_source, "entry_frame.lt", r"in main$"),
+                     (module_source, "dep.lt",
+                      r"in _lt_module_init_[0-9a-f]+$"))
+            for source, source_name, frame_pattern in cases:
+                for target in TARGETS:
+                    with self.subTest(source=source.name, target=target):
+                        outdir = temp / (source.stem + "-" + target)
+                        outdir.mkdir()
+                        result = p18.compile_and_run(source, target, outdir)
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertRegex(
+                            result.stderr,
+                            rf"{re.escape(source_name)}:65 {frame_pattern}")
+                        self.assertNotIn("_lt_top_", result.stderr)
+
     def test_module_init_block_functions_compile_on_both_targets(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-module-fn-") as tmp:
             temp = Path(tmp)
@@ -393,6 +523,35 @@ class TestAuditJavaFixes(unittest.TestCase):
             self.assertIn("codegen error: KeyError: 'missing helper'",
                           stderr.getvalue())
             self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_java_cli_reports_size_limits_without_raw_javac_output(self):
+        diagnostics = (
+            "Example.java:1: error: code too large\n",
+            "Example.java:1: error: too many constants\n",
+        )
+        expected = ("error: generated Java program is too large for javac "
+                    "(bytecode or constant-pool limit)\n")
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-java-size-diagnostic-") as tmp:
+            temp = Path(tmp)
+            source = temp / "size_diagnostic.lt"
+            source.write_text("say 1\n", encoding="utf-8")
+            for diagnostic in diagnostics:
+                with self.subTest(diagnostic=diagnostic.strip()):
+                    outdir = temp / str(len(diagnostic))
+                    stderr = io.StringIO()
+                    argv = ["latent.py", str(source), "-t", "java", "-o",
+                            str(outdir)]
+                    result = mock.Mock(returncode=1, stdout="",
+                                       stderr=diagnostic)
+                    with mock.patch.object(sys, "argv", argv), \
+                            mock.patch.object(latent.subprocess, "run",
+                                              return_value=result), \
+                            contextlib.redirect_stderr(stderr):
+                        status = latent.main()
+                    self.assertEqual(status, 1)
+                    self.assertEqual(stderr.getvalue(), expected)
+                    self.assertNotIn("Example.java", stderr.getvalue())
 
     def test_playground_keeps_nested_function_result_structured(self):
         result = playground_app.run_program(

@@ -541,19 +541,7 @@ public class JReflect {
 
     // ---------------- repr / truthy (Latent semantics) ----------------
     static String numStr(double d) {
-        if (Double.isNaN(d)) return "nan";
-        if (Double.isInfinite(d)) return d > 0 ? "inf" : "-inf";
-        if (d == Math.rint(d) && Math.abs(d) < 1e16) return Long.toString((long) d);
-        String s = Double.toString(d);
-        int e = s.indexOf('E');
-        if (e < 0) return s;
-        String m = s.substring(0, e);
-        if (m.endsWith(".0")) m = m.substring(0, m.length() - 2);
-        String exp = s.substring(e + 1);
-        boolean neg = exp.startsWith("-");
-        String digits = neg ? exp.substring(1) : exp;
-        while (digits.length() < 2) digits = "0" + digits;
-        return m + "e" + (neg ? "-" : "+") + digits;
+        return LtRt.numStr(d);
     }
 
     static String escape(String s) {
