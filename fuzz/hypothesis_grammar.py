@@ -6,10 +6,9 @@ Run as pytest. Profiles:
 Select with HYPOTHESIS_PROFILE=ci|nightly (default: ci).
 
 Oracles:
-  test_compile_never_crashes      - no undeclared exception from the compiler
-  test_backends_agree             - py-clean programs match java stdout
-  test_no_sandbox_escape          - no os/uid escape marker via run_program
-Known-open findings (R1/F1/F2) are pinned xfail; see fuzz/README.md.
+  test_compile_never_crashes - both backends compile without crashing
+  test_backends_agree        - clean programs match in status and output
+Fixed R1/F1/F2 findings are hard regression tests in test_known_findings.py.
 """
 import os
 import subprocess
@@ -17,24 +16,17 @@ import sys
 import tempfile
 
 import pytest
-from hypothesis import given, reject, settings, HealthCheck, strategies as st
+from hypothesis import given, settings, HealthCheck, strategies as st
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "playground"))
 
-import lex
-import parse as parse_mod
-import desugar
-import semant
 import gen_py
 import gen_java
 import latent
 import app  # playground
-
-DECLARED = (lex.LexError, parse_mod.ParseError, desugar.DesugarError,
-            semant.SemantError)
 
 settings.register_profile(
     "ci", max_examples=int(os.environ.get("FUZZ_CI_EXAMPLES", "400")),
@@ -141,8 +133,6 @@ def _compile(src):
             out[be] = "ok"
         except RecursionError:
             out[be] = "recursion"
-        except DECLARED:
-            out[be] = "declined"
         except Exception as e:  # pragma: no cover - this is the finding
             raise AssertionError(
                 f"{be} backend raised undeclared {type(e).__name__}: {e}\n"
@@ -161,11 +151,12 @@ def _run_py(src):
 def _run_java(src):
     prog, err = latent.compile_src(src, "main.lt")
     if err:
-        return None
+        raise AssertionError(f"Java runner received rejected source: {err}\n{src}")
     try:
         code = gen_java.generate(prog, "Main", source_path="main.lt")
-    except Exception:
-        return None
+    except Exception as e:
+        raise AssertionError(
+            f"Java code generation failed: {type(e).__name__}: {e}\n{src}") from e
     rt = os.path.join(ROOT, "runtime")
     with tempfile.TemporaryDirectory() as d:
         open(os.path.join(d, "Main.java"), "w").write(code)
@@ -174,69 +165,42 @@ def _run_java(src):
              f"{rt}/LtRt.java", f"{rt}/JReflect.java"],
             capture_output=True, text=True, timeout=120)
         if jc.returncode != 0:
-            return ("javac_err", jc.stderr)
+            raise AssertionError(
+                f"javac exited {jc.returncode}\n{jc.stdout}{jc.stderr}"
+                f"\n--- source ---\n{src}")
         jr = subprocess.run([JAVA, "-cp", d, "Main"],
                             capture_output=True, text=True, timeout=60)
-        return ("ran", jr.stdout, jr.stderr)
-
-
-def _is_f1(err):
-    return "java backend raised undeclared KeyError" in str(err)
+        return jr
 
 
 # ---------------- properties ----------------
 
 @given(program)
 def test_compile_never_crashes(src):
-    try:
-        _compile(src)
-    except AssertionError as e:
-        # F1 (known-open, pinned in test_known_findings.py): skip the sample
-        # and keep exploring instead of stopping the run at the first hit.
-        if _is_f1(e):
-            reject()
-        raise
+    _compile(src)
 
 
 @settings(max_examples=int(os.environ.get("FUZZ_DIFF_EXAMPLES", "60")))
 @given(program)
 def test_backends_agree(src):
-    try:
-        py, java = _compile(src)
-    except AssertionError as e:
-        if _is_f1(e):
-            reject()
-        raise
-    if py != "ok" or java != "ok":
-        return
-    ok, py_out, _ = _run_py(src)
-    if not ok:
-        return
-    res = _run_java(src)
-    if res is None or res[0] != "ran":
-        return
-    if res[1] != py_out:
-        # Known class F2/R1 only: the Java backend rejects bool arithmetic that
-        # the Python backend lets through. Any other divergence is a new bug.
-        if "operand: bool" in res[2]:
-            pytest.xfail("F2/R1: bool-arithmetic backend divergence")
+    py, java = _compile(src)
+    if py != java:
         raise AssertionError(
-            f"backend divergence\n--- PY ---\n{py_out}\n--- JAVA ---\n"
-            f"{res[1]}{res[2]}\n--- source ---\n{src}")
-
-
-@given(program)
-def test_no_sandbox_escape(src):
-    prog, err = latent.compile_src(src, "main.lt")
-    if err:
+            f"backend compile-state divergence: py={py}, java={java}\n{src}")
+    if py != "ok":
         return
-    try:
-        gen_py.generate(prog, source_path="main.lt")
-    except Exception:
-        return
-    ok, out, errtext = _run_py(src)
-    assert "PWNED" not in (out + errtext) and "uid=" not in (out + errtext), \
-        f"sandbox escape marker in output\n--- source ---\n{src}"
+    ok, py_out, py_err = _run_py(src)
+    if not ok:
+        raise AssertionError(
+            f"Python runner failed after successful codegen\n"
+            f"stdout={py_out}\nstderr={py_err}\n--- source ---\n{src}")
+    res = _run_java(src)
+    if (res.returncode, res.stdout, res.stderr) != (0, py_out, py_err):
+        raise AssertionError(
+            f"backend outcome divergence\n--- PY ---\n"
+            f"status=0\nstdout={py_out}\nstderr={py_err}\n--- JAVA ---\n"
+            f"status={res.returncode}\nstdout={res.stdout}\n"
+            f"stderr={res.stderr}\n--- source ---\n{src}")
 
 
 if __name__ == "__main__":

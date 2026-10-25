@@ -34,12 +34,7 @@ def TestOneInput(data):
         if err:
             return
         gen_py.generate(prog, source_path="main.lt")
-        try:
-            gen_java.generate(prog, "Main", source_path="main.lt")
-        except KeyError:
-            # F1 (known-open): block-nested fn crashes Java codegen. Remove this
-            # guard once fixed so a regression is reported again.
-            return
+        gen_java.generate(prog, "Main", source_path="main.lt")
     except DECLARED:
         return
 
