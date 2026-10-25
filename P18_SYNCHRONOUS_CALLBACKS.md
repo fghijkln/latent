@@ -2,6 +2,8 @@
 
 Callbacks are **borrowed synchronous callables**: the host may invoke them with positional arguments during the active same-thread scope. The delivered positional sequence is passed through the existing Latent binder. Argument provenance inside Python or native wrappers is not part of the callback contract. Test results and reproducibility evidence are recorded separately from this contract.
 
+**Current follow-on status (2026-10-25):** P19-B allows explicit `name=value` arguments on existing Python-host call paths, including eligible extracted P13/P14 callable values. Java-host named calls and `*`/`**` expansion remain unsupported. Keywords delivered by Python to a borrowed Latent callback remain unsupported under the unimplemented P19-C scope.
+
 ## One program, both targets
 
 The slice implements **Latent → Python host API → Latent function**. The Java target uses its existing Python child process and a same-thread, re-entrant request pump. It does not add Java SAM/interface callbacks or reverse callbacks through the Python target's Java daemon.
@@ -32,7 +34,7 @@ Each callback-capable host call owns a short-lived scope. Invocation is restrict
 
 The bridge preserves existing bool/nil/string/number conversion rules. Host integers become Latent numbers; bool is not treated as a number; integral outbound floats become Python integers except negative zero. Exact builtin tuple/list containers are projected to lists. Opaque objects such as `re.Match` are not stringified. Callback containers have cycle checks and a depth bound of 64; callback/RPC nesting is bounded at 16. Arbitrary container identity sharing, cyclic graphs, and non-string map-key equivalence are not new compatibility promises.
 
-Deferred/generator/awaitable values and callable callback results are validated **before the host can consume the callback result**, including nested builtin containers. Returning an adapter, hiding callbacks in argument containers, asynchronous/deferred use, cross-thread execution, and stale callback execution are rejected. Latent-to-host named arguments and `*`/`**` expansion remain explicitly rejected; callback keyword arguments are also rejected.
+Deferred/generator/awaitable values and callable callback results are validated **before the host can consume the callback result**, including nested builtin containers. Returning an adapter, hiding callbacks in argument containers, asynchronous/deferred use, cross-thread execution, and stale callback execution are rejected. P19-B later enabled explicit `name=value` on existing Python-host call paths; Java-host named calls and `*`/`**` expansion remain rejected. Actual keyword arguments delivered to a callback remain rejected pending P19-C.
 
 ## Errors and protocol integrity
 
@@ -57,7 +59,7 @@ def host(callback):
     return partial(callback, *("x",))()
 ```
 
-Python/native wrappers may obscure how the positional values were assembled; the bridge neither detects nor claims to reject hidden expansion provenance. This does not enable named or expanded **Latent-to-host entry arguments**, which remain rejected. Actual keyword arguments delivered to a callback, including nonempty `**kwargs`, are unsupported and rejected. Stale, cross-thread, deferred and nested/returned-callable boundaries are unchanged.
+Python/native wrappers may obscure how the positional values were assembled; the bridge neither detects nor claims to reject hidden expansion provenance. P19-B permits explicit named **Python-host** entry arguments on the existing supported call paths; Java-host named arguments and `*`/`**` expansion remain rejected. Actual keyword arguments delivered to a callback, including nonempty `**kwargs`, are unsupported and rejected pending P19-C. Stale, cross-thread, deferred and nested/returned-callable boundaries are unchanged.
 
 ### Host-specific exception classes are not universally identical
 
@@ -71,7 +73,7 @@ A host can store a callback in a field, closure or queue and return `None`; the 
 
 The Python bootstrap emitter implements the same callback-result checks and preserves the original P13/P14 callable classification. It does not permit arbitrary callable fields, descriptors, static/class methods or opaque callable objects merely because Python considers them callable.
 
-Fixed Stage0 is still the old seed. The only declared existing-case P18 behavior delta is `p14_negative/module_callback`: Stage0 rejects the callback argument before entering the host; Stage1/2 permit the direct callback argument but reject the returned adapter, with exact status, output, diagnostic and source-location expectations. Wrapper/container callback negatives and all unrelated baseline comparisons remain strict. Java-host `static_callback` stays in `NEG_RUNTIME` and is not a delta.
+Fixed Stage0 is still the old seed. The only declared existing-case **P18** behavior delta is `p14_negative/module_callback`: Stage0 rejects the callback argument before entering the host; Stage1/2 permit the direct callback argument but reject the returned adapter, with exact status, output, diagnostic and source-location expectations. P19-B has separate `p19_stage0_deltas` (three exact IDs) and one `p19_stage1_features` sample in `tests/bootstrap/manifest.json`; these do not replace the P18 delta. Wrapper/container callback negatives and all unrelated baseline comparisons remain strict. Java-host `static_callback` stays in `NEG_RUNTIME` and is not a delta.
 
 Relevant commands are:
 
@@ -89,4 +91,4 @@ python3 tests/bootstrap/pending_snapshot_gate.py
 
 The pending-source gate snapshots the actual modified/untracked source in two roots and checks both Stage2/3 fixed points and cross-root byte equality without making a commit. The existing clean-clone smoke check is unchanged: before a commit it validates the existing committed HEAD, not pending files. Both the final pending-source gate before commit and the unchanged clean-clone check on the actual new HEAD after commit must be recorded; the old HEAD result must not be presented as evidence for pending files.
 
-The existing **Java unconditional-throw/unreachable-statement generation bug** found in P18-B remains separate and unfixed. Error tests use control-flow forms that the current Java generator can compile; they still exercise real callback failures and `.lt` locations.
+The Java unconditional-throw/unreachable-statement generation bug found during P18-B was fixed in subsequent Java generator changes. Abrupt-control-flow handling in `gen_java.py` and `tests/test_audit_java_fixes.py::TestAuditJavaFixes.test_abrupt_control_flow_and_catch_name_isolation` cover the regression; it is historical, not an open limitation. The callback error tests continue to exercise real failures and `.lt` locations.

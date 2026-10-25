@@ -148,7 +148,11 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
   builtin、模块函数、`staticmethod`、`classmethod`、任意 callable 字段、property 结果和
   自定义 descriptor 均排除。Java 仅接受公开非静态实例方法；公开字段优先，wrapper
   捕获 receiver 与方法名，重载在每次调用时按实际位置实参沿既有规则重新选择。两条路径
-  都只支持位置实参；命名参数、`*`/`**` 及 Latent callable 作为宿主 callback 仍被拒绝。
+  中，P19-B 允许现有 Python 宿主调用路径（含获准提取的方法值）使用显式 `name=value`；
+  Java 路径仍只支持位置实参。两条路径都拒绝 `*`/`**`。P18 允许 Latent callable 仅
+  作为活跃同步 Python-host 调用中的直接值借用；P19-B 也允许将其置于命名槽。Java-host
+  callback、嵌套或返回的 callback 仍拒绝。详见 [P18](P18_SYNCHRONOUS_CALLBACKS.md)
+  与 [P19 契约](docs/P19_A_NAMED_ARGUMENTS_CONTRACT.md)。
   daemon 持有的远端引用维持强引用至 daemon 退出，不增加 release/refcount 协议。
 - **互操作模块函数与 Java 静态方法值（P14/v0.13.5）**：读取 `py` 模块
   的精确 namespace 导出函数时捕获当时的函数对象；支持 Python `FunctionType`，以及由该
@@ -157,9 +161,11 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
   `__getattr__` callable 也不支持。读取 Java 类句柄的公开静态方法族
   时返回 `<static method 类名.方法名>`；按直接静态调用相同的公开/继承方法集合筛选，并在
   每次间接调用时按实参复用现有 overload resolver。公开静态字段优先于同名方法值，但
-  `Class.name(...)` 直接调用保持不变。值可赋值、传参、返回、被逃逸闭包捕获和间接调用；
-  仅接受位置参数，不接受 Latent callback（含嵌套容器），也不把构造器、任意 callable 对象、
-  property/dynamic descriptor 或普通 `__ref`/`__jref` 提升为 callable。daemon typed 引用
+  `Class.name(...)` 直接调用保持不变。值可赋值、传参、返回、被逃逸闭包捕获和间接调用。
+  P19-B 允许 Python 模块函数值使用显式命名实参；Java 静态方法值仍只接受位置实参。
+  经 Python 宿主调用的 P18 callback 只接受直接值，不接受嵌套或返回的 callback；Python
+  callback kwargs 仍待 P19-C。构造器、任意 callable 对象、property/dynamic descriptor
+  或普通 `__ref`/`__jref` 不因此提升为 callable。daemon typed 引用
   强持有至进程退出。无新语法、AST 节点或 schema 版本。
 - **`.` 访问**：py / java 句柄成员按既有规则脱糖为 `__wgetattr(h, "attr")` /
   `__wcall(h, "attr", args)`；模块命名空间成员则在编译期按导入别名静态解析，
@@ -172,7 +178,7 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
 
 已知签名的直接函数、公开模块函数、可静态判定的 Latent 方法、`super` 与构造调用在编译期检查重复、未知、缺失和多余实参；函数值及无法静态判定接收者的调用在运行期用同一绑定规则检查。两后端对运行期参数绑定错误统一报告 `ArgumentError` 和相同文案。实参表达式依源代码从左到右求值，绑定不会重排或提前求值。
 
-内建函数以及 Python/Java 句柄方法和构造器仍是位置参数专用；对它们传入命名参数会明确拒绝，不会把名称转交到互操作目标。使用命名参数语法的源码需要 v0.11.0 或更新版本；v0.10.0 仍只支持位置参数。
+内建函数仍是位置参数专用。P19-B 起，既有 Python 宿主调用路径接受显式命名实参；Java 句柄方法与构造器仍拒绝命名实参，且 Python/Java 宿主调用均不接受 `*`/`**` 展开。使用命名参数语法的源码需要 v0.11.0 或更新版本；v0.10.0 仍只支持位置参数。
 
 ### P9/v0.12.0：默认参数
 
@@ -192,7 +198,7 @@ v0.13.0/P10 增加 `*rest`、`**extra` 形参与 Latent 调用中的 `*items`、
 
 `*rest` 继续收集超出位置区的值，并同时开启仅限关键字区；裸 `*` 只开启该区，且其后至少需要一个仅限关键字形参。位置区规则不变：位置值不会填充仅限关键字形参。所有固定形参（包括仅限关键字形参）仍可按名称绑定；未知名称仅在声明 `**extra` 时收集。仅限关键字形参的必需项与默认项可以交错。默认表达式沿用 P9 的调用时求值规则：显式实参先全部求值，然后按声明顺序求省略的默认值。
 
-此规则适用于 Latent 普通函数、函数值/闭包、公开模块函数、方法、继承/`super`、`init` 与构造调用；静态检查与动态绑定共用规则，Python/Java 后端诊断一致。方法的首个接收者仍须为必需位置形参。v0.13.3 当时的覆盖实现只比较形参数量；该历史规则已由下方 P12/v0.13.4 规则替代。内建函数及 Python/Java 互操作方法和构造器不接受命名或展开实参。
+此规则适用于 Latent 普通函数、函数值/闭包、公开模块函数、方法、继承/`super`、`init` 与构造调用；静态检查与动态绑定共用规则，Python/Java 后端诊断一致。方法的首个接收者仍须为必需位置形参。v0.13.3 当时的覆盖实现只比较形参数量；该历史规则已由下方 P12/v0.13.4 规则替代。内建函数与 Java 宿主互操作仍不接受命名实参；P19-B 允许 Python 宿主调用显式命名实参，但 Python/Java 宿主调用均不接受展开实参。
 
 稳定 AST 从 schema v5 升至 **v6**，新增 `KeywordOnlyParam(name, default)`；必需项的 `default` 序列化为 `null`，带默认项保留表达式。v1–v5 节点字段和顺序不变。详见 [P11 设计与实现记录](P11_KEYWORD_ONLY_PARAMETERS_DESIGN.md)。
 
@@ -499,17 +505,19 @@ class Box:
 
 P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模块初始化、命名空间可见性及父类分派语义。
 
-## 12. 仍不支持（v0.13.5）
+## 12. 仍不支持（v0.13.5 发布基线及当前开发线）
+
+本节保留 v0.13.5 发布基线，并补充后续 P18/P19 开发线例外；固定发布标签的历史语义不变。
 
 - 多继承、接口、Java 类继承、Latent 类/静态方法、运算符重载。
-- 独立内建函数、任意 callable 属性/对象、构造器，以及 P13/P14 明确准入范围之外的宿主 callable 不作为一等函数值；模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
+- 独立内建函数、任意 callable 属性/对象、构造器，以及 P13/P14 明确准入范围之外的宿主 callable 不作为一等函数值。P18 只支持活跃同步 Python-host 调用中的直接 Latent callback；Java-host callback、嵌套/返回 callback 仍不支持，callback kwargs 尚待 P19-C。P19-B 允许 Python 宿主调用显式 `name=value`，但 Java 宿主命名实参及两种宿主的 `*`/`**` 展开仍不支持。模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
 - v0.12.0 发布语义不含可变参数或实参展开；v0.13.0/P10 引入两者，v0.13.3/P11 加入仅限关键字形参。`py` 内联代码块（`py:` 多行 Python 源码）仍不支持。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
 
-以上按 v0.13.5 发布语义描述；P13 互操作绑定实例方法值与 P14 Python 模块函数/Java 静态方法值已纳入本版。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md) 与 [P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)。
+以上涉及 P13/P14 的 callable 准入边界按 v0.13.5 发布基线描述；当前开发线的 P18/P19-B 例外见上。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md)、[P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)、[P18 契约](P18_SYNCHRONOUS_CALLBACKS.md) 与 [P19 契约](docs/P19_A_NAMED_ARGUMENTS_CONTRACT.md)。
 
 ## 13. 示例
 
