@@ -1,0 +1,107 @@
+name: Fuzz
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * *'  # nightly, 02:00 Asia/Shanghai
+
+permissions:
+  contents: read
+
+jobs:
+  hypothesis:
+    name: Hypothesis (${{ github.event_name == 'schedule' && 'nightly' || 'ci' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'schedule' && 90 || 15 }}
+    env:
+      HYPOTHESIS_PROFILE: ${{ github.event_name == 'schedule' && 'nightly' || 'ci' }}
+      FUZZ_DIFF_EXAMPLES: ${{ github.event_name == 'schedule' && '1500' || '60' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Set up JDK
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install fuzz dependencies
+        run: python -m pip install -r fuzz/requirements.txt
+
+      - name: R1/F1 hard regressions and escape probe
+        run: python -m pytest fuzz/test_known_findings.py -q
+
+      - name: N6 deterministic number-format boundary scan
+        run: python -m pytest fuzz/test_number_format_scan.py -q
+
+      - name: Bounded grammar properties (no-crash / backend-agree)
+        run: python -m pytest fuzz/hypothesis_grammar.py -q
+
+  atheris-smoke:
+    name: Atheris smoke (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install fuzz dependencies
+        run: python -m pip install -r fuzz/requirements.txt
+
+      - name: Run 5-second Atheris smoke
+        run: |
+          mkdir -p crashes work-corpus
+          cp fuzz/corpus/* work-corpus/
+          python fuzz/atheris_bytes.py -max_total_time=5 \
+            -artifact_prefix=crashes/ work-corpus
+
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: atheris-pr-crashes
+          path: crashes/
+
+  atheris:
+    name: Atheris coverage-guided (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install fuzz dependencies
+        run: python -m pip install -r fuzz/requirements.txt
+
+      - name: Fuzz the front end for 30 minutes
+        run: |
+          mkdir -p crashes work-corpus
+          cp fuzz/corpus/* work-corpus/
+          python fuzz/atheris_bytes.py -max_total_time=1800 \
+            -artifact_prefix=crashes/ work-corpus
+
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: atheris-crashes
+          path: crashes/

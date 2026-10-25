@@ -1,0 +1,27 @@
+# P13 worktree implementation: supported host instance methods are callable values.
+fn apply(action, value):
+    return action(value)
+
+fn capture(action):
+    fn saved(value):
+        return action(value)
+    return saved
+
+collections = py "collections"
+queue = collections.deque()
+append = queue.append
+say append
+say apply(append, "alpha")
+saved_append = capture(append)
+queue = nil
+say saved_append("beta")
+
+ArrayList = java "java.util.ArrayList"
+items = ArrayList.new()
+add = items.add
+say add
+say apply(add, "first")
+say add(0, "zero")
+saved_add = capture(add)
+items = nil
+say saved_add("last")
