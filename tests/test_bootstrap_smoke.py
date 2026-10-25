@@ -638,7 +638,7 @@ class BootstrapEmitterTests(unittest.TestCase):
                 encoding="utf-8", newline="\n")
             invocation_dirs = [root / "invoke-a", root / "invoke-b"]
             output_dirs = [root / "standalone-out-a", root / "standalone-out-b"]
-            for invocation_dir, output_dir in zip(invocation_dirs, output_dirs):
+            for invocation_dir, output_dir in zip(invocation_dirs, output_dirs, strict=False):
                 invocation_dir.mkdir()
                 checked(
                     [sys.executable, str(compiler_a),

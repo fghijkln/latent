@@ -248,7 +248,7 @@ def run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 25,
         env: dict[str, str] | None = None):
     try:
         return subprocess.run(
-            cmd, cwd=str(cwd) if cwd else None, env=ENV if env is None else env,
+            cmd, check=False, cwd=str(cwd) if cwd else None, env=ENV if env is None else env,
             stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=timeout,
         )
@@ -389,7 +389,7 @@ def test_python_callback_protocol_ids() -> bool:
         try:
             return subprocess.run(
                 [sys.executable, str(ROOT / "runtime" / "ltpy.py")],
-                input="\n".join(json.dumps(frame) for frame in frames) + "\n",
+                check=False, input="\n".join(json.dumps(frame) for frame in frames) + "\n",
                 capture_output=True, text=True, env=ENV, timeout=10)
         except subprocess.TimeoutExpired:
             return None

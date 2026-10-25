@@ -20,7 +20,7 @@ import module_system
 import editor_metadata
 
 
-def compile_src(src, path="<src>"):
+def compile_src(src, path="<src>"):  # noqa: ARG001 (public signature)
     """Returns (prog, None) on success, (None, (kind, raw_msg)) on failure.
     kind is one of lex/parse/desugar/semant; raw_msg starts with 'line:col: '."""
     try:
@@ -297,7 +297,7 @@ def main():
                 ["javac", "-d", outdir, "-cp", outdir] +
                 [os.path.join(outdir, s) for s in
                  ("LtJavaDaemon.java", "JReflect.java", "LtRt.java")],
-                capture_output=True, text=True)
+                check=False, capture_output=True, text=True)
         except OSError:
             r = None  # no javac at all: pure-python output still works;
                       # the JVM daemon compiles on first `java` use instead
@@ -307,7 +307,7 @@ def main():
                   file=sys.stderr)
         print(f"wrote {out}")
         if args.run:
-            r = subprocess.run([sys.executable, out])
+            r = subprocess.run([sys.executable, out], check=False)
             return r.returncode
     else:
         import gen_java
@@ -330,7 +330,7 @@ def main():
             r = subprocess.run(["javac", "-d", outdir, "-cp", outdir,
                                 main_java, os.path.join(outdir, "LtRt.java"),
                                 os.path.join(outdir, "JReflect.java")],
-                               capture_output=True, text=True)
+                               check=False, capture_output=True, text=True)
         except OSError:
             print("error: javac not found; the java target needs a JDK to "
                   "compile. Install one, or use -t py.", file=sys.stderr)
@@ -342,7 +342,7 @@ def main():
         # compile classes into a separate dir so ltpy.py lookup via
         # code-source dir still works? No - keep classes next to sources:
         if args.run:
-            r = subprocess.run(["java", "-cp", outdir, cls], cwd=outdir)
+            r = subprocess.run(["java", "-cp", outdir, cls], check=False, cwd=outdir)
             return r.returncode
     return 0
 

@@ -6,7 +6,7 @@ class _CallableDescriptor:
     def __get__(self, instance, owner):
         if instance is None:
             return self
-        return types.MethodType(lambda self, value: value, instance)
+        return types.MethodType(lambda self, value: value, instance)  # noqa: ARG005
 
 
 class Sample:

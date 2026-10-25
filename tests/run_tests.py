@@ -591,7 +591,7 @@ COOKBOOK_INTEROP_FUNCTION_VALUES_STDOUT = (
 
 def run(cmd, cwd=None, timeout=60, env=None):
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+        r = subprocess.run(cmd, check=False, cwd=cwd, capture_output=True, text=True,
                            timeout=timeout,
                            env=TEST_ENV if env is None else env)
         return r.returncode, r.stdout, r.stderr

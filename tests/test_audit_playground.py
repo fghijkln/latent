@@ -92,7 +92,7 @@ class PlaygroundExecutionTests(unittest.TestCase):
         peak = 0
         lock = threading.Lock()
 
-        def fake_run(src):
+        def fake_run(src):  # noqa: ARG001
             nonlocal active, peak
             with lock:
                 active += 1
@@ -178,6 +178,21 @@ class PlaygroundExecutionTests(unittest.TestCase):
         self.assertEqual(len(queued), 1)
         self.assertIsNotNone(queued[0])
         app._RUN_ADMISSION.release(queued[0])
+
+    def test_child_runs_under_resource_limits_without_preexec_fn(self):
+        code = (
+            "import resource, sys\n"
+            "print([resource.getrlimit(r) for r in (resource.RLIMIT_CPU,"
+            " resource.RLIMIT_AS, resource.RLIMIT_FSIZE, resource.RLIMIT_NPROC)])\n"
+            "print(sys.flags.isolated)\n"
+        )
+        with mock.patch.object(app.subprocess, "Popen", wraps=app.subprocess.Popen) as popen:
+            result = self.execute_generated(code)
+        self.assertNotIn("preexec_fn", popen.call_args.kwargs)
+        self.assertTrue(result["ok"], result)
+        cpu, mem = max(1, int(app.TIMEOUT)), 256 * 1024 * 1024
+        self.assertEqual(result["stdout"], str([(cpu, cpu), (mem, mem),
+                                                (1048576, 1048576), (64, 64)]) + "\n1\n")
 
     def test_playground_rejects_boolean_arithmetic_before_attribute_access(self):
         sources = (

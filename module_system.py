@@ -262,7 +262,7 @@ def _function_locals(fn):
             (_scope_globals(fn.body) | _scope_nonlocals(fn.body)))
 
 
-def _rewrite_expr(expr, unit, locals_, allow_function=False):
+def _rewrite_expr(expr, unit, locals_):
     if isinstance(expr, nodes.NamedArg):
         expr.value = _rewrite_expr(expr.value, unit, locals_)
         return expr
@@ -336,7 +336,7 @@ def _rewrite_expr(expr, unit, locals_, allow_function=False):
                 and expr.args[0].id in unit.aliases:
             raise ModuleCompileError("module", unit.path, expr.line, expr.col,
                                      "imported module exports are read-only")
-        expr.func = _rewrite_expr(expr.func, unit, locals_, allow_function=True)
+        expr.func = _rewrite_expr(expr.func, unit, locals_)
         if isinstance(expr.func, nodes.Name) and expr.func.id in unit.aliases:
             # A bare namespace alias is never callable.
             raise ModuleCompileError("semant", unit.path, expr.line, expr.col,
@@ -600,7 +600,7 @@ def _prepare_symbols(units):
         unit.state_name = _fresh(f"_lt_module_state_{digest}", used)
 
         bound = _bound_names(unit.parsed.stmts)
-        for alias, target in unit.aliases.items():
+        for alias in unit.aliases:
             if alias in bound:
                 stmt = next(s for s, _ in unit.imports if s.alias == alias)
                 raise ModuleCompileError(

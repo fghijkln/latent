@@ -538,6 +538,41 @@ class TestAuditJavaFixes(unittest.TestCase):
                             self.assertNotEqual(result.returncode, 0)
                             self.assertIn("semant error: " + error, result.stderr)
 
+    def test_nesting_caps_are_exact_at_their_boundaries(self):
+        def elif_nested(count):
+            return ("x = 1\nif x == 0:\n    say 0\nelif x == 1:\n" +
+                    "".join("    " * (i + 1) + "if true:\n" for i in range(count)) +
+                    "    " * (count + 1) + "say 1\n")
+        # comparisons and != weigh 2 (they render as call(...) op 0); 80 of them is 160
+        ops = ("<", "<=", ">", ">=", "!=")
+        comparisons = "".join(f"1 {ops[i % 5]} (" for i in range(80)) + "1" + ")" * 80
+        control = "source nesting exceeds maximum supported depth (32)"
+        expression = "expression nesting exceeds maximum supported depth (160)"
+        cases = (
+            ("expr160", "x = " + "-" * 160 + "1\nsay x\n", "1\n", None),
+            ("expr161", "x = " + "-" * 161 + "1\nsay x\n", None, expression),
+            ("cmp160", f"if false:\n    x = {comparisons}\nsay 1\n", "1\n", None),
+            ("cmp161", f"if false:\n    x = -({comparisons})\nsay 1\n", None, expression),
+            ("elif31", elif_nested(31), "1\n", None),
+            ("elif32", elif_nested(32), None, control),
+        )
+        with tempfile.TemporaryDirectory(prefix="latent-audit-nesting-bounds-") as tmp:
+            temp = Path(tmp)
+            for name, source_text, stdout, error in cases:
+                source = temp / f"{name}.lt"
+                source.write_text(source_text, encoding="utf-8")
+                for target in TARGETS:
+                    with self.subTest(case=name, target=target):
+                        outdir = temp / f"{name}-{target}"
+                        outdir.mkdir()
+                        result = p18.compile_and_run(source, target, outdir)
+                        if stdout is not None:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            self.assertEqual(result.stdout, stdout)
+                        else:
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn("semant error: " + error, result.stderr)
+
     def test_java_large_string_literals_are_chunked_without_constant_folding(self):
         value = "a" * 65_536 + "🙂" * 2
         with tempfile.TemporaryDirectory(prefix="latent-audit-long-java-string-") as tmp:

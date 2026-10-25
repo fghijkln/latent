@@ -2,7 +2,6 @@
 from __future__ import annotations
 import importlib.util
 import io
-import os
 import re
 import subprocess
 import sys
@@ -157,8 +156,8 @@ def compile_and_run_fixture(stage0: Path, fixture: Path, output: Path) -> subpro
 
 class BootstrapLexerTests(unittest.TestCase):
     def test_latent_lexer_fixture(self):
-        with tempfile.TemporaryDirectory(prefix="p15-lexer-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-lexer-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             output = temporary / "output"
@@ -182,8 +181,8 @@ class BootstrapLexerTests(unittest.TestCase):
             self.assertEqual(executed.stderr, "")
 
     def test_unicode_tokens_and_positions_match_fixed_stage0(self):
-        with tempfile.TemporaryDirectory(prefix="p15-lexer-diff-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-lexer-diff-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             reference_lexer = load_stage0_lexer(stage0)
@@ -298,8 +297,8 @@ class BootstrapLexerTests(unittest.TestCase):
             "",
         ]
 
-        with tempfile.TemporaryDirectory(prefix="p15-unicode-tables-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-unicode-tables-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             with tempfile.TemporaryDirectory(

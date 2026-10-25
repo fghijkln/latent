@@ -9,7 +9,7 @@ def replacement(value):
 
 
 def rebind_scale():
-    global scale
+    global scale  # noqa: PLW0603 (host fixture mutates module state on purpose)
     scale = replacement
 
 

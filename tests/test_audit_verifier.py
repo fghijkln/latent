@@ -45,11 +45,11 @@ def _ns():
         "_wv_mod": lambda a, b: a % b,
         "_wv_pow": lambda a, b: a ** b,
         "_wv_neg": lambda a: -a,
-        "_wv_wgetattr": lambda h, attr: getattr(h, attr),
+        "_wv_wgetattr": getattr,
         "_wv_index": lambda v, k: v[int(k)],
         "_wv_keys": lambda _m: [7],
         "_wv_push": lambda xs, x: xs.append(x),
-        "_wv_wsetattr": lambda h, attr, value: setattr(h, attr, value),
+        "_wv_wsetattr": setattr,
         "_LtObj": _Obj,
     }
 

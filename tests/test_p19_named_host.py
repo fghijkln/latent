@@ -5,7 +5,6 @@ Python-to-Latent callback kwargs are intentionally outside this suite (P19-C).
 """
 from __future__ import annotations
 
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -413,7 +412,7 @@ def main() -> int:
         for index, passed in enumerate(run_positive(name, source_text, expected)):
             checks.append((f"{TARGETS[index]} {name}", passed))
 
-    for name, (source_text, line, markers) in PYTHON_BINDING_ERRORS.items():
+    for name, (source_text, _line, markers) in PYTHON_BINDING_ERRORS.items():
         for index, passed in enumerate(run_error(name, source_text, markers)):
             checks.append((f"{TARGETS[index]} {name}", passed))
 

@@ -328,7 +328,7 @@ class Checker:
                 elif isinstance(node, (For, Try)):
                     name = node.var
                 else:
-                    name = None
+                    name = None  # pragma: no mutate (None and "" are both never class names)
                 if name in self.classes:
                     _err(node, f"duplicate definition "
                          f"{self.classes[name].source_name!r}")

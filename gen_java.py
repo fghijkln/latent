@@ -386,7 +386,7 @@ class Gen:
                            f"return {helper_names[index]}(generatedLine);")
             self.ind -= 1
             self.w("}")
-        for helper_name, chunk in zip(helper_names, chunks):
+        for helper_name, chunk in zip(helper_names, chunks, strict=False):
             self.w(f"private static {return_type} {helper_name}(int generatedLine) "
                    + "{")
             self.ind += 1
@@ -511,7 +511,7 @@ class Gen:
         self.w(f"new String[]{{{extra_names}}});")
         self.ind -= 1
 
-    def methoddef(self, cd, m):
+    def methoddef(self, cd, m):  # noqa: ARG002 (uniform visitor signature)
         java_name = self.method_helpers[id(m)]
         self.w(f"static Object {java_name}(Object self, Object[] args) " + "{",
                m.line, m.source_path)

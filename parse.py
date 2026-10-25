@@ -1,6 +1,5 @@
 """Latent parser: recursive descent -> AST (nodes.py)."""
 from nodes import *
-from lex import Tok
 
 
 class ParseError(Exception):
@@ -179,7 +178,6 @@ class Parser:
         bare_star = False
         bare_star_marker = None
         keyword_only_count = 0
-        saw_rest = False
         saw_extra = False
         if self.peek().kind != ")":
             while True:
@@ -201,7 +199,6 @@ class Parser:
                         param = self.next()
                         params.append(RestParam(param.value, line=marker.line,
                                                 col=marker.col))
-                        saw_rest = True
                     else:
                         bare_star = True
                         bare_star_marker = marker

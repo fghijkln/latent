@@ -163,13 +163,13 @@ def _run_java(src):
         jc = subprocess.run(
             [JAVAC, "-d", d, os.path.join(d, "Main.java"),
              f"{rt}/LtRt.java", f"{rt}/JReflect.java"],
-            capture_output=True, text=True, timeout=120)
+            check=False, capture_output=True, text=True, timeout=120)
         if jc.returncode != 0:
             raise AssertionError(
                 f"javac exited {jc.returncode}\n{jc.stdout}{jc.stderr}"
                 f"\n--- source ---\n{src}")
         jr = subprocess.run([JAVA, "-cp", d, "Main"],
-                            capture_output=True, text=True, timeout=60)
+                            check=False, capture_output=True, text=True, timeout=60)
         return jr
 
 

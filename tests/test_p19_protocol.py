@@ -32,7 +32,7 @@ def call(kwargs=MISSING, **changes):
 def invoke(frames):
     return subprocess.run(
         [sys.executable, str(ROOT / "runtime" / "ltpy.py")],
-        input="".join(json.dumps(frame) + "\n" for frame in frames + [{"op": "quit"}]),
+        check=False, input="".join(json.dumps(frame) + "\n" for frame in frames + [{"op": "quit"}]),
         capture_output=True, text=True, env=ENV, timeout=10)
 
 

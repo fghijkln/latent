@@ -637,12 +637,6 @@ public class LtRt {
                         null, null, args, name);
     }
     private static Object[] bindArgs(String[] params, int requiredCount,
-                                     String restName, String extraName,
-                                     Object[] rawArgs, String name) {
-        return bindArgs(params, requiredCount, params.length, new String[0],
-                        restName, extraName, rawArgs, name);
-    }
-    private static Object[] bindArgs(String[] params, int requiredCount,
                                      int positionalCount,
                                      String[] requiredKeywordOnly,
                                      String restName, String extraName,
@@ -1386,7 +1380,7 @@ public class LtRt {
             ProtocolException(String message, Throwable cause) { super(message, cause); }
         }
         private static long safeId(Object value, String label, boolean allowZero) {
-            if (!(value instanceof Number) || value instanceof Boolean)
+            if (!(value instanceof Number))
                 throw new ProtocolException("invalid " + label + " ID");
             double n = ((Number) value).doubleValue();
             if (!Double.isFinite(n) || n != Math.rint(n) || n < (allowZero ? 0 : 1) ||
@@ -1533,7 +1527,7 @@ public class LtRt {
                 throw new RuntimeException("Python callback token limit exceeded");
             return token;
         }
-        private String addReleasedRefs(String payload) {
+        private String addReleasedRefs() {
             List<Long> refs = new ArrayList<>();
             synchronized (HANDLE_COUNTS) {
                 HandleRef ref;
@@ -1589,7 +1583,7 @@ public class LtRt {
                 if (id > 9007199254740991L) throw new RuntimeException("Python request ID limit exceeded");
                 long parent = requestStack.isEmpty() ? 0 : requestStack.peek();
                 requestStack.push(id);
-                String framed = addReleasedRefs(req);
+                String framed = addReleasedRefs();
                 sendRaw(String.format(java.util.Locale.ROOT, framed, id, parent, req));
                 while (true) {
                     String line = in.readLine();

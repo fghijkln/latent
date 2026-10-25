@@ -22,7 +22,7 @@ def main():
         '{"op":"quit"}\n')
     py = subprocess.run(
         [sys.executable, os.path.join(RUNTIME, "ltpy.py")],
-        input=requests, capture_output=True, text=True, timeout=10)
+        check=False, input=requests, capture_output=True, text=True, timeout=10)
     py_lines = [line for line in py.stdout.splitlines() if line]
     py_error = json.loads(py_lines[0]).get("error", "") if py_lines else ""
     py_ok = (py.returncode == 0 and
@@ -33,7 +33,7 @@ def main():
                    ("LtJavaDaemon.java", "JReflect.java", "LtRt.java")]
         compiled = subprocess.run(
             ["javac", "-d", out] + sources,
-            capture_output=True, text=True, timeout=60)
+            check=False, capture_output=True, text=True, timeout=60)
         if compiled.returncode != 0:
             print(compiled.stdout + compiled.stderr, file=sys.stderr)
             return 1
@@ -41,7 +41,7 @@ def main():
             '{"op":"call_static_method","id":999,"args":[]}\n'
             '{"op":"quit"}\n')
         java = subprocess.run(
-            ["java", "-cp", out, "LtJavaDaemon"], input=java_requests,
+            ["java", "-cp", out, "LtJavaDaemon"], check=False, input=java_requests,
             capture_output=True, text=True, timeout=10)
         java_lines = [line for line in java.stdout.splitlines() if line]
         java_error = (json.loads(java_lines[0]).get("error", "")

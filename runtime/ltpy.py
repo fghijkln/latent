@@ -197,7 +197,7 @@ class CallbackProxy:
         scope.proxies.append(self)
 
     def __call__(self, *args, **kwargs):
-        global _next_callback_invocation
+        global _next_callback_invocation  # noqa: PLW0603 (daemon-wide protocol counter)
         if not self.scope.active:
             raise RuntimeError("callback scope expired")
         if threading.get_ident() != self.scope.thread:
@@ -460,9 +460,9 @@ def _protocol_streams():
             if fd is not None:
                 os.close(fd)
     class NoHostInput:
-        def read(self, *args, **kwargs):
+        def read(self, *args, **kwargs):  # noqa: ARG002 (file API)
             raise RuntimeError("host input is unavailable in the Python daemon")
-        def readline(self, *args, **kwargs):
+        def readline(self, *args, **kwargs):  # noqa: ARG002 (file API)
             raise RuntimeError("host input is unavailable in the Python daemon")
         def __iter__(self):
             raise RuntimeError("host input is unavailable in the Python daemon")
@@ -608,7 +608,7 @@ def _valid_call_arg_value(value):
 
 
 def _serve(frame):
-    global _last_request_id
+    global _last_request_id  # noqa: PLW0603 (daemon-wide protocol counter)
     if set(frame) - {"kind", "id", "parent", "release_refs", "payload"} or \
             not {"kind", "id", "parent", "payload"}.issubset(frame):
         raise ProtocolAbort("invalid request frame schema")

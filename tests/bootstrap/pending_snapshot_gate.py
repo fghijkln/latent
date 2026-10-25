@@ -30,7 +30,7 @@ DECLARED_ARTIFACTS = {
 }
 
 sys.path.insert(0, str(ROOT))
-from tests._safe_test_env import clean_test_environment  # noqa: E402
+from tests._safe_test_env import clean_test_environment
 
 
 def git_tracked_paths(root: Path) -> set[str]:

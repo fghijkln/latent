@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from lex import KEYWORDS  # noqa: E402
+from lex import KEYWORDS
 
 
 # Specialized editor scopes for the existing language vocabulary. Any future

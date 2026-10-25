@@ -264,7 +264,7 @@ def json_equivalent(actual, expected):
                 not isinstance(actual, bool) and actual == expected)
     if isinstance(expected, list):
         return (isinstance(actual, list) and len(actual) == len(expected) and
-                all(json_equivalent(a, e) for a, e in zip(actual, expected)))
+                all(json_equivalent(a, e) for a, e in zip(actual, expected, strict=False)))
     return type(actual) is type(expected) and actual == expected
 
 

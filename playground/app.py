@@ -7,7 +7,6 @@ output limits.
 """
 import json
 import os
-import resource
 import selectors
 import signal
 import socket
@@ -22,11 +21,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 LATENT_DIR = os.environ.get("LATENT_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, LATENT_DIR)
 
-import lex  # noqa: E402
-import parse as parse_mod  # noqa: E402
-import nodes  # noqa: E402
-import gen_py  # noqa: E402
-import latent  # noqa: E402
+import lex
+import parse as parse_mod
+import nodes
+import gen_py
+import latent
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_SRC = 20_000
@@ -157,13 +156,16 @@ def blocked_feature(src):
     return None
 
 
-def _limits():
-    cpu = max(1, int(TIMEOUT))
-    resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
-    mem = 256 * 1024 * 1024
-    resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
-    resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+# The child applies its own limits, then execs the program: preexec_fn is
+# unsafe in this threaded server (fork-to-exec deadlock).
+_LIMITS_SHIM = (
+    "import os, resource, sys\n"
+    "for limit, value in ((resource.RLIMIT_CPU, int(sys.argv[1])),\n"
+    "                     (resource.RLIMIT_AS, 256 * 1024 * 1024),\n"
+    "                     (resource.RLIMIT_FSIZE, 1024 * 1024),\n"
+    "                     (resource.RLIMIT_NPROC, 64)):\n"
+    "    resource.setrlimit(limit, (value, value))\n"
+    "os.execv(sys.executable, [sys.executable, '-I', sys.argv[2]])\n")
 
 
 def _compile_failure(src, message):
@@ -238,9 +240,10 @@ def _run_program(src):
             f.write(code)
         env = {"PATH": "/usr/bin:/bin", "PYTHONIOENCODING": "utf-8", "HOME": d}
         proc = subprocess.Popen(
-            [sys.executable, "-I", path], cwd=d, env=env,
+            [sys.executable, "-I", "-c", _LIMITS_SHIM,
+             str(max(1, int(TIMEOUT))), path], cwd=d, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            stdin=subprocess.DEVNULL, preexec_fn=_limits, start_new_session=True,
+            stdin=subprocess.DEVNULL, start_new_session=True,
         )
         output = {"stdout": bytearray(), "stderr": bytearray()}
         limits = {"stdout": MAX_OUT, "stderr": MAX_ERR}

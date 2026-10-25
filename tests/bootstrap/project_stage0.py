@@ -47,7 +47,7 @@ MISSING_MODULE = re.compile(
     r"cannot read module ['\"]([^'\"]+)['\"]: No such file or directory"
 )
 
-from tests.test_bootstrap_smoke import extract_stage0  # noqa: E402
+from tests.test_bootstrap_smoke import extract_stage0
 
 
 def load_module(name: str, path: Path):
@@ -136,7 +136,6 @@ def python_target_cases() -> list[dict[str, Any]]:
                 if decision["disposition"] == "include"}
     behavior_deltas = manifest.get("p18_stage0_deltas", {})
     p19_deltas = manifest.get("p19_stage0_deltas", {})
-    excluded = set(manifest["runner_cases"]) - included
     observed = {case["name"] for case in cases}
     kinds_by_name: dict[str, str] = {}
     for case in cases:

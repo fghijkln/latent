@@ -9,7 +9,7 @@ _saved_callback = None
 
 
 def reset():
-    global _body_calls, _saved_callback
+    global _body_calls, _saved_callback  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _events.clear()
     _body_calls = 0
     _saved_callback = None
@@ -20,7 +20,7 @@ def scale(value, factor=1):
     return value * factor
 
 
-def mutable_default(value=[]):
+def mutable_default(value=[]):  # noqa: B006 (intentional)
     if value is None:
         return "None"
     value.append("x")
@@ -32,7 +32,7 @@ class Rebindable:
         return "old:" + value
 
 
-def _replacement_method(self, value):
+def _replacement_method(self, value):  # noqa: ARG001
     return "new:" + value
 
 
@@ -59,13 +59,13 @@ def positional_only(a, /, b=2, *rest, flag, tail=9, **extra):
 
 
 def strict(value, *, flag):
-    global _body_calls
+    global _body_calls  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _body_calls += 1
     return "%s|%s" % (value, flag)
 
 
 def record(*args, **kwargs):
-    global _body_calls
+    global _body_calls  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _body_calls += 1
     return "%r|%r" % (args, list(kwargs.items()))
 
@@ -132,13 +132,13 @@ def invoke_pos_and_named(callback, *, alias, value):
 
 
 def save(callback):
-    global _saved_callback
+    global _saved_callback  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _saved_callback = callback
     return "saved"
 
 
 def save_then_fail(callback):
-    global _saved_callback
+    global _saved_callback  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _saved_callback = callback
     raise RuntimeError("save-failed")
 

@@ -127,8 +127,8 @@ def extract_stage0(destination: Path) -> None:
 
 class BootstrapParserTests(unittest.TestCase):
     def test_latent_parser_fixture(self):
-        with tempfile.TemporaryDirectory(prefix="p15-parser-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-parser-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             output = temporary / "output"
@@ -160,8 +160,8 @@ class BootstrapParserTests(unittest.TestCase):
             self.assertEqual(executed.stderr, "")
 
     def test_module_graph_deduplicates_and_keeps_logical_ids_stable(self):
-        with tempfile.TemporaryDirectory(prefix="p15-module-graph-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-module-graph-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             output = temporary / "output"
@@ -358,8 +358,8 @@ class BootstrapParserTests(unittest.TestCase):
                     sys.modules[name] = previous_modules[name]
 
     def test_parameter_and_call_forms_match_fixed_stage0(self):
-        with tempfile.TemporaryDirectory(prefix="p15-parser-diff-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-parser-diff-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             expectations = self._stage0_expectations(stage0)
@@ -398,8 +398,8 @@ class BootstrapParserTests(unittest.TestCase):
                 sources.append((path.relative_to(ROOT).as_posix(),
                                 path.read_text(encoding="utf-8")))
         self.assertGreater(len(sources), 250)
-        with tempfile.TemporaryDirectory(prefix="p15-parser-corpus-") as temporary:
-            temporary = Path(temporary)
+        with tempfile.TemporaryDirectory(prefix="p15-parser-corpus-") as temporary_name:
+            temporary = Path(temporary_name)
             stage0 = temporary / "stage0"
             extract_stage0(stage0)
             expectations = self._stage0_expectations(stage0, sources)

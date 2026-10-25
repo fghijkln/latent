@@ -50,13 +50,13 @@ def inspect_conversion(callback):
 
 
 def save(callback):
-    global _saved_callback
+    global _saved_callback  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _saved_callback = callback
     return "saved"
 
 
 def save_then_fail(callback):
-    global _saved_callback
+    global _saved_callback  # noqa: PLW0603 (host fixture mutates module state on purpose)
     _saved_callback = callback
     raise ValueError("host-failure-after-save")
 
@@ -206,4 +206,4 @@ def call_missing_keyword_only(callback):
 
 
 def call_duplicate_keyword_merge(callback):
-    return callback(value=1, **{"value": 2})
+    return callback(value=1, **{"value": 2})  # noqa: PLE1132 (intentional)

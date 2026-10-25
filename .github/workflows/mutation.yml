@@ -1,0 +1,49 @@
+name: Mutation (semant guards)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutmut:
+    name: mutmut on semant nesting / class-binding guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      # mutmut 3 cannot follow tests that drive the compiler through a subprocess.
+      - run: python -m pip install "mutmut[patch]==2.5.1" "numpy>=1.26,<3"
+      - name: Mark the guard methods for mutation
+        run: |
+          python - <<'PY'
+          lines = open("semant.py", encoding="utf-8").read().splitlines()
+          start = next(i for i, l in enumerate(lines)
+                       if l.startswith("    def _reject_class_function_collisions"))
+          end = next(i for i, l in enumerate(lines) if l.startswith("    def fn_body"))
+          with open("guards.patch", "w", encoding="utf-8") as f:
+              f.write(f"--- a/semant.py\n+++ b/semant.py\n"
+                      f"@@ -{start},0 +{start + 1},{end - start} @@\n")
+              f.writelines("+" + l + "\n" for l in lines[start:end])
+          PY
+      - name: Run mutmut (fail on a crash or a surviving mutant)
+        run: |
+          rc=0
+          mutmut run --paths-to-mutate semant.py --use-patch-file guards.patch \
+            --runner "python -m unittest -q tests.test_audit_java_fixes -k nesting -k class_name -k bindings_cannot -k global_cannot" \
+            || rc=$?
+          mutmut results
+          # exit bits: 1 fatal, 2 survived, 4 timeout, 8 suspicious (slow but killed)
+          for id in $(mutmut result-ids survived); do mutmut show "$id"; done
+          untested="$(mutmut result-ids untested)"
+          if [ $((rc & 3)) -ne 0 ] || [ -n "$untested" ]; then exit 1; fi
