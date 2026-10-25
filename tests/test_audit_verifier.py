@@ -6,13 +6,16 @@ bottom confirm it is actually installed in generated programs.
 """
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import verifier
+from tests import test_p18_callbacks as p18
 
 
 class _Obj:
@@ -162,6 +165,33 @@ class VerifierInstalledEndToEndTests(unittest.TestCase):
         r = self.run_latent('say 1 + 2\nsay -3\nsay "a" + "b"\nsay [1] + [2]\n')
         self.assertTrue(r["ok"])
         self.assertEqual(r["stdout"], "3\n-3\nab\n[1, 2]\n")
+
+    def test_python_host_integer_results_are_normalized_recursively(self):
+        src = (
+            'math = py "math"\n'
+            'say math.factorial(10)\n'
+            'json = py "json"\n'
+            'data = json.loads("{\\"nested\\": {\\"count\\": 3}, '
+            '\\"items\\": [4, 5], \\"flag\\": true}")\n'
+            'say data\n'
+            'collections = py "collections"\n'
+            'counts = collections.Counter("aab")\n'
+            'say counts.most_common(2)\n')
+        expected = (
+            '3628800\n{"nested": {"count": 3}, "items": [4, 5], '
+            '"flag": true}\n[["a", 2], ["b", 1]]\n')
+        with tempfile.TemporaryDirectory(prefix="latent-verifier-host-int-") as tmp:
+            root = Path(tmp)
+            source = root / "host_ints.lt"
+            source.write_text(src, encoding="utf-8")
+            for target in ("py", "java"):
+                outdir = root / target
+                outdir.mkdir()
+                result = p18.compile_and_run(source, target, outdir)
+                self.assertEqual(result.returncode, 0,
+                                 f"{target}: {result.stderr}")
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(result.stderr, "")
 
 
 if __name__ == "__main__":

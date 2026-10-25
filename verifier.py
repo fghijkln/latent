@@ -3,18 +3,18 @@
 The code generators and the generated runtime (`gen_py.PRELUDE`) are treated as
 untrusted, complex implementations. This module is the trusted part: it does not
 import any of them and knows only Latent's value domain and the contract of each
-state transition. Every guarded transition is checked on the way in (are these
-operands legal for this operation?) and on the way out (is the result still a
-Latent value?), whatever the implementation did in between.
+state transition. Latent-native operands are checked on the way in, and native
+results are checked on the way out. Opaque host objects keep their host behavior;
+values normalized back into Latent-native containers are checked before use.
 
 Invariant enforced (phase 1, value-domain closure):
   * A transition whose operands are all Latent-native values may only accept
     the operand types its contract lists, and must return a Latent-native value.
   * `int` is never a Latent value. (Latent has one number type, float64; host
-    ints are normalized to float at the interop boundary.) An `int` appearing
-    anywhere a guarded transition can see it is a violation.
-Transitions on host handles (py/java interop objects) keep their own semantics;
-those are governed by capabilities, which is phase 2.
+    ints are normalized to float when they cross back into Latent values.) A host
+    int in a native operand or native result is a violation.
+Host handles (py/java interop objects) keep their own semantics; those are
+governed by capabilities, which is phase 2.
 
 The source of this file is inlined verbatim into every generated Python program
 by gen_py, so it must stay self-contained: stdlib-free, no imports.
@@ -33,7 +33,7 @@ _LT_VF_BINARY = {
     "_wv_pow": ((float, float),),
 }
 _LT_VF_UNARY = {"_wv_neg": (float,)}
-# Transitions that may reach host objects: no host int in, none out.
+# Transitions that may reach host objects; native values still cannot contain ints.
 _LT_VF_OUTPUT_ONLY = ("_wv_wgetattr", "_wv_wcall", "_wv_index", "_wv_call",
                       "_wv_len", "_wv_int", "_wv_range", "_wv_iter",
                       "_wv_keys", "_wv_push", "_wv_wsetattr",
@@ -47,6 +47,11 @@ class LatentVerifierError(TypeError):
 def _lt_vf_is_native(v, latent_types):
     t = type(v)
     return t in _LT_VF_SCALARS or t in latent_types
+
+
+def _lt_vf_is_checkable(v, latent_types):
+    return (_lt_vf_is_native(v, latent_types) or isinstance(v, int) or
+            type(v) in (tuple, set, frozenset))
 
 
 def _lt_vf_has_host_int(v):
@@ -133,17 +138,22 @@ def _lt_vf_wrap_unary(name, fn, allowed, latent_types):
     return checked
 
 
-def _lt_vf_wrap_output(name, fn):
+def _lt_vf_wrap_output(name, fn, latent_types):
     def checked(*args, **kwargs):
         for a in args:
-            if _lt_vf_has_host_int(a):
+            if (_lt_vf_is_checkable(a, latent_types) and
+                    _lt_vf_has_host_int(a)):
                 raise LatentVerifierError(
                     "verifier: %s got a host int operand" % name[4:])
         for a in kwargs.values():
-            if _lt_vf_has_host_int(a):
+            if (_lt_vf_is_checkable(a, latent_types) and
+                    _lt_vf_has_host_int(a)):
                 raise LatentVerifierError(
                     "verifier: %s got a host int operand" % name[4:])
-        return _lt_vf_check_out(name, fn(*args, **kwargs))
+        result = fn(*args, **kwargs)
+        if _lt_vf_is_checkable(result, latent_types):
+            return _lt_vf_check_out(name, result)
+        return result
     checked.__name__ = name
     return checked
 
@@ -167,6 +177,6 @@ def _lt_vf_install(ns, latent_type_names=("_LtObj", "_LtClass", "_LtFunction",
             ns[name] = _lt_vf_wrap_unary(name, ns[name], allowed, latent_types)
     for name in _LT_VF_OUTPUT_ONLY:
         if name in ns:
-            ns[name] = _lt_vf_wrap_output(name, ns[name])
+            ns[name] = _lt_vf_wrap_output(name, ns[name], latent_types)
     ns["_lt_verifier_installed"] = True
     return ns
