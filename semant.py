@@ -21,6 +21,7 @@ def _err(node, msg):
 
 
 MAX_CONTROL_NESTING = 32
+MAX_EXPRESSION_NESTING = 160
 
 
 class Checker:
@@ -342,36 +343,40 @@ class Checker:
         visit(stmts)
 
     def _reject_excessive_nesting(self, stmts):
-        pending = [(stmts, 0)]
+        # Counts what the Python backend really nests: blocks become
+        # indentation (CPython caps it at 100) and expressions become
+        # brackets (CPython caps them at 200), so both backends fail alike.
+        pending = [(stmts, 0, 0)]
+        seen = set()
         while pending:
-            suite, depth = pending.pop()
-            for node in suite:
-                if isinstance(node, If):
-                    nested = depth + 1
-                    if nested > MAX_CONTROL_NESTING:
-                        _err(node, "source nesting exceeds maximum supported "
-                             f"depth ({MAX_CONTROL_NESTING})")
-                    pending.append((node.then_body, nested))
-                    pending.append((node.else_body or [], nested))
-                elif isinstance(node, (For, While)):
-                    nested = depth + 1
-                    if nested > MAX_CONTROL_NESTING:
-                        _err(node, "source nesting exceeds maximum supported "
-                             f"depth ({MAX_CONTROL_NESTING})")
-                    pending.append((node.body, nested))
-                elif isinstance(node, Try):
-                    nested = depth + 1
-                    if nested > MAX_CONTROL_NESTING:
-                        _err(node, "source nesting exceeds maximum supported "
-                             f"depth ({MAX_CONTROL_NESTING})")
-                    pending.append((node.body, nested))
-                    pending.append((node.handler, nested))
-                elif isinstance(node, FnDef):
-                    pending.append((node.body, 0))
-                elif isinstance(node, ClassDef):
-                    pending.extend((method.body, 0) for method in node.methods)
-                elif isinstance(node, ModuleInit):
-                    pending.append((node.body, 0))
+            value, depth, brackets = pending.pop()
+            if isinstance(value, (list, tuple)):
+                pending.extend((item, depth, brackets) for item in value)
+                continue
+            if not isinstance(value, Node) or id(value) in seen:
+                continue
+            seen.add(id(value))
+            children = list(vars(value).values())
+            if isinstance(value, (If, For, While, Try, FnDef)):
+                depth += 1
+                if depth > MAX_CONTROL_NESTING:
+                    _err(value, "source nesting exceeds maximum supported "
+                         f"depth ({MAX_CONTROL_NESTING})")
+                if (isinstance(value, If) and value.else_body and
+                        len(value.else_body) == 1 and
+                        isinstance(value.else_body[0], If)):
+                    # elif: gen_py emits it flat, so it adds no depth
+                    pending.append((value.else_body, depth - 1, brackets))
+                    children = [value.cond, value.then_body]
+            elif isinstance(value, (BinOp, UnOp, List, Map, Call, SuperCall,
+                                    PyImport, JavaImport)):
+                # comparisons and != render as (call(...) op 0) / (not call(...))
+                brackets += 2 if (isinstance(value, BinOp) and value.op in
+                                  ("<", "<=", ">", ">=", "!=")) else 1
+                if brackets > MAX_EXPRESSION_NESTING:
+                    _err(value, "expression nesting exceeds maximum supported "
+                         f"depth ({MAX_EXPRESSION_NESTING})")
+            pending.extend((child, depth, brackets) for child in children)
 
     def fn_body(self, fn, classdef=None, parent_ctx=None):
         assigned = set()
