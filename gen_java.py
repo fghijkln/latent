@@ -19,6 +19,8 @@ JAVA_KW = {
 # source identifier Java-safe and keeps the mapping injective.
 JAVA_SOURCE_PREFIX = "_lt_user_"
 TOP_LEVEL_HELPER_CHUNK_SIZE = 64
+JAVA_STRING_LITERAL_LIMIT = 60_000
+JAVA_STRING_CHUNK_BYTES = 30_000
 
 BUILTIN_JAVA = {
     "__say": "LtRt.say", "len": "LtRt.len", "range": "LtRt.range",
@@ -72,6 +74,32 @@ def java_str(s):
         else:
             out.append(c)
     return '"' + "".join(out) + '"'
+
+
+def java_string_expr(value):
+    chunks = []
+    current = []
+    current_bytes = 0
+    total_bytes = 0
+    for char in value:
+        codepoint = ord(char)
+        encoded_bytes = (2 if codepoint == 0 else 1 if codepoint <= 0x7f
+                         else 2 if codepoint <= 0x7ff
+                         else 3 if codepoint <= 0xffff else 6)
+        total_bytes += encoded_bytes
+        if current and current_bytes + encoded_bytes > JAVA_STRING_CHUNK_BYTES:
+            chunks.append("".join(current))
+            current = []
+            current_bytes = 0
+        current.append(char)
+        current_bytes += encoded_bytes
+    if current:
+        chunks.append("".join(current))
+    if total_bytes <= JAVA_STRING_LITERAL_LIMIT:
+        return java_str(value)
+    return ("new StringBuilder()" +
+            "".join(f".append({java_str(chunk)})" for chunk in chunks) +
+            ".toString()")
 
 
 class Gen:
@@ -286,6 +314,8 @@ class Gen:
         self.ind += 1
         self.w("StackTraceElement frame = frames[i];")
         self.w(f"if (!frame.getClassName().equals({java_str(self.cls)})) continue;")
+        self.w("String functionName = frame.getMethodName();")
+        self.w('if (functionName.startsWith("lambda$")) continue;')
         self.w("int sourceLine = _lt_sourceLine(frame.getLineNumber());")
         self.w("if (sourceLine <= 0) continue;")
         self.w("if (mappedFrames == 0) {")
@@ -299,7 +329,6 @@ class Gen:
         self.w("System.err.println(\"Latent traceback (most recent call last):\");")
         self.ind -= 1
         self.w("}")
-        self.w("String functionName = frame.getMethodName();")
         self.w('int helperStart = functionName.indexOf("_lt_top_");')
         self.w("int chunkSeparator = functionName.lastIndexOf('_');")
         self.w("if (helperStart >= 0 && chunkSeparator > helperStart) {")
@@ -716,7 +745,7 @@ class Gen:
         if isinstance(e, Num):
             return java_num(e.value)
         if isinstance(e, Str):
-            return java_str(e.value)
+            return java_string_expr(e.value)
         if isinstance(e, Bool):
             return "true" if e.value else "false"
         if isinstance(e, Nil):

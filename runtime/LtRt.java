@@ -2,6 +2,8 @@ import java.util.*;
 import java.io.*;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.lang.reflect.Array;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
@@ -191,16 +193,34 @@ public class LtRt {
         if (d == Double.MIN_VALUE) return "5e-324";
         if (d == -Double.MIN_VALUE) return "-5e-324";
         if (d == Math.rint(d) && Math.abs(d) < 1e16) return Long.toString((long) d);
-        String s = Double.toString(d); // 3.14 | 1.0E16 | 1.234E-7
-        int e = s.indexOf('E');
-        if (e < 0) return s;
-        String m = s.substring(0, e);
-        if (m.endsWith(".0")) m = m.substring(0, m.length() - 2);
-        String exp = s.substring(e + 1);
-        boolean neg = exp.startsWith("-");
-        String digits = neg ? exp.substring(1) : exp;
+        double magnitude = Math.abs(d);
+        BigDecimal decimal = magnitude < Double.MIN_NORMAL
+            ? shortestSubnormal(magnitude)
+            : new BigDecimal(Double.toString(magnitude));
+        decimal = decimal.stripTrailingZeros();
+        int exponent = decimal.precision() - decimal.scale() - 1;
+        String sign = d < 0 ? "-" : "";
+        if (exponent >= -4 && exponent < 16)
+            return sign + decimal.toPlainString();
+        String scientific = decimal.toString();
+        int e = scientific.indexOf('E');
+        String mantissa = e < 0 ? scientific : scientific.substring(0, e);
+        int exp = e < 0 ? exponent : Integer.parseInt(scientific.substring(e + 1));
+        String digits = Integer.toString(Math.abs(exp));
         while (digits.length() < 2) digits = "0" + digits;
-        return m + "e" + (neg ? "-" : "+") + digits;
+        return sign + mantissa + "e" + (exp < 0 ? "-" : "+") + digits;
+    }
+
+    private static BigDecimal shortestSubnormal(double d) {
+        BigDecimal exact = new BigDecimal(d);
+        long bits = Double.doubleToRawLongBits(d);
+        for (int precision = 1; precision <= 17; precision++) {
+            BigDecimal candidate = exact.round(
+                new MathContext(precision, RoundingMode.HALF_EVEN));
+            if (Double.doubleToRawLongBits(candidate.doubleValue()) == bits)
+                return candidate;
+        }
+        return new BigDecimal(Double.toString(d));
     }
 
     static String escape(String s) {

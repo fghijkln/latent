@@ -352,6 +352,64 @@ class TestAuditJavaFixes(unittest.TestCase):
                         "semant error: duplicate definition 'A'",
                         result.stderr)
 
+    def test_global_cannot_rebind_class_names_but_function_locals_can(self):
+        class_source = (
+            "class A:\n"
+            "    fn value(self):\n"
+            "        return 1\n")
+        invalid = class_source + (
+            "fn replace_class():\n"
+            "    global A\n"
+            "    A = 5\n"
+            "replace_class()\n")
+        valid = class_source + (
+            "fn parameter(A):\n"
+            "    return A\n"
+            "fn local():\n"
+            "    A = 5\n"
+            "    return A\n"
+            "say parameter(6)\n"
+            "say local()\n")
+        with tempfile.TemporaryDirectory(prefix="latent-audit-global-class-") as tmp:
+            temp = Path(tmp)
+            bad_source = temp / "global_class.lt"
+            bad_source.write_text(invalid, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target, case="global class"):
+                    outdir = temp / ("bad-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(bad_source, target, outdir)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        "class name 'A' cannot be declared global",
+                        result.stderr)
+                    self.assertNotIn("incompatible types", result.stderr)
+
+            module_main = temp / "main_global_class.lt"
+            module_main.write_text(
+                'import "dep.lt" as dep\nsay dep.replace_class()\n',
+                encoding="utf-8")
+            (temp / "dep.lt").write_text(invalid, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target, case="module global class"):
+                    outdir = temp / ("module-bad-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(module_main, target, outdir)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(
+                        "class name 'A' cannot be declared global",
+                        result.stderr)
+
+            good_source = temp / "local_class.lt"
+            good_source.write_text(valid, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target, case="local shadowing"):
+                    outdir = temp / ("good-" + target)
+                    outdir.mkdir()
+                    result = p18.compile_and_run(good_source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "6\n5\n")
+
     def test_nonfinite_numeric_and_unicode_ordering_match_both_targets(self):
         with tempfile.TemporaryDirectory(prefix="latent-audit-numeric-unicode-") as tmp:
             temp = Path(tmp)
@@ -365,6 +423,124 @@ class TestAuditJavaFixes(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout, NUMERIC_UNICODE_STDOUT)
                     self.assertEqual(result.stderr, "")
+
+    def test_python_float_notation_matches_in_values_and_containers(self):
+        source_text = (
+            "say 12345678.5\n"
+            "say -12345678.5\n"
+            "say 0.0005\n"
+            "say -0.0005\n"
+            "say str(12345678.5)\n"
+            "say str(0.0005)\n"
+            "say [12345678.5, 0.0005]\n"
+            'say {"large": 12345678.5, "small": 0.0005}\n')
+        expected = (
+            "12345678.5\n"
+            "-12345678.5\n"
+            "0.0005\n"
+            "-0.0005\n"
+            "12345678.5\n"
+            "0.0005\n"
+            "[12345678.5, 0.0005]\n"
+            '{"large": 12345678.5, "small": 0.0005}\n')
+        with tempfile.TemporaryDirectory(prefix="latent-audit-float-notation-") as tmp:
+            temp = Path(tmp)
+            source = temp / "float_notation.lt"
+            source.write_text(source_text, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, expected)
+                    self.assertEqual(result.stderr, "")
+
+    def test_small_subnormal_float_uses_shortest_round_trip_spelling(self):
+        value = "(2 ** -1074) / 0.5"
+        triple = "(2 ** -1074) * 3"
+        ninefold = "(2 ** -1074) * 9"
+        source_text = (f"say {value}\n"
+                       f"say [-{value}]\n"
+                       f"say {triple}\n"
+                       f"say {ninefold}\n"
+                       f'say {{"tiny": {value}}}\n')
+        expected = ("1e-323\n[-1e-323]\n1.5e-323\n4.4e-323\n"
+                    "{\"tiny\": 1e-323}\n")
+        with tempfile.TemporaryDirectory(prefix="latent-audit-subnormal-") as tmp:
+            temp = Path(tmp)
+            source = temp / "subnormal.lt"
+            source.write_text(source_text, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, expected)
+                    self.assertEqual(result.stderr, "")
+
+    def test_deep_control_nesting_is_rejected_consistently(self):
+        with tempfile.TemporaryDirectory(prefix="latent-audit-nesting-limit-") as tmp:
+            temp = Path(tmp)
+            for depth, should_compile in ((32, True), (98, False)):
+                source_text = (
+                    "".join("    " * index + "if true:\n"
+                            for index in range(depth)) +
+                    "    " * depth + "say 1\n")
+                source = temp / f"nested_{depth}.lt"
+                source.write_text(source_text, encoding="utf-8")
+                for target in TARGETS:
+                    with self.subTest(depth=depth, target=target):
+                        outdir = temp / f"{depth}-{target}"
+                        outdir.mkdir()
+                        result = p18.compile_and_run(source, target, outdir)
+                        if should_compile:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            self.assertEqual(result.stdout, "1\n")
+                        else:
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn(
+                                "source nesting exceeds maximum supported depth (32)",
+                                result.stderr)
+                            self.assertNotIn("IndentationError", result.stderr)
+                            self.assertNotIn("javac", result.stderr)
+
+    def test_java_large_string_literals_are_chunked_without_constant_folding(self):
+        value = "a" * 65_536 + "🙂" * 2
+        with tempfile.TemporaryDirectory(prefix="latent-audit-long-java-string-") as tmp:
+            temp = Path(tmp)
+            source = temp / "long_string.lt"
+            source.write_text('say "' + value + '"\n', encoding="utf-8")
+            expected = value + "\n"
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0, result.stderr[-1000:])
+                    self.assertEqual(result.stdout, expected)
+                    self.assertEqual(result.stderr, "")
+
+    def test_java_error_trace_skips_synthetic_lambda_frames(self):
+        source_text = (
+            "if true:\n"
+            "    fn hidden():\n"
+            '        throw "boom"\n'
+            "hidden()\n")
+        with tempfile.TemporaryDirectory(prefix="latent-audit-lambda-frame-") as tmp:
+            temp = Path(tmp)
+            source = temp / "lambda_frame.lt"
+            source.write_text(source_text, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("Latent runtime error:", result.stderr)
+                    self.assertNotIn("lambda$", result.stderr)
+                    self.assertIn("lambda_frame.lt:3", result.stderr)
 
     def test_range_limit_and_large_endpoints_match_both_targets(self):
         with tempfile.TemporaryDirectory(

@@ -20,6 +20,9 @@ def _err(node, msg):
     raise SemantError(f"{node.line}:{node.col}: {msg}", node=node)
 
 
+MAX_CONTROL_NESTING = 32
+
+
 class Checker:
     def __init__(self):
         self.functions = {}   # name -> FnDef (top level)
@@ -30,6 +33,7 @@ class Checker:
         self.top_class_types = {}
 
     def run(self, prog):
+        self._reject_excessive_nesting(prog.stmts)
         if any(isinstance(s, ModuleInit) for s in prog.stmts):
             return self._run_modules(prog)
         for s in prog.stmts:
@@ -337,11 +341,49 @@ class Checker:
                     visit(node.handler)
         visit(stmts)
 
+    def _reject_excessive_nesting(self, stmts):
+        pending = [(stmts, 0)]
+        while pending:
+            suite, depth = pending.pop()
+            for node in suite:
+                if isinstance(node, If):
+                    nested = depth + 1
+                    if nested > MAX_CONTROL_NESTING:
+                        _err(node, "source nesting exceeds maximum supported "
+                             f"depth ({MAX_CONTROL_NESTING})")
+                    pending.append((node.then_body, nested))
+                    pending.append((node.else_body or [], nested))
+                elif isinstance(node, (For, While)):
+                    nested = depth + 1
+                    if nested > MAX_CONTROL_NESTING:
+                        _err(node, "source nesting exceeds maximum supported "
+                             f"depth ({MAX_CONTROL_NESTING})")
+                    pending.append((node.body, nested))
+                elif isinstance(node, Try):
+                    nested = depth + 1
+                    if nested > MAX_CONTROL_NESTING:
+                        _err(node, "source nesting exceeds maximum supported "
+                             f"depth ({MAX_CONTROL_NESTING})")
+                    pending.append((node.body, nested))
+                    pending.append((node.handler, nested))
+                elif isinstance(node, FnDef):
+                    pending.append((node.body, 0))
+                elif isinstance(node, ClassDef):
+                    pending.extend((method.body, 0) for method in node.methods)
+                elif isinstance(node, ModuleInit):
+                    pending.append((node.body, 0))
+
     def fn_body(self, fn, classdef=None, parent_ctx=None):
         assigned = set()
         self._collect_assigned(fn.body, assigned)
         globals_ = set()
         self._collect_globals(fn.body, globals_)
+        for declaration in self._global_nodes(fn.body):
+            for name in declaration.names:
+                if name in self.classes:
+                    _err(declaration, f"class name "
+                         f"{self.classes[name].source_name!r} cannot be "
+                         "declared global")
         nonlocals = set()
         self._collect_nonlocals(fn.body, nonlocals)
         if len(globals_) != sum(1 for s in self._global_nodes(fn.body)
