@@ -41,6 +41,37 @@ jobs:
       - name: Bounded grammar properties (no-crash / backend-agree)
         run: python -m pytest fuzz/hypothesis_grammar.py -q
 
+  atheris-smoke:
+    name: Atheris smoke (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install fuzz dependencies
+        run: python -m pip install -r fuzz/requirements.txt
+
+      - name: Run 5-second Atheris smoke
+        run: |
+          mkdir -p crashes work-corpus
+          cp fuzz/corpus/* work-corpus/
+          python fuzz/atheris_bytes.py -max_total_time=5 \
+            -artifact_prefix=crashes/ work-corpus
+
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: atheris-pr-crashes
+          path: crashes/
+
   atheris:
     name: Atheris coverage-guided (nightly)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
