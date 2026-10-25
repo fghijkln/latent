@@ -433,7 +433,9 @@ class TestAuditJavaFixes(unittest.TestCase):
             "say str(12345678.5)\n"
             "say str(0.0005)\n"
             "say [12345678.5, 0.0005]\n"
-            'say {"large": 12345678.5, "small": 0.0005}\n')
+            'say {"large": 12345678.5, "small": 0.0005}\n'
+            "say [0.00001, 0.000015, -0.000001]\n"
+            "say 12345678901234568\n")
         expected = (
             "12345678.5\n"
             "-12345678.5\n"
@@ -442,7 +444,9 @@ class TestAuditJavaFixes(unittest.TestCase):
             "12345678.5\n"
             "0.0005\n"
             "[12345678.5, 0.0005]\n"
-            '{"large": 12345678.5, "small": 0.0005}\n')
+            '{"large": 12345678.5, "small": 0.0005}\n'
+            "[1e-05, 1.5e-05, -1e-06]\n"
+            "1.2345678901234568e+16\n")
         with tempfile.TemporaryDirectory(prefix="latent-audit-float-notation-") as tmp:
             temp = Path(tmp)
             source = temp / "float_notation.lt"
@@ -505,6 +509,34 @@ class TestAuditJavaFixes(unittest.TestCase):
                                 result.stderr)
                             self.assertNotIn("IndentationError", result.stderr)
                             self.assertNotIn("javac", result.stderr)
+
+    def test_nesting_limit_tracks_elif_nested_functions_and_expressions(self):
+        elif_chain = "x = 300\nif x == 0:\n    say 0\n" + "".join(
+            f"elif x == {i}:\n    say {i}\n" for i in range(1, 301))
+        nested_fns = "".join("    " * i + f"fn f{i}():\n" for i in range(40))
+        nested_fns += "    " * 40 + "say 1\nsay 2\n"
+        cases = (
+            ("elif", elif_chain, "300\n", None),
+            ("fns", nested_fns, None, "source nesting exceeds maximum supported depth (32)"),
+            ("neg", "say " + "-" * 200 + "1\n", None,
+             "expression nesting exceeds maximum supported depth (160)"),
+        )
+        with tempfile.TemporaryDirectory(prefix="latent-audit-nesting-shapes-") as tmp:
+            temp = Path(tmp)
+            for name, source_text, stdout, error in cases:
+                source = temp / f"{name}.lt"
+                source.write_text(source_text, encoding="utf-8")
+                for target in TARGETS:
+                    with self.subTest(case=name, target=target):
+                        outdir = temp / f"{name}-{target}"
+                        outdir.mkdir()
+                        result = p18.compile_and_run(source, target, outdir)
+                        if stdout is not None:
+                            self.assertEqual(result.returncode, 0, result.stderr)
+                            self.assertEqual(result.stdout, stdout)
+                        else:
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn("semant error: " + error, result.stderr)
 
     def test_java_large_string_literals_are_chunked_without_constant_folding(self):
         value = "a" * 65_536 + "🙂" * 2
