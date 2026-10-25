@@ -38,6 +38,9 @@ jobs:
       - name: R1/F1 hard regressions and escape probe
         run: python -m pytest fuzz/test_known_findings.py -q
 
+      - name: N6 deterministic number-format boundary scan
+        run: python -m pytest fuzz/test_number_format_scan.py -q
+
       - name: Bounded grammar properties (no-crash / backend-agree)
         run: python -m pytest fuzz/hypothesis_grammar.py -q
 
