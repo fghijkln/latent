@@ -202,13 +202,12 @@ public class LtRt {
         String sign = d < 0 ? "-" : "";
         if (exponent >= -4 && exponent < 16)
             return sign + decimal.toPlainString();
-        String scientific = decimal.toString();
-        int e = scientific.indexOf('E');
-        String mantissa = e < 0 ? scientific : scientific.substring(0, e);
-        int exp = e < 0 ? exponent : Integer.parseInt(scientific.substring(e + 1));
-        String digits = Integer.toString(Math.abs(exp));
+        // Not BigDecimal.toString(): it stays plain for scale 0 and exponents >= -6.
+        String u = decimal.unscaledValue().toString();
+        String mantissa = u.length() == 1 ? u : u.charAt(0) + "." + u.substring(1);
+        String digits = Integer.toString(Math.abs(exponent));
         while (digits.length() < 2) digits = "0" + digits;
-        return sign + mantissa + "e" + (exp < 0 ? "-" : "+") + digits;
+        return sign + mantissa + "e" + (exponent < 0 ? "-" : "+") + digits;
     }
 
     private static BigDecimal shortestSubnormal(double d) {
