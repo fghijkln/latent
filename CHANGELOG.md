@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.14.0 — Draft (unreleased)
+
+### Security and CI
+
+- Add bounded Hypothesis differential testing and a 5-second Atheris smoke to every PR; failures retain reproducible regression inputs.
+- Add a deterministic Python/Java numeric-format boundary scan for the two N6 ranges and a safe R1 escape regression probe to every PR.
+- Add an independent iterative value-domain checker to reject host-integer leaks while preserving supported Python interop values, including deeply nested and cyclic containers.
+
+### Python interoperability and tools
+
+- P18 adds borrowed synchronous Latent callbacks to active Python-host calls; P19-B supports explicit named arguments on Python-host calls, and P19-C passes ordered keyword arguments to eligible callbacks. Java-host, nested, and returned callbacks remain constrained.
+- Add the opt-in Stage1 preview launcher/cache and the web playground; Stage1 remains Python-target and Python-hosted and does not replace the default compiler.
+
+### Runtime and code generation
+
+- Split oversized Java non-top-level statement blocks into bounded helper methods while keeping control-flow and scope boundaries intact; map generated helper frames back to Latent function names.
+- Align uncaught Latent `throw` and index-out-of-range type names across backends, and make invalid `range` endpoint diagnostics identical.
+
+### Compatibility
+
+- No syntax, AST node, or `latent-ast` schema change; the schema remains v6. The VS Code extension remains version 0.6.5.
+
+### Verification
+
+- Local final integrated regression: `python tests/run_tests.py` — 359 passed, 0 failed, including 93 audit regressions.
+- Stage0 projection ledger: 243 included runner cases; `python tests/bootstrap/test_checker.py` — 20 passed.
+
+## v0.13.6 — 2026-10-13
+
+### Added
+
+- P15 introduces a reproducible, Python-hosted self-hosting compiler: the fixed v0.13.5 Stage0 builds Stage1, Stage1 builds Stage2, and Stage2 builds Stage3.
+- CI verifies Python-target parity and byte-identical Stage2/Stage3 outputs, including reproducibility across clean checkout roots.
+
+### Hardening and scope
+
+- Improve bootstrap host/CLI validation, stable path diagnostics, safe output handling, and Java sidecar failure reporting; isolate test subprocess environments and gate SARIF uploads where fork/Dependabot tokens are read-only.
+- No Latent syntax or `latent-ast` schema change. The bootstrap compiler emits Python only and still requires a Python host; the VS Code extension remains at 0.6.5.
+
+### Verification
+
+- `python3 tests/run_tests.py`: 259 passed, 0 failed. P15 projection: 243 case IDs, 244 fixture invocations, 505 fixed-seed properties, zero mismatches, and byte-identical Stage2/Stage3 artifacts.
+
 ## v0.13.5 — 2026-10-11
 
 ### Added

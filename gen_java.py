@@ -329,7 +329,10 @@ class Gen:
         self.ind += 1
         self.w("String detail = error.getMessage();")
         self.w('String errorName = error instanceof LtRt.ArgumentError ? '
-               '"ArgumentError" : error.getClass().getSimpleName();')
+               '"ArgumentError" : error instanceof LtRt.UserThrownException ? '
+               '"Exception" : error instanceof LtRt.IndexError ? '
+               '"IndexError" : error instanceof LtRt.TypeError ? '
+               '"TypeError" : error.getClass().getSimpleName();')
         self.w("System.err.println(\"Latent runtime error: \" + "
                "errorName + "
                "(detail == null || detail.isEmpty() ? \"\" : \": \" + detail));")
@@ -788,7 +791,7 @@ class Gen:
             self.w("}")
             self.try_depth -= 1
         elif isinstance(s, Throw):
-            self.w(f"throw new RuntimeException("
+            self.w(f"throw new LtRt.UserThrownException("
                    f"(String) LtRt.strOf({self.expr(s.value)}));", s.line,
                    s.source_path)
         else:

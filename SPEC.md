@@ -1,4 +1,4 @@
-# Latent 语言规范（v0.13.5）
+# Latent 语言规范（v0.14.0 草案）
 
 > Latent（`.lt` 源码，`latent` 编译器）。
 > 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
@@ -15,7 +15,7 @@
 > v0.13.0（P10）增加变参形参与调用展开；`latent-ast` JSON schema 升级到版本 5。
 > v0.13.3/P11 增加仅限关键字形参；`latent-ast` JSON schema 升级到版本 6。
 >
-> **发布状态：** 本文记录 v0.13.5 与历史版本语言语义；v0.13.5 保持 AST schema v6，早期历史标签与资产保持不变。
+> **发布状态：** 本文为尚未发布的 v0.14.0 草案；AST schema 保持 v6，早期历史标签与资产保持不变。
 
 ## 1. 设计目标
 
@@ -285,6 +285,10 @@ throw "boom"           # 主动抛错；catch 到的 e 就是 "boom"
 5. 未被 `catch` 的运行期错误在 Python 与 Java 后端均尽量显示原始 `.lt` 文件、
    行号和 Latent 调用栈；暂不提供运行期列号。映射不可用时安全回退到后端原生
    traceback/堆栈。此诊断不改变 `catch e` 的消息字符串、跨生态异常原文或失败退出状态。
+6. 未捕获的 Latent `throw` 在两后端均显示为 `Exception`，Latent 列表/字符串下标越界
+   显示为 `IndexError`。`range` 的非数值端点显示为 `TypeError`，并使用统一文案
+   `number expected, got <repr>`；非有限端点和超限长度继续显示为 `ArgumentError`，
+   且两后端使用相同诊断文案。跨生态异常仍保留对方运行时的原文。
 
 ## 7. 按需加载 Python：`py`
 

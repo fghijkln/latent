@@ -304,8 +304,14 @@ public class LtRt {
 
     public static Object range(Object n) { return range(0.0, n); }
 
+    static double rangeNumber(Object value) {
+        if (!(value instanceof Double))
+            throw new TypeError("number expected, got " + repr(value));
+        return (Double) value;
+    }
+
     public static Object range(Object a, Object b) {
-        double lo = num(a, "range"), hi = num(b, "range");
+        double lo = rangeNumber(a), hi = rangeNumber(b);
         if (!Double.isFinite(lo) || !Double.isFinite(hi))
             throw new ArgumentError("range() arguments must be finite");
         // Convert the exact binary values so small ranges beyond long stay correct.
@@ -506,6 +512,15 @@ public class LtRt {
     }
     public static class ArgumentError extends RuntimeException {
         ArgumentError(String message) { super(message); }
+    }
+    public static class UserThrownException extends RuntimeException {
+        public UserThrownException(String message) { super(message); }
+    }
+    public static class IndexError extends RuntimeException {
+        public IndexError(String message) { super(message); }
+    }
+    public static class TypeError extends RuntimeException {
+        public TypeError(String message) { super(message); }
     }
     public static Object named(String name, Object value) {
         return new NamedArg(name, value);
@@ -1225,17 +1240,17 @@ public class LtRt {
 
     static int toIndex(Object k, int n) {
         if (k instanceof Boolean || !(k instanceof Number))
-            throw new RuntimeException("index must be an integer");
+            throw new TypeError("index must be an integer");
         double d = ((Number) k).doubleValue();
         if (!Double.isFinite(d) || d != Math.rint(d))
-            throw new RuntimeException("index must be an integer");
+            throw new TypeError("index must be an integer");
         if (d < Integer.MIN_VALUE || d > Integer.MAX_VALUE)
-            throw new RuntimeException("index out of range: " +
+            throw new IndexError("index out of range: " +
                 new java.math.BigDecimal(d).toBigInteger().toString());
         int i = (int) d;
         if (i < 0) i += n;
         if (i < 0 || i >= n)
-            throw new RuntimeException("index out of range: " + (int) d);
+            throw new IndexError("index out of range: " + (int) d);
         return i;
     }
 
