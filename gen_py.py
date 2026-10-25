@@ -262,7 +262,7 @@ def _wv_push(xs, x):
 def _wv_keys(m):
     if not isinstance(m, dict):
         raise TypeError("keys() of non-map")
-    return list(m.keys())
+    return [_wv_pyresult(key) for key in _builtins.dict.keys(m)]
 
 
 def _wv_idx(k, n):
@@ -283,27 +283,32 @@ def _wv_index(v, k):
         return jvm.req({"op": "getitem", "target": jvm.target(v),
                         "key": _jvm_encode(k)})
     if isinstance(v, list):
-        return v[_wv_idx(k, _builtins.len(v))]
+        value = v[_wv_idx(k, _builtins.len(v))]
+        return value if _builtins.type(v) is list else _wv_pyresult(value)
     if isinstance(v, dict):
         if k in v:
-            return v[k]
+            value = v[k]
+            return value if _builtins.type(v) is dict else _wv_pyresult(value)
         raise KeyError("key not found: " + _wv_repr(k))
     if isinstance(v, str):
         return v[_wv_idx(k, _builtins.len(v))]
     # exotic natives (e.g. a tuple straight from a py call): best effort
     try:
-        return v[int(k)] if isinstance(k, float) else v[k]
+        value = v[int(k)] if isinstance(k, float) else v[k]
+        return _wv_pyresult(value)
     except (IndexError, KeyError, TypeError):
         raise TypeError("cannot index " + _wv_repr(v))
 
 
 def _wv_iter(x):
     if isinstance(x, list):
-        return x
+        if _builtins.type(x) is list:
+            return x
+        return [_wv_pyresult(item) for item in _builtins.list.__iter__(x)]
     if isinstance(x, str):
         return list(x)
     if isinstance(x, dict):
-        return list(x.keys())
+        return [_wv_pyresult(key) for key in _builtins.dict.keys(x)]
     if isinstance(x, _JHandle):  # java List / array -> materialize via daemon
         jvm = _JVM.inst()
         return jvm.req({"op": "tolist", "target": jvm.target(x)})
@@ -333,12 +338,74 @@ def _wv_pyarg(v):
     return v
 
 
-def _wv_pyresult(v):
-    """Normalize Python integer results to Latent's single numeric type."""
-    if _builtins.isinstance(v, _builtins.int) and not _builtins.isinstance(
-            v, _builtins.bool):
-        return _builtins.float(v)
-    return v
+_WV_PYRESULT_MAX_CONTAINER_DEPTH = 64
+_WV_PYRESULT_IN_PROGRESS = object()
+
+
+def _wv_pyresult(v, _memo=None, _depth=0):
+    """Normalize host ints recursively at the Python interop boundary."""
+    if _builtins.isinstance(v, _builtins.bool):
+        return v
+    if _builtins.isinstance(v, _builtins.int):
+        return _builtins.float(_builtins.int.__int__(v))
+    if _builtins.type(v) not in (
+            _builtins.list, _builtins.tuple, _builtins.dict,
+            _builtins.set, _builtins.frozenset):
+        return v
+    if _depth > _WV_PYRESULT_MAX_CONTAINER_DEPTH:
+        raise _builtins.TypeError(
+            "Python result container nesting exceeds 64 levels")
+
+    if _memo is None:
+        _memo = {}
+    identity = _builtins.id(v)
+    if identity in _memo:
+        result = _memo[identity]
+        if result is _WV_PYRESULT_IN_PROGRESS:
+            raise _builtins.TypeError(
+                "cyclic Python result containers are unsupported")
+        return result
+
+    if _builtins.type(v) is _builtins.list:
+        result = []
+        _memo[identity] = result
+        result.extend(_wv_pyresult(item, _memo, _depth + 1)
+                      for item in _builtins.list.__iter__(v))
+        return result
+    if _builtins.type(v) is _builtins.tuple:
+        _memo[identity] = _WV_PYRESULT_IN_PROGRESS
+        try:
+            result = tuple(_wv_pyresult(item, _memo, _depth + 1)
+                           for item in _builtins.tuple.__iter__(v))
+        except _builtins.BaseException:
+            _memo.pop(identity, None)
+            raise
+        _memo[identity] = result
+        return result
+    if _builtins.type(v) is _builtins.dict:
+        result = {}
+        _memo[identity] = result
+        for key, value in _builtins.dict.items(v):
+            result[_wv_pyresult(key, _memo, _depth + 1)] = \
+                _wv_pyresult(value, _memo, _depth + 1)
+        return result
+    if _builtins.type(v) is _builtins.set:
+        result = _builtins.set()
+        _memo[identity] = result
+        for item in _builtins.set.__iter__(v):
+            result.add(_wv_pyresult(item, _memo, _depth + 1))
+        return result
+
+    _memo[identity] = _WV_PYRESULT_IN_PROGRESS
+    try:
+        result = _builtins.frozenset(
+            _wv_pyresult(item, _memo, _depth + 1)
+            for item in _builtins.frozenset.__iter__(v))
+    except _builtins.BaseException:
+        _memo.pop(identity, None)
+        raise
+    _memo[identity] = result
+    return result
 
 
 _WV_CALLBACK_MAX_DEPTH = 16
