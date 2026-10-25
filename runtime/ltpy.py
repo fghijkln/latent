@@ -202,8 +202,6 @@ class CallbackProxy:
             raise RuntimeError("callback scope expired")
         if threading.get_ident() != self.scope.thread:
             raise RuntimeError("cross-thread callback is unsupported")
-        if kwargs:
-            raise TypeError("host callback keyword arguments are unsupported")
         if not _scopes or _scopes[-1] is not self.scope:
             raise RuntimeError("callback scope is not current")
         invocation = _next_callback_invocation
@@ -212,11 +210,13 @@ class CallbackProxy:
             raise RuntimeError("callback invocation ID limit exceeded")
         self.scope.invocations.add(invocation)
         if self.scope.proxies:
-            for value in args:
+            for value in (*args, *kwargs.values()):
                 _reject_callback_or_deferred(value)
         frame = {"kind": "callback", "parent": self.scope.id,
                  "id": invocation, "callback": self.token,
-                 "args": [encode(v) for v in args]}
+                 "args": [encode(v) for v in args],
+                 "kwargs": [[name, encode(value)]
+                            for name, value in kwargs.items()]}
         _protocol_send(frame)
         while True:
             try:
@@ -274,7 +274,7 @@ def _argument(value, scope):
         scope.used_callback_tokens.add(token)
         return CallbackProxy(token, scope)
     if _contains_callback_descriptor(value):
-        raise ProtocolAbort("callback descriptor must be a direct positional argument")
+        raise ProtocolAbort("callback descriptor must be a direct argument")
     return _pyarg(value)
 
 
@@ -644,7 +644,7 @@ def _serve(frame):
                 raise ProtocolAbort("duplicate callback token")
             scope.callback_tokens.add(token)
         elif _contains_callback_descriptor(raw_arg):
-            raise ProtocolAbort("callback descriptor must be a direct positional argument")
+            raise ProtocolAbort("callback descriptor must be a direct argument")
     _scopes.append(scope)
     try:
         try:

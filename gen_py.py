@@ -481,8 +481,6 @@ class _WVCallback:
             raise TypeError("host callback scope expired; retained callbacks are unsupported")
         if _threading.get_ident() != scope.owner:
             raise TypeError("cross-thread host callbacks are unsupported")
-        if kwargs:
-            raise _LtArgumentError("host callback keyword arguments are unsupported")
         depth = getattr(_wv_callback_local, "depth", 0)
         if depth >= _WV_CALLBACK_MAX_DEPTH:
             raise TypeError("host callback nesting exceeds 16 levels")
@@ -492,6 +490,8 @@ class _WVCallback:
         _wv_callback_local.depth = depth + 1
         try:
             latent_args = [_wv_callback_to_latent(arg) for arg in args]
+            latent_args.extend(_LtNamedArg(name, _wv_callback_to_latent(value))
+                               for name, value in kwargs.items())
             result = _wv_call(function, *latent_args)
             _wv_callback_reject_deferred(result)
             return _wv_callback_to_host(result)

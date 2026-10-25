@@ -172,3 +172,38 @@ def rethrow_callback_error(callback):
     except Exception:
         raise
     return "not-rethrown"
+
+
+def call_ordered_kwargs(callback):
+    return callback("head", "tail", flag=True, **{"z": 1, "if": 2, "雪": 3})
+
+
+def call_keyword_defaults(callback):
+    return [callback(flag=True), callback(value=None, flag=False)]
+
+
+def call_keyword_conversion(callback):
+    result = callback(flag=True, missing=None, number=7, negative_zero=-0.0,
+                      nested=(2, {"deep": [3]}), opaque=OpaqueValue())
+    valid = (
+        result[0] is True and result[1] is True and
+        type(result[2]) is float and result[2] == 7.5 and
+        type(result[3]) is float and math.copysign(1.0, result[3]) < 0 and
+        result[4] == 3 and result[5] == "opaque")
+    return "callback-kwargs-conversion-ok" if valid else repr(result)
+
+
+def call_conflicting_kwargs(callback):
+    return callback("positional", value="named")
+
+
+def call_unexpected_kwargs(callback):
+    return callback(value="ok", other="bad")
+
+
+def call_missing_keyword_only(callback):
+    return callback("value")
+
+
+def call_duplicate_keyword_merge(callback):
+    return callback(value=1, **{"value": 2})

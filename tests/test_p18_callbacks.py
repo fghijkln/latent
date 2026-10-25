@@ -143,13 +143,6 @@ ERROR_CASES = {
         ("thread", "callback", "cross_thread.lt:5"),
         ("MUST-NOT-RUN",),
     ),
-    "host_keyword_callback": (
-        'host = py "p18_callbacks_host"\n'
-        "fn callback(value):\n"
-        "    return value\n"
-        "say host.call_keyword(callback)\n",
-        ("callback", "keyword"), (),
-    ),
     "deferred_host_result": (
         'host = py "p18_callbacks_host"\n'
         "fn callback(value):\n"
@@ -196,13 +189,6 @@ ERROR_CASES = {
         "    return inner\n"
         "say host.consume_callback_callable(callback)\n",
         ("any:callable|return",), ("MUST-NOT-RUN",),
-    ),
-    "callback_star_kwargs": (
-        'host = py "p18_callbacks_host"\n'
-        "fn callback(value):\n"
-        "    return value\n"
-        "say host.call_with_star_kwargs(callback)\n",
-        ("callback", "keyword"), (),
     ),
     "host_transforms_callback_error": (
         'host = py "p18_callbacks_host"\n'

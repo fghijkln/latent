@@ -23,7 +23,7 @@ STAGE0_COMMIT = "9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9"
 EXPECTED_PROJECTION = {
     "runner_case_ids": 243,
     "fixture_invocations": 244,
-    "p19_stage1_feature_samples": 1,
+    "p19_stage1_feature_samples": 2,
     "runner_case_groups": {
         "positive": 71,
         "compile-negative": 88,
@@ -599,7 +599,7 @@ def project_p18_stage1_feature(stage1: Path, stage2: Path,
 
 def project_p19_stage1_features(stage1: Path, stage2: Path,
                                 temporary: Path) -> dict[str, Any]:
-    """Project independent Latent-to-Python named-call feature fixtures."""
+    """Project independent P19 Stage1 feature fixtures."""
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     features = manifest["p19_stage1_features"]
     results = []
@@ -643,7 +643,7 @@ def project_p19_stage1_features(stage1: Path, stage2: Path,
                                                 name, source_dir)[:2000]}
                for label, record in records.items()},
         })
-    return {"kind": "p19-stage1-named-host-features",
+    return {"kind": "p19-stage1-features",
             "sample_count": len(features),
             "passed": all(result["passed"] for result in results),
             "failures": [f"{result['name']}: {failure}"

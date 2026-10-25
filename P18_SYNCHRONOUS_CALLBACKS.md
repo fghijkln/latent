@@ -1,8 +1,8 @@
 # P18: synchronous Python-host callbacks
 
-Callbacks are **borrowed synchronous callables**: the host may invoke them with positional arguments during the active same-thread scope. The delivered positional sequence is passed through the existing Latent binder. Argument provenance inside Python or native wrappers is not part of the callback contract. Test results and reproducibility evidence are recorded separately from this contract.
+Callbacks are **borrowed synchronous callables**: the host may invoke them with positional and keyword arguments during the active same-thread scope. Positional values and ordered kwargs are passed through the existing Latent binder. Argument provenance inside Python or native wrappers is not part of the callback contract. Test results and reproducibility evidence are recorded separately from this contract.
 
-**Current follow-on status (2026-10-25):** P19-B allows explicit `name=value` arguments on existing Python-host call paths, including eligible extracted P13/P14 callable values. Java-host named calls and `*`/`**` expansion remain unsupported. Keywords delivered by Python to a borrowed Latent callback remain unsupported under the unimplemented P19-C scope.
+**Current follow-on status (2026-10-25):** P19-B allows explicit `name=value` arguments on existing Python-host call paths, including eligible extracted P13/P14 callable values. P19-C adds ordered kwargs delivery to the same active, synchronous borrowed callback and reuses the existing Latent binder. Java-host named calls and `*`/`**` expansion remain unsupported.
 
 ## One program, both targets
 
@@ -26,7 +26,7 @@ say sub("[a-z]+", replacement, "dd")
 
 Expected output is `#1:a #2:bb`, `#3:c`, then `#4:dd`. Closure state survives between calls. `match.group(0)` executes against the actual opaque Match object; on Java it makes a nested request while the original callback is still pending. Direct and extracted compiled-regex methods are also covered.
 
-Direct positional Latent functions, including Latent bound methods, use the normal Latent binder. Default arguments, rest arguments, arity checking and closure bindings are not reimplemented in the bridge. Python host wrappers remain distinct from Latent callback functions. Java-host callbacks remain unsupported runtime-negative cases.
+Direct positional and keyword Latent callback arguments, including Latent bound methods, use the normal Latent binder. Default arguments, keyword-only parameters, rest/extra arguments, arity checking and closure bindings are not reimplemented in the bridge. Python host wrappers remain distinct from Latent callback functions. Java-host callbacks remain unsupported runtime-negative cases.
 
 ## Lifetime and conversion
 
@@ -34,11 +34,11 @@ Each callback-capable host call owns a short-lived scope. Invocation is restrict
 
 The bridge preserves existing bool/nil/string/number conversion rules. Host integers become Latent numbers; bool is not treated as a number; integral outbound floats become Python integers except negative zero. Exact builtin tuple/list containers are projected to lists. Opaque objects such as `re.Match` are not stringified. Callback containers have cycle checks and a depth bound of 64; callback/RPC nesting is bounded at 16. Arbitrary container identity sharing, cyclic graphs, and non-string map-key equivalence are not new compatibility promises.
 
-Deferred/generator/awaitable values and callable callback results are validated **before the host can consume the callback result**, including nested builtin containers. Returning an adapter, hiding callbacks in argument containers, asynchronous/deferred use, cross-thread execution, and stale callback execution are rejected. P19-B later enabled explicit `name=value` on existing Python-host call paths; Java-host named calls and `*`/`**` expansion remain rejected. Actual keyword arguments delivered to a callback remain rejected pending P19-C.
+Deferred/generator/awaitable values and callable callback results are validated **before the host can consume the callback result**, including nested builtin containers. Returning an adapter, hiding callbacks in argument containers, asynchronous/deferred use, cross-thread execution, and stale callback execution are rejected. P19-B enabled explicit `name=value` on existing Python-host call paths; P19-C delivers callback kwargs through the existing binder. Java-host named calls and `*`/`**` expansion remain rejected.
 
 ## Errors and protocol integrity
 
-Java waits for the host result while dispatching callback frames on the original calling thread. Python waits for a callback result while servicing nested requests on that same thread. Request IDs, parent IDs, callback tokens, invocation IDs, error IDs, directions and frame schemas are checked. Malformed frames abort the affected daemon rather than being treated as ordinary host exceptions. User maps have an explicit data envelope and are not control frames.
+Java waits for the host result while dispatching callback frames on the original calling thread. Python waits for a callback result while servicing nested requests on that same thread. Callback frames carry ordered kwargs pairs; Java accepts the legacy P18 frame with the kwargs field omitted as empty, but strictly validates new frames and codec values. Request IDs, parent IDs, callback tokens, invocation IDs, error IDs, directions and frame schemas are checked. Malformed frames abort the affected daemon rather than being treated as ordinary host exceptions. User maps have an explicit data envelope and are not control frames.
 
 An uncaught callback failure is rethrown as its original Java `Throwable`, with its Latent source stack retained, using a request-local error ID. The Python host sees an `Exception` carrier with the original message, so broad `except Exception`, swallowing, rethrowing and message-based transformation work. If the host transforms the failure into a new host exception, the outer host call is located; the bridge does not fabricate a callback-body location for that new error.
 
@@ -50,7 +50,7 @@ The daemon duplicates protocol pipes to private, non-inheritable descriptors bef
 
 ### Positional arguments have no provenance restriction
 
-A callback receives an already-bound positional tuple. Direct `callback(value)`, Python `callback(*args)`, and native wrappers all deliver that sequence to the normal Latent binder. Default values, variadic arguments and arity errors follow the existing language rules. No bytecode or caller-syntax heuristic is used. For example, this host call is supported while the borrowed callback is active:
+A callback receives Python's already-bound `(args, kwargs)` values. Direct `callback(value)`, `callback(value=value)`, Python `callback(*args, **mapping)`, partials and native wrappers all deliver their final values to the normal Latent binder; kwargs preserve Python insertion order and become named markers after positional values. Default values, keyword-only parameters, variadic arguments and binder errors follow the existing language rules. No bytecode or caller-syntax heuristic is used. For example, this host call is supported while the borrowed callback is active:
 
 ```python
 from functools import partial
@@ -59,7 +59,7 @@ def host(callback):
     return partial(callback, *("x",))()
 ```
 
-Python/native wrappers may obscure how the positional values were assembled; the bridge neither detects nor claims to reject hidden expansion provenance. P19-B permits explicit named **Python-host** entry arguments on the existing supported call paths; Java-host named arguments and `*`/`**` expansion remain rejected. Actual keyword arguments delivered to a callback, including nonempty `**kwargs`, are unsupported and rejected pending P19-C. Stale, cross-thread, deferred and nested/returned-callable boundaries are unchanged.
+Python/native wrappers may obscure how arguments were assembled; the bridge neither detects nor claims to reject hidden expansion provenance. P19-B permits explicit named **Python-host** entry arguments on the existing supported call paths; P19-C permits final kwargs delivered to a borrowed callback. Java-host named arguments and Latent-to-host `*`/`**` expansion remain rejected. Stale, cross-thread, deferred and nested/returned-callable boundaries are unchanged.
 
 ### Host-specific exception classes are not universally identical
 
@@ -71,14 +71,15 @@ A host can store a callback in a field, closure or queue and return `None`; the 
 
 ## Bootstrap and regression boundaries
 
-The Python bootstrap emitter implements the same callback-result checks and preserves the original P13/P14 callable classification. It does not permit arbitrary callable fields, descriptors, static/class methods or opaque callable objects merely because Python considers them callable.
+The Python bootstrap emitter implements the same callback-kwargs binder projection and callback-result checks, and preserves the original P13/P14 callable classification. It does not permit arbitrary callable fields, descriptors, static/class methods or opaque callable objects merely because Python considers them callable.
 
-Fixed Stage0 is still the old seed. The only declared existing-case **P18** behavior delta is `p14_negative/module_callback`: Stage0 rejects the callback argument before entering the host; Stage1/2 permit the direct callback argument but reject the returned adapter, with exact status, output, diagnostic and source-location expectations. P19-B has separate `p19_stage0_deltas` (three exact IDs) and one `p19_stage1_features` sample in `tests/bootstrap/manifest.json`; these do not replace the P18 delta. Wrapper/container callback negatives and all unrelated baseline comparisons remain strict. Java-host `static_callback` stays in `NEG_RUNTIME` and is not a delta.
+Fixed Stage0 is still the old seed. The only declared existing-case **P18** behavior delta is `p14_negative/module_callback`: Stage0 rejects the callback argument before entering the host; Stage1/2 permit the direct callback argument but reject the returned adapter, with exact status, output, diagnostic and source-location expectations. P19-B and P19-C have separate `p19_stage0_deltas` (three exact IDs) and `p19_stage1_features` entries in `tests/bootstrap/manifest.json`; these do not replace the P18 delta. Wrapper/container callback negatives and all unrelated baseline comparisons remain strict. Java-host `static_callback` stays in `NEG_RUNTIME` and is not a delta.
 
 Relevant commands are:
 
 ```sh
 python3 tests/test_p18_callbacks.py
+python3 tests/test_p19_callback_kwargs.py
 python3 tests/run_tests.py
 python3 tests/bootstrap/check_supported_runtime.py
 python3 tests/bootstrap/checker.py

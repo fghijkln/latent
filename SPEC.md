@@ -149,9 +149,10 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
   自定义 descriptor 均排除。Java 仅接受公开非静态实例方法；公开字段优先，wrapper
   捕获 receiver 与方法名，重载在每次调用时按实际位置实参沿既有规则重新选择。两条路径
   中，P19-B 允许现有 Python 宿主调用路径（含获准提取的方法值）使用显式 `name=value`；
-  Java 路径仍只支持位置实参。两条路径都拒绝 `*`/`**`。P18 允许 Latent callable 仅
-  作为活跃同步 Python-host 调用中的直接值借用；P19-B 也允许将其置于命名槽。Java-host
-  callback、嵌套或返回的 callback 仍拒绝。详见 [P18](P18_SYNCHRONOUS_CALLBACKS.md)
+  Java 路径仍只支持位置实参。两条宿主调用路径都拒绝 `*`/`**`。P18 允许 Latent callable
+  仅作为活跃同步 Python-host 调用中的直接值借用；P19-B 也允许将其置于命名槽，P19-C
+  允许 Python 将有序 kwargs 传给该借用 callback。Java-host callback、嵌套或返回的 callback
+  仍拒绝。详见 [P18](P18_SYNCHRONOUS_CALLBACKS.md)
   与 [P19 契约](docs/P19_A_NAMED_ARGUMENTS_CONTRACT.md)。
   daemon 持有的远端引用维持强引用至 daemon 退出，不增加 release/refcount 协议。
 - **互操作模块函数与 Java 静态方法值（P14/v0.13.5）**：读取 `py` 模块
@@ -163,8 +164,8 @@ P8/v0.11.0 中，位置参数只能出现在命名参数之前；出现命名参
   每次间接调用时按实参复用现有 overload resolver。公开静态字段优先于同名方法值，但
   `Class.name(...)` 直接调用保持不变。值可赋值、传参、返回、被逃逸闭包捕获和间接调用。
   P19-B 允许 Python 模块函数值使用显式命名实参；Java 静态方法值仍只接受位置实参。
-  经 Python 宿主调用的 P18 callback 只接受直接值，不接受嵌套或返回的 callback；Python
-  callback kwargs 仍待 P19-C。构造器、任意 callable 对象、property/dynamic descriptor
+  经 Python 宿主调用的 P18 callback 可在活跃同步 scope 内接收位置与 kwargs，并复用 Latent
+  binder；不接受嵌套或返回的 callback。构造器、任意 callable 对象、property/dynamic descriptor
   或普通 `__ref`/`__jref` 不因此提升为 callable。daemon typed 引用
   强持有至进程退出。无新语法、AST 节点或 schema 版本。
 - **`.` 访问**：py / java 句柄成员按既有规则脱糖为 `__wgetattr(h, "attr")` /
@@ -510,14 +511,14 @@ P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模�
 本节保留 v0.13.5 发布基线，并补充后续 P18/P19 开发线例外；固定发布标签的历史语义不变。
 
 - 多继承、接口、Java 类继承、Latent 类/静态方法、运算符重载。
-- 独立内建函数、任意 callable 属性/对象、构造器，以及 P13/P14 明确准入范围之外的宿主 callable 不作为一等函数值。P18 只支持活跃同步 Python-host 调用中的直接 Latent callback；Java-host callback、嵌套/返回 callback 仍不支持，callback kwargs 尚待 P19-C。P19-B 允许 Python 宿主调用显式 `name=value`，但 Java 宿主命名实参及两种宿主的 `*`/`**` 展开仍不支持。模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
+- 独立内建函数、任意 callable 属性/对象、构造器，以及 P13/P14 明确准入范围之外的宿主 callable 不作为一等函数值。P18 只支持活跃同步 Python-host 调用中的直接 Latent callback；P19-C 允许该借用 callback 收到 Python kwargs 并复用现有 binder。Java-host callback、嵌套/返回 callback 仍不支持。P19-B 允许 Python 宿主调用显式 `name=value`，但 Java 宿主命名实参及两种宿主的 `*`/`**` 展开仍不支持。模块系统之外的包管理、通配/动态导入仍不支持（见 §11）。
 - v0.12.0 发布语义不含可变参数或实参展开；v0.13.0/P10 引入两者，v0.13.3/P11 加入仅限关键字形参。`py` 内联代码块（`py:` 多行 Python 源码）仍不支持。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
 - Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
 
-以上涉及 P13/P14 的 callable 准入边界按 v0.13.5 发布基线描述；当前开发线的 P18/P19-B 例外见上。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md)、[P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)、[P18 契约](P18_SYNCHRONOUS_CALLBACKS.md) 与 [P19 契约](docs/P19_A_NAMED_ARGUMENTS_CONTRACT.md)。
+以上涉及 P13/P14 的 callable 准入边界按 v0.13.5 发布基线描述；当前开发线的 P18/P19-B/P19-C 例外见上。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md)、[P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)、[P18 契约](P18_SYNCHRONOUS_CALLBACKS.md) 与 [P19 契约](docs/P19_A_NAMED_ARGUMENTS_CONTRACT.md)。
 
 ## 13. 示例
 

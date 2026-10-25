@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P19-B outbound kwargs wire contract; callback kwargs remain P19-C."""
+"""P19 named-call and borrowed-callback kwargs wire contract tests."""
 from __future__ import annotations
 
 import json
@@ -163,16 +163,35 @@ class NamedWireTests(unittest.TestCase):
                         preceding=[initial, release],
                         following=[call(args=["must-not-run"])])
 
-    def test_named_callback_is_direct_and_positional_callback_frame_unchanged(self):
+    def test_named_callback_is_direct_and_positional_frame_has_empty_kwargs(self):
         result = invoke([
             request(call([["callback", {"__lt_callback__": 1}]], attr="invoke_one")),
             {"kind": "callback_result", "parent": 1, "id": 1, "value": "ok"},
         ])
         self.assertEqual(result.returncode, 0, result.stderr)
         frames = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertEqual(set(frames[0]), {"kind", "parent", "id", "callback", "args"})
+        self.assertEqual(set(frames[0]),
+                         {"kind", "parent", "id", "callback", "args", "kwargs"})
         self.assertEqual(frames[0]["args"], ["one"])
+        self.assertEqual(frames[0]["kwargs"], [])
         self.assertEqual(frames[1]["payload"], {"value": "ok"})
+        self.assertEqual(result.stderr, "")
+
+    def test_callback_kwargs_are_emitted_as_ordered_pairs(self):
+        result = invoke([
+            request(call([["callback", {"__lt_callback__": 1}]],
+                         attr="call_ordered_kwargs")),
+            {"kind": "callback_result", "parent": 1, "id": 1,
+             "value": "wire-ok"},
+        ])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        frames = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(frames[0], {
+            "kind": "callback", "parent": 1, "id": 1, "callback": 1,
+            "args": ["head", "tail"],
+            "kwargs": [["flag", True], ["z", 1.0], ["if", 2.0], ["雪", 3.0]],
+        })
+        self.assertEqual(frames[1]["payload"], {"value": "wire-ok"})
         self.assertEqual(result.stderr, "")
 
     def test_nested_invalid_and_duplicate_tokens_are_fatal(self):

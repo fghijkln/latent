@@ -253,7 +253,7 @@ class ProjectionLedgerTests(unittest.TestCase):
                               if case["name"] == "p8_negative/python_interop"),
                          "runtime-negative")
         self.assertEqual(project_stage0.EXPECTED_PROJECTION[
-            "p19_stage1_feature_samples"], 1)
+            "p19_stage1_feature_samples"], 2)
         self.assertEqual(project_stage0.EXPECTED_PROJECTION[
             "runner_case_ids"], 243)
         self.assertEqual(project_stage0.EXPECTED_PROJECTION[
@@ -328,11 +328,11 @@ class ProjectionLedgerTests(unittest.TestCase):
             "exact Stage1/2 outcome: p8_negative/python_interop" in error
             for error in errors))
 
-    def test_p19_feature_ledger_is_separate_and_named_host_only(self):
+    def test_p19_feature_ledger_keeps_named_host_and_callback_kwargs_separate(self):
         manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(manifest["p19_stage1_features"]), 1)
-        feature = manifest["p19_stage1_features"][0]
-        self.assertEqual(feature["name"], "p19_named_host_calls")
+        self.assertEqual(len(manifest["p19_stage1_features"]), 2)
+        features = {item["name"]: item for item in manifest["p19_stage1_features"]}
+        feature = features["p19_named_host_calls"]
         self.assertEqual(feature["source"],
                          "tests/bootstrap/p19_named_feature.lt")
         self.assertEqual(feature["expected"]["phase"], "run")
@@ -352,8 +352,21 @@ class ProjectionLedgerTests(unittest.TestCase):
         self.assertIn('value=host.mark("second", 2)', source)
         self.assertIn('scale(**{})', source)
         self.assertIn("test_p19_named_host.py", manifest["runner_auxiliary_paths"])
+        self.assertIn("test_p19_callback_kwargs.py", manifest["runner_auxiliary_paths"])
+        self.assertIn("test_p19_callback_kwargs.py", manifest["inventories"]["test_module"])
         self.assertIn("test_p19_protocol.py", manifest["inventories"]["test_module"])
         self.assertIn("test_p19_protocol.py", manifest["auxiliary_tests"])
+        callback_feature = features["p19_callback_kwargs"]
+        self.assertEqual(callback_feature["source"],
+                         "tests/bootstrap/p19_callback_kwargs_feature.lt")
+        self.assertEqual(callback_feature["expected"], {
+            "phase": "run", "rc": 0,
+            "stdout": "stage1-callback-kwargs-ok\n", "stderr": ""})
+        callback_source = (checker.ROOT / callback_feature["source"]).read_text(
+            encoding="utf-8")
+        self.assertIn("host.call_ordered_kwargs(callback)", callback_source)
+        self.assertIn('extra["雪"] == 3', callback_source)
+        self.assertIn("test_p19_callback_kwargs.py", manifest["auxiliary_tests"])
 
     def test_java_host_callback_cases_remain_runtime_negative_and_delta_is_narrow(self):
         manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))

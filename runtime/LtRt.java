@@ -1387,6 +1387,55 @@ public class LtRt {
             Set<String> expected = new HashSet<>(Arrays.asList(keys));
             if (!map.keySet().equals(expected)) throw new ProtocolException("invalid " + label + " schema");
         }
+        private static void validateCallbackValue(Object value, int depth) {
+            if (depth > 64)
+                throw new ProtocolException("invalid callback value nesting");
+            if (value == null || value instanceof Boolean || value instanceof String)
+                return;
+            if (value instanceof Number) {
+                if (!Double.isFinite(((Number) value).doubleValue()))
+                    throw new ProtocolException("invalid callback numeric value");
+                return;
+            }
+            if (value instanceof List) {
+                for (Object item : (List<?>) value)
+                    validateCallbackValue(item, depth + 1);
+                return;
+            }
+            if (!(value instanceof Map))
+                throw new ProtocolException("invalid callback value schema");
+            Map<?, ?> envelope = (Map<?, ?>) value;
+            if (envelope.size() != 1)
+                throw new ProtocolException("invalid callback value schema");
+            Map.Entry<?, ?> entry = envelope.entrySet().iterator().next();
+            if (!(entry.getKey() instanceof String))
+                throw new ProtocolException("invalid callback value schema");
+            String key = (String) entry.getKey();
+            Object body = entry.getValue();
+            if ("__map".equals(key)) {
+                if (!(body instanceof List))
+                    throw new ProtocolException("invalid callback map envelope");
+                for (Object rawPair : (List<?>) body) {
+                    if (!(rawPair instanceof List) || ((List<?>) rawPair).size() != 2 ||
+                            !(((List<?>) rawPair).get(0) instanceof String))
+                        throw new ProtocolException("invalid callback map entry");
+                    validateCallbackValue(((List<?>) rawPair).get(1), depth + 1);
+                }
+            } else if ("__ref".equals(key)) {
+                safeId(body, "callback object ref", false);
+            } else if ("__num".equals(key)) {
+                if (!(body instanceof String) ||
+                        !Arrays.asList("nan", "inf", "-inf").contains(body))
+                    throw new ProtocolException("invalid callback number envelope");
+            } else {
+                // Callback descriptors and unknown envelopes are never callback values.
+                throw new ProtocolException("invalid callback value envelope");
+            }
+        }
+        private static Object decodeCallbackValue(Object value) {
+            validateCallbackValue(value, 0);
+            return decodeValue(value);
+        }
         private static String callbackDescriptor(long token) {
             return "{\"__lt_callback__\":" + token + "}";
         }
@@ -1538,7 +1587,13 @@ public class LtRt {
                     Map<?, ?> frame = object(parsed, "Python daemon");
                     Object kind = frame.get("kind");
                     if ("callback".equals(kind)) {
-                        exactKeys(frame, "callback", "kind", "id", "parent", "callback", "args");
+                        Set<String> oldCallbackKeys = new HashSet<>(Arrays.asList(
+                            "kind", "id", "parent", "callback", "args"));
+                        Set<String> callbackKeys = new HashSet<>(oldCallbackKeys);
+                        callbackKeys.add("kwargs");
+                        if (!frame.keySet().equals(oldCallbackKeys) &&
+                                !frame.keySet().equals(callbackKeys))
+                            throw new ProtocolException("invalid callback schema");
                         long cbid = safeId(frame.get("callback"), "callback token", false);
                         long frameId = safeId(frame.get("id"), "callback invocation", false);
                         if (safeId(frame.get("parent"), "callback parent", false) != id ||
@@ -1548,11 +1603,27 @@ public class LtRt {
                         lastCallbackInvocationId = frameId;
                         Object rawArgs = frame.get("args");
                         if (!(rawArgs instanceof List)) throw new ProtocolException("invalid callback args schema");
-                        Object[] argv = new Object[((List<?>) rawArgs).size()];
-                        for (int i = 0; i < argv.length; i++) argv[i] = decodeValue(((List<?>) rawArgs).get(i));
+                        List<Object> argv = new ArrayList<>(((List<?>) rawArgs).size());
+                        for (Object rawArg : (List<?>) rawArgs)
+                            argv.add(decodeCallbackValue(rawArg));
+                        Object rawKwargs = frame.containsKey("kwargs")
+                            ? frame.get("kwargs") : new ArrayList<Object>();
+                        if (!(rawKwargs instanceof List))
+                            throw new ProtocolException("invalid callback kwargs schema");
+                        Set<String> keywordNames = new HashSet<>();
+                        for (Object rawPair : (List<?>) rawKwargs) {
+                            if (!(rawPair instanceof List) || ((List<?>) rawPair).size() != 2)
+                                throw new ProtocolException("invalid callback kwargs pair");
+                            List<?> pair = (List<?>) rawPair;
+                            if (!(pair.get(0) instanceof String) ||
+                                    !keywordNames.add((String) pair.get(0)))
+                                throw new ProtocolException("invalid or duplicate callback kwargs name");
+                            argv.add(new NamedArg((String) pair.get(0),
+                                                  decodeCallbackValue(pair.get(1))));
+                        }
                         String reply;
                         try {
-                            Object result = callbacks.get(cbid).invoke(argv); // retain normal Latent binder
+                            Object result = callbacks.get(cbid).invoke(argv.toArray()); // retain normal Latent binder
                             reply = "{\"kind\":\"callback_result\",\"parent\":" + id +
                                 ",\"id\":" + frameId + ",\"value\":" +
                                 encodeCallbackResult(result) + "}";

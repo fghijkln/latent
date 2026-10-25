@@ -1483,6 +1483,7 @@
     "test_differential_properties.py",
     "test_p14_protocol.py",
     "test_p18_callbacks.py",
+    "test_p19_callback_kwargs.py",
     "test_p19_named_host.py",
     "test_repl.py"
   ],
@@ -1502,6 +1503,7 @@
   },
   "inventories": {
     "tests_lt": [
+      "bootstrap/p19_callback_kwargs_feature.lt",
       "bootstrap/p19_named_feature.lt",
       "bootstrap_lexer.lt",
       "bootstrap_parser.lt",
@@ -1809,6 +1811,7 @@
       "test_latent_stage1.py",
       "test_p14_protocol.py",
       "test_p18_callbacks.py",
+      "test_p19_callback_kwargs.py",
       "test_p19_named_host.py",
       "test_p19_protocol.py",
       "test_repl.py"
@@ -2999,11 +3002,19 @@
     },
     "python_fixture/p18_callbacks_host.py": {
       "disposition": "include",
-      "reason": "P18 test host exposes bounded synchronous callback operations and error/recovery cases for the standalone callback matrix and bootstrap feature projection."
+      "reason": "P18/P19-C test host exposes bounded synchronous callback operations, ordered callback kwargs, and error/recovery cases for focused suites and bootstrap feature projections."
     },
     "test_module/test_p18_callbacks.py": {
       "disposition": "include",
       "reason": "Focused dual-backend callback matrix covering invocation, conversions, failure recovery, expiry, and rejection of unsupported callback forms."
+    },
+    "tests_lt/bootstrap/p19_callback_kwargs_feature.lt": {
+      "disposition": "include",
+      "reason": "Independent P19-C Latent callback-kwargs feature fixture, projected through Stage1 and Stage2 only; not an extra legacy runner ID or fixed-Stage0 case."
+    },
+    "test_module/test_p19_callback_kwargs.py": {
+      "disposition": "include",
+      "reason": "P19-C focused dual-target callback-kwargs binder, protocol validation, legacy-frame compatibility, and source-map regression matrix invoked by the complete runner."
     },
     "tests_lt/bootstrap/p19_named_feature.lt": {
       "disposition": "include",
@@ -3015,7 +3026,7 @@
     },
     "test_module/test_p19_protocol.py": {
       "disposition": "include",
-      "reason": "Focused P19-B named-argument wire/protocol regression suite invoked by the P19 named-host test."
+      "reason": "P19-B named-call and P19-C callback-kwargs ordered-pair wire/protocol regression suite invoked by the P19 named-host test."
     },
     "python_fixture/p19_named_host.py": {
       "disposition": "include",
@@ -3115,13 +3126,17 @@
       "disposition": "include",
       "reason": "Runner-invoked P18 dual-backend callback matrix, registered as an auxiliary suite."
     },
+    "test_p19_callback_kwargs.py": {
+      "disposition": "include",
+      "reason": "Runner-invoked P19-C dual-backend callback kwargs and Java frame-validation matrix, registered as an auxiliary suite."
+    },
     "tests/p18_callbacks.lt": {
       "disposition": "include",
       "reason": "Standalone P18 Stage1/Stage2 bootstrap feature fixture; compared by the dedicated feature leg, not fixed Stage0."
     },
     "tests/python/p18_callbacks_host.py": {
       "disposition": "include",
-      "reason": "Support host for the P18 callback feature fixture and callback matrix."
+      "reason": "Support host for P18 callback and P19-C callback-kwargs feature fixtures and focused matrices."
     },
     "test_p19_named_host.py": {
       "disposition": "include",
@@ -3129,7 +3144,7 @@
     },
     "test_p19_protocol.py": {
       "disposition": "include",
-      "reason": "Focused P19-B named-argument wire/protocol regression suite invoked by the P19 named-host test."
+      "reason": "P19-B named-call and P19-C callback-kwargs ordered-pair wire/protocol regression suite invoked by the P19 named-host test."
     },
     "python/p19_named_host.py": {
       "disposition": "include",
@@ -3305,6 +3320,16 @@
         "phase": "run",
         "rc": 0,
         "stdout": "42\nA|B|?\nreceiver|left|right\nstage!\ntwo!|two!\n8\nNone|True\ngot duplicate named argument 'value'\nfirst,second\n0\nargument unpacking is not supported for Python/Java interop calls\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "p19_callback_kwargs",
+      "source": "tests/bootstrap/p19_callback_kwargs_feature.lt",
+      "expected": {
+        "phase": "run",
+        "rc": 0,
+        "stdout": "stage1-callback-kwargs-ok\n",
         "stderr": ""
       }
     }

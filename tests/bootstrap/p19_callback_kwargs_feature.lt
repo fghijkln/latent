@@ -1,0 +1,9 @@
+host = py "p18_callbacks_host"
+
+fn callback(value, *rest, flag=false, **extra):
+    names = keys(extra)
+    if value == "head" and len(rest) == 1 and rest[0] == "tail" and flag == true and names[0] == "z" and names[1] == "if" and names[2] == "雪" and extra["z"] == 1 and extra["if"] == 2 and extra["雪"] == 3:
+        return "stage1-callback-kwargs-ok"
+    return "bad-callback-kwargs"
+
+say host.call_ordered_kwargs(callback)

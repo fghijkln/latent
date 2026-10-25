@@ -959,6 +959,15 @@ def main():
         fails += 1
         print(f"  {(so + se)[-3500:]}")
 
+    print("== P19-C borrowed callback keyword arguments ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS,
+                                                   "test_p19_callback_kwargs.py")],
+                     timeout=300)
+    print(("PASS " if rc == 0 else "FAIL ") + "P19-C callback kwargs matrix")
+    if rc != 0:
+        fails += 1
+        print(f"  {(so + se)[-3500:]}")
+
     print("== cookbook: py vs java must produce identical stdout, exit 0 ==")
     for name in COOKBOOK:
         py = compile_and_run(name, "py", COOKBOOK_DIR)

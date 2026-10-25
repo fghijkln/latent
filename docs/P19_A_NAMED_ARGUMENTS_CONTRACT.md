@@ -1,8 +1,8 @@
 # P19-A：Python 宿主命名实参与同步 callback kwargs 契约
 
-**当前状态（2026-10-25）：P19-A 契约已冻结；P19-B（Latent→Python 显式命名宿主调用）已实现并接入回归与 Stage0 投影门禁；P19-C（Python→Latent 同步 callback kwargs）尚未实现。** `main@9071846e12784bb98ea7ce050c93eec534b884c7` 是 P19-A 冻结时的历史基线。下文保留实现前冻结的完整验收契约；其中“尚须实现/后续实现”是当时计划，当前只有 P19-C 范围仍待实现。实际 P19-B 状态以现有实现、测试和 manifest 为准。
+**当前状态（2026-10-25）：P19-A 契约已冻结；P19-B（Latent→Python 显式命名宿主调用）和 P19-C（Python→Latent 同步 callback kwargs）均已实现并接入定向测试、CI 与 Stage1 投影门禁。** `main@9071846e12784bb98ea7ce050c93eec534b884c7` 是 P19-A 冻结时的历史基线。下文保留实现前冻结的完整验收契约；其语义边界仍为实现与回归的依据，具体已登记案例见下文和 manifest。
 
-P19 原计划包含两个增量：允许 **Latent → Python 的显式 `name=value` 调用**，以及 **Python → Latent 借用同步回调收到的 kwargs**。前者已由 P19-B 落地，适用于已有的 Python 宿主调用路径及获准提取的 P13/P14 值；后者是 P19-C，仍未实现。Java 宿主命名/展开调用不在 P19-B 范围内；Stage1 仍是显式 opt-in、Python-only preview。
+P19 原计划包含两个增量：允许 **Latent → Python 的显式 `name=value` 调用**，以及 **Python → Latent 借用同步回调收到的 kwargs**。前者由 P19-B 落地，适用于已有的 Python 宿主调用路径及获准提取的 P13/P14 值；后者由 P19-C 落地，通过有序 pair 协议转换为现有 Latent binder 可消费的命名实参。Java 宿主命名/展开调用不在范围内；Stage1 仍是显式 opt-in、Python-only preview。
 
 ## 1. 依据、现状与新增决定
 
@@ -11,15 +11,15 @@ P19 原计划包含两个增量：允许 **Latent → Python 的显式 `name=val
 - `parse.py:Parser.call_args`、形参解析：已有 `NamedArg`、`StarArg`、`StarStarArg`；显式名称必须是词法 `NAME`，位置实参/位置展开不能跟在命名实参后；没有 `/` 形参标记。
 - `semant.py:_check_arguments`：已知 Latent 签名静态检查；宿主 Python 签名不在这里猜测。
 - `gen_py.py:_wv_bind_args`、`runtime/LtRt.java:bindArgs`：已有 Latent 动态 binder；固定形参、默认值缺省标记、keyword-only、`*rest`、`**extra` 已存在。`_LtNamedArg`/`LtRt.NamedArg` 携带已求值的值。
-- `gen_py.py:_wv_reject_interop_args`、`_wv_pyhost_call`、`_WVCallback.__call__`、`runtime/LtRt.java:rejectInteropArgs`、`Daemon.callArgs/exchangeResponse`、`runtime/ltpy.py:CallbackProxy/execute/_valid_request_payload`：P19-B 已为 Python 宿主调用建立有序 kwargs 通道；入站 callback kwargs 仍被拒绝，callback frame 尚无 kwargs 字段（P19-C 未实现）。Java 宿主命名参数仍拒绝。
-- `bootstrap/gen_py.lt` 和 `bootstrap/java_runtime.lt`：Stage1 的 Python emitter/prelude 也必须跟进后续实现，不能只修改现有 Python 编译器。此处的 `java_runtime.lt` 是 Python 产物中的 JVM 互操作支持，不代表 Stage1 已有 Java emitter。
+- `gen_py.py:_WVCallback.__call__`、`runtime/LtRt.java:Daemon.exchangeResponse`、`runtime/ltpy.py:CallbackProxy`：P19-C 已在 Python 目标与 Java 编译目标中把 callback kwargs 按有序 pairs 传输/验证，再交给现有 binder；Java 目标接收端仅额外兼容缺少 kwargs 的旧 P18 callback frame。Python 宿主调用的 P19-B 通道保持不变；Java 宿主命名参数仍拒绝。
+- `bootstrap/gen_py.lt`：Stage1 Python emitter/prelude 同步投影 callback kwargs 到现有 binder；`bootstrap/java_runtime.lt` 未放宽 Java-host named/展开调用。这里的 `java_runtime.lt` 是 Python 产物中的 JVM 互操作支持，不代表 Stage1 已有 Java emitter。
 
-| 内容 | 已有保证 / P19-B 已实现 | P19-C 尚须实现 |
+| 内容 | 已有保证 / P19-B 已实现 | P19-C 已实现 |
 |---|---|---|
 | Latent 内部命名绑定 | 静态/动态检查、左到右求值、keyword-only、调用时默认值、变参 | 不改语言内部规则 |
 | Python 宿主调用 | P19-B 支持显式名称转交 Python；直接命名槽可传 Latent callback | 不扩展宿主调用范围 |
-| Python 回调到 Latent | P18 位置序列进入原 binder；无来源启发式 | kwargs 顺序转换为 named markers 后进入同一 binder |
-| 回调生命周期、转换、错误保真 | P18 的借用、同线程、清理、嵌套泵、错误 ID；P19-B 不扩大生命周期 | 对 callback kwargs 应用相同检查，不扩大生命周期 |
+| Python 回调到 Latent | P18 位置序列进入原 binder；无来源启发式 | kwargs 按顺序转换为 named markers 后进入同一 binder |
+| 回调生命周期、转换、错误保真 | P18 的借用、同线程、清理、嵌套泵、错误 ID | kwargs 值复用相同转换/边界检查，不扩大生命周期 |
 | `*`/`**` | Latent 内部调用支持；Latent→宿主拒绝 | 仍拒绝 Latent→Python/Java 展开，包括空展开 |
 
 ## 2. Latent → Python：准入与绑定
@@ -86,14 +86,14 @@ Python 可交付任意字符串 kwargs 键；匹配固定形参用精确字符�
 
 ## 4. 桥字段与协议冻结
 
-这是后续实现的内部 wire 契约，不是对第三方 daemon 的兼容承诺；发送方、接收方、bootstrap prelude 和故障注入测试必须一起更新。
+这是内部 wire 契约，不是对第三方 daemon 的兼容承诺；发送方、接收方、bootstrap prelude 和故障注入测试已同步更新。
 
 ### 4.1 统一逻辑表示
 
 逻辑调用为 `args: [value, ...]`、`kwargs: [[name, value], ...]`。有序 pair list 保留名称顺序，便于在进入 Python dict 前检查重复；不能用普通 JSON object 表示 kwargs。用户映射继续使用既有 `__map` data envelope，不能把映射内容解释为控制帧。名称原样编码为字符串，值沿用现有 codec（数字、nil、布尔、opaque refs、容器与错误边界），不能把 kwargs 值字符串化。
 
 - Python 目标：内部参数拆分得到相同有序表示；`_wv_pyhost_call` 等价入口接收位置值和有序命名项；`_WVCallback` 把 kwargs 项转为 `_LtNamedArg`。符号名可按实现组织，不改公开 AST schema v6。
-- Java 目标：`Daemon.callArgs` 等价入口分离 markers，所有 Python call payload 加 `kwargs`；`runtime/ltpy.py` 校验后解码并执行 `fn(*args, **kwargs)`。回调帧的命名项转为 `LtRt.NamedArg` 后追加到位置序列，调用 `LtFunction.invoke`/现有 binder。
+- Java 目标：`Daemon.callArgs` 等价入口分离 markers，所有 Python host-call payload 加 `kwargs`；`runtime/ltpy.py` 校验并执行 Python `fn(*args, **kwargs)`，callback frame 也发送有序 kwargs pairs。Java 接收端验证后把命名项追加到位置序列，再调用 `LtFunction.invoke`/现有 binder。
 
 ### 4.2 帧形状
 
@@ -137,7 +137,7 @@ Latent `catch e` 仍得到消息字符串；不要引入新可捕获类体系。
 
 ## 6. 具体正反例
 
-以下是未来验收 fixture，不是当前 P18 可执行承诺。`fixture` 是待新增测试宿主模块，不是标准库；不需要 inline `py:`（仍不支持）。
+以下是验收契约示例，不需要 inline `py:`（仍不支持）；当前定向测试使用 `tests/python/p18_callbacks_host.py` 并覆盖其关键绑定、顺序、转换和错误边界。
 
 ```python
 # fixture.py：由测试提供
@@ -177,9 +177,9 @@ host.strict(1, **{"flag":true})         # 仍拒绝宿主展开
 
 对回调，Python `callback(**{"value":3, "suffix":"!"})` 与直接 kwargs 等价；`callback(3, value=4)` 是 Latent binder 冲突。Python `callback(value=1, **{"value":2})` 和 `callback(**{1:2})` 在 Python 形成调用时失败，不能计作“已进入 callback”的负例。
 
-## 7. 验收矩阵（后续实现必须落为测试）
+## 7. 验收矩阵（实现边界与测试定位）
 
-记号：**R**=`tests/run_tests.py` 双目标回归；**F**=沿用 `tests/test_p18_callbacks.py` 的 focused 双目标/协议 harness，新增 P19 互操作案例（名称和组织可后续确定）；**P**=Python-target Stage0/1/2 projection ledger 与 `project_stage0.py`；**B**=bootstrap host/lexer/parser、Stage1 preview 与 fixed-point gates；**D**=固定种子 differential properties；**CI**=现有 `.github/workflows/tests.yml`。这是一份待实现矩阵，**不是已通过的测试清单**。
+记号：**R**=`tests/run_tests.py` 双目标回归；**F**=`tests/test_p19_callback_kwargs.py`、`tests/test_p19_protocol.py` 与 P18 frame/lifecycle harness；**P**=Python-target Stage0/1/2 projection ledger 与 `project_stage0.py`；**B**=bootstrap host/lexer/parser、Stage1 preview 与 fixed-point gates；**D**=固定种子 differential properties；**CI**=现有 `.github/workflows/tests.yml`。本矩阵界定行为范围；实际运行结果应以提交验证记录为准。
 
 | ID | 输入/条件 | 必须观测 | 落点 |
 |---|---|---|---|
@@ -212,7 +212,7 @@ host.strict(1, **{"flag":true})         # 仍拒绝宿主展开
 | X02 | forbidden callable fields/descriptor/static/class methods/opaque callable | 保留 P13/P14 既有准入/拒绝边界，不因 kwargs 变 callable | R/F/P |
 | G01 | 所有既有投影/性质 case、P18 boundaries、Stage2==3/双根一致 | 除单独显式登记的 P19 增量外零意外差异；不删测试、不弱化断言 | R/P/B/D/CI |
 
-对 P19 后续实现，现有 `host_keyword_callback`、`callback_star_kwargs` 两个 P18 focused 负例会变成受支持绑定正例；`host_named_argument` 不可只删断言：该输入的 `other` 是否被 Python 接受取决于 fixture 签名，必须改成明确的 Python 绑定错误或使用合法签名正例。保留它们的 coverage lineage，不能把删除计作通过。相应 Stage1 feature expectations 若在 ledger 中必须逐项更新。
+P19-C 已将原 `host_keyword_callback`、`callback_star_kwargs` 两个 P18 focused 负例转为 `tests/test_p19_callback_kwargs.py` 中的双目标正例，保留了覆盖 lineage。`host_named_argument` 仍作为 P18 host-call 绑定错误覆盖，不因 callback kwargs 功能而删除。Stage1/Stage2 的 P19-C 行为另列独立 feature entry，不覆盖 P19-B feature。
 
 以下三项 included runner/projection cases 显式登记行为变化：原两项转为成功，获批新增的第三项仍为运行期负例、仅改变拒绝来源和诊断。须保留原 case ID 与源码，不能因目录名含 `negative` 就删除或排除：
 
@@ -228,15 +228,16 @@ Stage0 的完整旧期望继续取固定 seed 的现有归一化结果，不重�
 
 固定 Stage0 永远不获得 P19 能力。若某既有投影 case 的 Stage1/2 行为确需改变，只能增加**窄而显式**的 delta（准确 case ID、Stage0 原拒绝、Stage1/2 新 stdout/stderr/退出状态/阶段/位置），并更新 checker 与其测试；不得套用通用“命名参数差异忽略”规则。新增功能案例沿用 P18 的 Stage1/2 feature 覆盖模式，不假称 Stage0 支持。所有原 included IDs、fixture 调用、505 个性质样本及 P18 唯一既有 Stage0 delta `p14_negative/module_callback` 保留，不重 pin、不搬到 excluded、不降低原有 projection 合同。
 
-当前 `manifest.json` 已有独立的 `p19_stage0_deltas`（恰为 `p13_negative/python_named`、`p14_negative/module_named`、`p8_negative/python_interop` 三项）及 `p19_stage1_features`（一项）；`checker.py`、`project_stage0.py` 和 checker 测试均校验这些字段，同时保留 P18 的 delta、feature 与 callback arity 检查。原投影仍为 243 个 included IDs、244 次 fixture 调用和 505 个性质样本；新增 P19 feature 单独计数，不减少或掩盖原 inventory。上述是当前实现与门禁状态，不再是待办。
+当前 `manifest.json` 保持独立的 `p19_stage0_deltas`（恰为 `p13_negative/python_named`、`p14_negative/module_named`、`p8_negative/python_interop` 三项），并分别登记 P19-B named-host 与 P19-C callback-kwargs 两个 `p19_stage1_features`；`checker.py`、`project_stage0.py` 和 checker 测试校验这些字段，同时保留 P18 的 delta、feature 与 callback arity 检查。原投影仍为 243 个 included IDs、244 次 fixture 调用和 505 个性质样本；新增 P19 features 单独计数，不减少或掩盖原 inventory。
 
 ## 8. 门禁及本阶段提交边界
 
-下列是冻结时记录的完整 regression/bootstrap/CI 门禁。P19-B 的相关测试已接入；将来实现 P19-C 时，须运行适用的双后端、协议、投影及 Stage1 检查：
+下列是冻结时记录的完整 regression/bootstrap/CI 门禁。P19-B 与 P19-C 的 focused tests 已接入；实施本增量时运行适用的双后端、协议、投影及 Stage1 检查：
 
 ```sh
 python3 tests/bootstrap/check_supported_runtime.py
 python3 tests/test_p18_callbacks.py
+python3 tests/test_p19_callback_kwargs.py
 python3 tests/run_tests.py
 python3 tests/test_differential_properties.py --seed 0x5EED2026
 python3 tests/bootstrap/checker.py
@@ -248,21 +249,21 @@ python3 tests/bootstrap/pending_snapshot_gate.py
 python3 -m unittest tests.test_bootstrap_smoke -v
 ```
 
-固定 Stage0 为 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9`。提交前 pending snapshot 验证实际待提交源码的双根 Stage2/3 固定点；clean-clone gate 在提交前只验证旧 HEAD，不能冒充待提交源码证据。提交后须记录实际新 HEAD 的 clean-clone 结果。现有 CI 保持 Python 3.11/3.12 × JDK 17/21 回归矩阵、JDK17 上两版 Python 自举，以及独立 VS Code 检查/打包；本机单环境结果不等同完整远端矩阵通过。原门禁要求的 P19-B focused suite 已进入 `tests/run_tests.py` 并由 CI 执行，Stage1 feature 由 bootstrap projection job 校验；P19-C 新案例也须接入 CI。
+固定 Stage0 为 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9`。提交前 pending snapshot 验证实际待提交源码的双根 Stage2/3 固定点；clean-clone gate 在提交前只验证旧 HEAD，不能冒充待提交源码证据。提交后须记录实际新 HEAD 的 clean-clone 结果。现有 CI 保持 Python 3.11/3.12 × JDK 17/21 回归矩阵、JDK17 上两版 Python 自举，以及独立 VS Code 检查/打包；本机单环境结果不等同完整远端矩阵通过。P19-B/P19-C focused suites 已进入 `tests/run_tests.py` 并由 CI 执行，Stage1 features 由 bootstrap projection job 校验。
 
 **历史范围（P19-A，2026-10-22）：** 当时仅新增本文件，不改变 SPEC、README、编译器、runtime、bootstrap、tests、projection ledger、CI、Stage0 pin 或 preview launcher。P19-B 后续已按独立授权实现；P19-C 仍未开始。
 
-## 9. 已发现冲突、保守规则与仍待后续落实事项
+## 9. 兼容性冲突、保守规则与落实状态
 
-1. **历史文档冲突已校正。** P19-A 冻结时，SPEC/P18 尚未同步后续能力；当前 SPEC 与 P18 已记录 P19-B 的 Python-host 显式命名调用和 P18 的同步 callback 例外。Python→Latent callback kwargs 仍属 P19-C；Java-host 命名调用、宿主 `*`/`**` 展开、Java-host callback、嵌套/异步/过期 callback 等限制仍保留。P18 callback 例外早于 P19-B，不能误称为 P19 首次支持 callback。
+1. **历史文档冲突已校正。** P19-A 冻结时，SPEC/P18 尚未同步后续能力；当前 SPEC 与 P18 已记录 P19-B 的 Python-host 显式命名调用及 P19-C 的同步 callback kwargs。Java-host 命名调用、宿主 `*`/`**` 展开、Java-host callback、嵌套/异步/过期 callback 等限制仍保留。P18 callback 例外早于 P19-B，不能误称为 P19 首次支持 callback。
 2. **Latent 语法没有 `/`。** P19 只遵守目标 Python 的 positional-only；不为 Latent 回调添加 `/`，不引入新的 Param AST 或 schema 版本。若要增加 Latent positional-only，须另立语言提案，不能塞入 P19-B。
 3. **默认值模型不同是有意保留。** 宿主用 Python 默认值；回调用 Latent 每次调用时默认值。统一桥传值，不统一两种语言的默认生命周期。
 4. **名称可表达性不对称。** Latent 显式名称遵循 `NAME`，callback kwargs 可含任意字符串且由 extra 收集；不能以一致性为由开放宿主 `**`、保留字转义或拒绝合法 callback extra key。
 5. **跨目标一致性不等于任意宿主异常类等价。** 遵守 SPEC §6/P18 的消息/位置与广义 Exception 限定，不许声称 `except TypeError` 等在所有 callback 错误上两端等价。P18-B 发现的 Java unconditional-throw/unreachable-statement 生成问题已由后续 Java generator 修复，并由 `tests/test_audit_java_fixes.py` 覆盖；不是 P19 待办。P19-C 负例仍应选当前生成器可编译的控制流，不能借此扩大范围。
-6. **P19-C 剩余实现项：** 在 callback frame 中传输并严格校验有序 kwargs pairs；由现有 Python/Java-target adapters 将它们转换为 binder 可消费的 named markers，并调用既有 Latent binder；同步更新 Stage1 emitter/prelude、错误类别/源位置与 callback scope 清理；补齐双后端、协议故障、投影和 CI 回归。P19-B 的 Python-host kwargs forwarding、三个 Stage0 deltas、独立 Stage1 feature ledger、投影与 focused tests/CI 已实现。若实现发现当前 binder/协议无法遵守契约，应先报告并修订契约，不用 hidden fallback、放宽 projection 或扩大语法来绕过。
+6. **P19-C 已实现。** Callback frame 传输并严格校验有序 kwargs pairs；Python/Java-target adapters 将其转换为现有 binder 可消费的 named markers；Stage1 emitter/prelude、错误/协议故障测试、双目标 suite、独立 Stage1 feature ledger 与 CI 均已同步。实现未更改固定 Stage0、既有三条 P19-B Stage0 deltas 或语言 AST/schema。若后续发现当前 binder/协议无法遵守冻结契约，应先报告并修订契约，不用 hidden fallback、放宽 projection 或扩大语法来绕过。
 
 ## 10. 明确非目标
 
-**P19-A 原始边界（历史）：** 当时不做 runtime/compiler/test 实现，也不做 P19-B；P19-B 后续已实现。当前仍不包括 Latent→宿主 `*`/`**` 展开、Latent `/` 或新 AST 语法、Python 字符串名称调用语法、Java named arguments/反射参数名绑定、Java SAM/interface callback、通过 Python-target JVM daemon 反向 Java callback、持久/跨线程/异步/deferred callback、callback kwargs（待 P19-C）、callback 注册/撤销 API、任意 callable 自动提升、容器隐藏 callback、callback 返回 callable、循环图或容器 alias identity 新承诺、host sandbox、性能/并发优化、宿主签名反射绑定或 fallback 重试。
+**P19-A 原始边界（历史）：** 当时不做 runtime/compiler/test 实现，也不做 P19-B；P19-B 与 P19-C 后续均已实现。当前仍不包括 Latent→宿主 `*`/`**` 展开、Latent `/` 或新 AST 语法、Python 字符串名称调用语法、Java named arguments/反射参数名绑定、Java SAM/interface callback、通过 Python-target JVM daemon 反向 Java callback、持久/跨线程/异步/deferred callback、callback 注册/撤销 API、任意 callable 自动提升、容器隐藏 callback、callback 返回 callable、循环图或容器 alias identity 新承诺、host sandbox、性能/并发优化、宿主签名反射绑定或 fallback 重试。kwargs 仅在现有活跃同步借用 callback scope 内支持。
 
-**P19-A 阶段的提交边界（历史记录）：** 不扩大 Stage1（仍 Python-only、opt-in、无默认切换，不增加 Java emitter/REPL/AST 或 editor modes），不改变 Stage0/投影原合同，不触碰独立 P17-D 文件与 bug/security 分支，不创建 tag、release 或 PR；当时仅提交本契约并普通 fast-forward 推送。后续 P19-B 已在 main 落地；当前 P19-C 尚未实现。
+**P19-A 阶段的提交边界（历史记录）：** 不扩大 Stage1（仍 Python-only、opt-in、无默认切换，不增加 Java emitter/REPL/AST 或 editor modes），不改变 Stage0/投影原合同，不触碰独立 P17-D 文件与 bug/security 分支，不创建 tag、release 或 PR；当时仅提交本契约并普通 fast-forward 推送。后续 P19-B 已在 main 落地，P19-C 现已按本契约实现并接入门禁。
