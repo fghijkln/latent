@@ -1,3 +1,4 @@
 hypothesis>=6.100,<7
 pytest>=9.0.3
 atheris>=2.3; python_version >= "3.11" and python_version < "3.13" and platform_machine == "x86_64"
+pygments>=2.20.0
