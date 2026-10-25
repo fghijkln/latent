@@ -1756,6 +1756,12 @@ class Gen:
         elif isinstance(s, If):
             self.w(f"if {self.expr(s.cond)}:", s.line, s.source_path)
             self.suite(s.then_body)
+            # flat elif keeps long chains from growing Python indentation
+            while (s.else_body and len(s.else_body) == 1 and
+                   isinstance(s.else_body[0], If)):
+                s = s.else_body[0]
+                self.w(f"elif {self.expr(s.cond)}:", s.line, s.source_path)
+                self.suite(s.then_body)
             if s.else_body:
                 self.w("else:")
                 self.suite(s.else_body)
