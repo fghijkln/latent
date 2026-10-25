@@ -116,6 +116,9 @@ class Gen:
         self.function_nodes = []
         self.scope = None
         self.module_fn_args_name = None
+        self.current_frame_name = "main"
+        self.block_helpers = []
+        self.traceback_names = {}
         self.used_java_names = set()
         self.try_names = {}
         self.try_depth = 0
@@ -161,8 +164,10 @@ class Gen:
                 module_functions.extend(self._nested_functions([stmt]))
 
         def register(fn, parent):
-            self.fn_helpers[id(fn)] = self._fresh_java("_lt_fn_body_" +
-                                                       str(len(self.function_nodes)))
+            helper = self._fresh_java("_lt_fn_body_" +
+                                      str(len(self.function_nodes)))
+            self.fn_helpers[id(fn)] = helper
+            self.traceback_names[helper] = fn.source_name
             self.fn_parents[id(fn)] = parent
             self.function_nodes.append(fn)
             for child in self._nested_functions(fn.body):
@@ -294,6 +299,7 @@ class Gen:
         for module in modules:
             self.w("")
             self.module_init(module, modules)
+        self._emit_block_helpers()
         self.w("")
         self.w("private static final String _LT_SOURCE_FILE = " +
                java_str(self.source_path) + ";")
@@ -315,7 +321,8 @@ class Gen:
         self.w("StackTraceElement frame = frames[i];")
         self.w(f"if (!frame.getClassName().equals({java_str(self.cls)})) continue;")
         self.w("String functionName = frame.getMethodName();")
-        self.w('if (functionName.startsWith("lambda$")) continue;')
+        self.w('if (functionName.startsWith("lambda$") || '
+               'functionName.startsWith("_lt_method_")) continue;')
         self.w("int sourceLine = _lt_sourceLine(frame.getLineNumber());")
         self.w("if (sourceLine <= 0) continue;")
         self.w("if (mappedFrames == 0) {")
@@ -338,6 +345,9 @@ class Gen:
         self.w('functionName = helperLabel.equals("entry") ? "main" : helperLabel;')
         self.ind -= 1
         self.w("}")
+        for helper_name, source_name in sorted(self.traceback_names.items()):
+            self.w(f"if (functionName.equals({java_str(helper_name)})) "
+                   f"functionName = {java_str(source_name)};")
         self.w("System.err.println(\"  at \" + _lt_sourceFile(frame.getLineNumber()) + \":\" + "
                "sourceLine + \" in \" + functionName);")
         self.w("mappedFrames++;")
@@ -388,6 +398,8 @@ class Gen:
             self.w("}")
 
     def module_init(self, module, modules):
+        previous_frame_name = self.current_frame_name
+        self.current_frame_name = module.init_name
         self.w(f"private static void {module.init_name}() throws Exception " + "{")
         self.ind += 1
         self.w(f"if ({module.state_name} == 2) return;")
@@ -416,6 +428,7 @@ class Gen:
         self.w("}")
         self.ind -= 1
         self.w("}")
+        self.current_frame_name = previous_frame_name
 
     def _top_level_helpers(self, stmts, label):
         if len(stmts) <= TOP_LEVEL_HELPER_CHUNK_SIZE:
@@ -427,11 +440,34 @@ class Gen:
         return helpers
 
     def top_level_helper(self, name, stmts):
+        previous_frame_name = self.current_frame_name
+        label = name[len("_lt_top_"):name.rfind("_")]
+        self.current_frame_name = "main" if label == "entry" else label
         self.w(f"private static void {name}() throws Exception " + "{")
         self.ind += 1
-        self.stmtlist(stmts)
+        self.stmtlist(stmts, allow_split=False)
         self.ind -= 1
         self.w("}")
+        self.current_frame_name = previous_frame_name
+
+    def _emit_block_helpers(self):
+        index = 0
+        while index < len(self.block_helpers):
+            name, stmts, scope, frame_name = self.block_helpers[index]
+            index += 1
+            previous_scope = self.scope
+            previous_frame_name = self.current_frame_name
+            self.scope = scope
+            self.current_frame_name = frame_name
+            parameters = "LtRt.Env _env" if scope is not None else ""
+            self.w("")
+            self.w(f"private static void {name}({parameters}) " + "{")
+            self.ind += 1
+            self.stmtlist(stmts, allow_split=False)
+            self.ind -= 1
+            self.w("}")
+            self.scope = previous_scope
+            self.current_frame_name = previous_frame_name
 
     def classfield(self, cd):
         names = ", ".join(java_str(m.name) for m in cd.methods)
@@ -486,7 +522,9 @@ class Gen:
 
     def fndef(self, fn):
         previous_scope = self.scope
+        previous_frame_name = self.current_frame_name
         self.scope = self._fn_context(fn)
+        self.current_frame_name = fn.source_name
         helper = self.fn_helpers[id(fn)]
         self.w(f"static Object {helper}(LtRt.Env _closure, Object[] _args) " + "{",
                fn.line, fn.source_path)
@@ -508,6 +546,7 @@ class Gen:
         self.ind -= 1
         self.w("}")
         self.scope = previous_scope
+        self.current_frame_name = previous_frame_name
 
     def _scope_globals(self, stmts):
         out = set()
@@ -578,6 +617,31 @@ class Gen:
         if self.scope is not None and not self._is_global(name):
             return f"_env.setLocal({java_str(name)}, {value});"
         return f"{ident(name)} = {value};"
+
+    # shortcut: leave return and cross-helper loop transfers inline; add a
+    # continuation protocol if such control-heavy blocks exceed javac limits.
+    def _block_split_safe(self, stmt, loop_depth=0):
+        if isinstance(stmt, Return):
+            return False
+        if isinstance(stmt, (Break, Continue)):
+            return loop_depth > 0
+        if isinstance(stmt, FnDef):
+            return True
+        if isinstance(stmt, If):
+            return (all(self._block_split_safe(child, loop_depth)
+                        for child in stmt.then_body) and
+                    all(self._block_split_safe(child, loop_depth)
+                        for child in (stmt.else_body or [])))
+        if isinstance(stmt, (For, While)):
+            return all(self._block_split_safe(child, loop_depth + 1)
+                       for child in stmt.body)
+        if isinstance(stmt, Try):
+            return (all(self._block_split_safe(child, loop_depth)
+                        for child in stmt.body) and
+                    all(self._block_split_safe(child, loop_depth)
+                        for child in stmt.handler))
+        return isinstance(stmt, (Assign, ExprStmt, GlobalStmt, NonlocalStmt,
+                                 Throw))
 
     def _stmt_terminates(self, stmt, loop_control=False):
         if isinstance(stmt, (Return, Throw)):
@@ -735,11 +799,37 @@ class Gen:
         self.stmtlist(stmts, loop_control=True)
         self.ind -= 1
 
-    def stmtlist(self, stmts, loop_control=False):
-        for stmt in stmts:
+    def _queue_block_helper(self, stmts):
+        name = self._fresh_java(f"_lt_block_{len(self.block_helpers)}")
+        frame_name = self.current_frame_name
+        self.block_helpers.append((name, list(stmts), self.scope, frame_name))
+        self.traceback_names[name] = frame_name
+        return name
+
+    def stmtlist(self, stmts, loop_control=False, allow_split=True):
+        index = 0
+        while index < len(stmts):
+            end = index
+            if allow_split and self._block_split_safe(stmts[index]):
+                while (end < len(stmts) and
+                       end - index < TOP_LEVEL_HELPER_CHUNK_SIZE and
+                       self._block_split_safe(stmts[end])):
+                    end += 1
+                if end - index == TOP_LEVEL_HELPER_CHUNK_SIZE:
+                    segment = stmts[index:end]
+                    helper = self._queue_block_helper(segment)
+                    call = f"{helper}(_env);" if self.scope is not None \
+                        else f"{helper}();"
+                    self.w(call)
+                    if self._always_terminates(segment, loop_control):
+                        break
+                    index = end
+                    continue
+            stmt = stmts[index]
             self.stmt(stmt)
             if self._stmt_terminates(stmt, loop_control):
                 break
+            index += 1
 
     def expr(self, e):
         if isinstance(e, Num):

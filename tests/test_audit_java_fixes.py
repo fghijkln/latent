@@ -643,6 +643,80 @@ class TestAuditJavaFixes(unittest.TestCase):
             self.assertEqual(result.stdout, "ok\n" * 1808)
             self.assertEqual(result.stderr, "")
 
+    def test_large_nested_block_is_split_and_runs_on_both_targets(self):
+        source_text = ("fn large_nested():\n    if true:\n" +
+                       "        say 1\n" * 8191 + "large_nested()\n")
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-large-nested-block-") as tmp:
+            temp = Path(tmp)
+            source = temp / "large_nested_block.lt"
+            source.write_text(source_text, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0,
+                                     f"{target}: {result.stderr[-1600:]!r}")
+                    self.assertEqual(result.stdout, "1\n" * 8191)
+                    self.assertEqual(result.stderr, "")
+
+    def test_nested_block_chunks_preserve_control_flow_and_scope(self):
+        lines = ["fn flow():", "    total = 0", "    for i in range(3):"]
+        lines.extend("        total = total + 1" for _ in range(65))
+        lines.extend(("        if i == 0:", "            continue",
+                      "        if i == 1:", "            break", "    try:"))
+        for _ in range(64):
+            lines.extend(("        if true:", '            throw "caught"'))
+        lines.extend(("    catch error:", "        total = total + 1",
+                      "    return total", "fn outer():", "    count = 0",
+                      "    fn bump():", "        nonlocal count"))
+        lines.extend("        count = count + 1" for _ in range(65))
+        lines.extend(("    bump()", "    return count", "say flow()",
+                      "say outer()"))
+        source_text = "\n".join(lines) + "\n"
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-nested-control-chunks-") as tmp:
+            temp = Path(tmp)
+            source = temp / "nested_control_chunks.lt"
+            source.write_text(source_text, encoding="utf-8")
+            for target in TARGETS:
+                with self.subTest(target=target):
+                    outdir = temp / target
+                    outdir.mkdir()
+                    result = p18.compile_and_run(source, target, outdir)
+                    self.assertEqual(result.returncode, 0,
+                                     f"{target}: {result.stderr[-1600:]!r}")
+                    self.assertEqual(result.stdout, "131\n65\n")
+                    self.assertEqual(result.stderr, "")
+
+    def test_chunked_java_tracebacks_use_latent_function_names(self):
+        cases = (
+            ("direct_traceback.lt",
+             'fn direct():\n    throw "boom"\ndirect()\n', "direct", 2),
+            ("chunked_traceback.lt",
+             'fn chunked():\n' +
+             '    if true:\n        throw "boom"\n' * 64 +
+             'chunked()\n', "chunked", 3),
+        )
+        with tempfile.TemporaryDirectory(
+                prefix="latent-audit-chunked-tracebacks-") as tmp:
+            temp = Path(tmp)
+            for filename, source_text, function_name, source_line in cases:
+                source = temp / filename
+                source.write_text(source_text, encoding="utf-8")
+                for target in TARGETS:
+                    with self.subTest(filename=filename, target=target):
+                        outdir = temp / (Path(filename).stem + "-" + target)
+                        outdir.mkdir()
+                        result = p18.compile_and_run(source, target, outdir)
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertRegex(
+                            result.stderr,
+                            rf"{re.escape(filename)}:{source_line} in "
+                            rf"{re.escape(function_name)}$")
+                        self.assertNotIn("_lt_block_", result.stderr)
+
     def test_large_module_init_uses_java_helpers(self):
         module_source = "".join(
             'try:\n    say "module"\ncatch error:\n    say error\n'
