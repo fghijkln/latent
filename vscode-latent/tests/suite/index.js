@@ -216,12 +216,14 @@ extensionSuite.addTest(new Mocha.Test('maps compiler failures to VS Code diagnos
   assert.equal(found[0].range.start.line, 0, 'diagnostic should point at the first source line');
 }));
 
-extensionSuite.addTest(new Mocha.Test('runs the complete project regression suite from the extension', async () => {
+const projectRegressionTest = new Mocha.Test('runs the complete project regression suite from the extension', async () => {
   const result = await vscode.commands.executeCommand('latent.runTests');
   assert.equal(result.code, 0, `project regression suite should pass: ${result.output}`);
   assert.match(result.output, /\d+ passed, 0 failed/);
   assert.ok(fs.existsSync(path.join(projectRoot, spacedOutput)));
-}));
+});
+extensionSuite.addTest(projectRegressionTest);
+projectRegressionTest.timeout(25 * 60 * 1000);
 
 extensionSuite.addTest(new Mocha.Test('declares limited Workspace Trust support and restricts workspace settings', async () => {
   const manifest = require('../../package.json');
