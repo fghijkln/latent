@@ -35,7 +35,9 @@ _LT_VF_BINARY = {
 _LT_VF_UNARY = {"_wv_neg": (float,)}
 # Transitions that may reach host objects: no host int in, none out.
 _LT_VF_OUTPUT_ONLY = ("_wv_wgetattr", "_wv_wcall", "_wv_index", "_wv_call",
-                      "_wv_len", "_wv_int", "_wv_range", "_wv_iter")
+                      "_wv_len", "_wv_int", "_wv_range", "_wv_iter",
+                      "_wv_keys", "_wv_push", "_wv_wsetattr",
+                      "_wv_wsetindex", "_wv_supercall")
 
 
 class LatentVerifierError(TypeError):
@@ -47,8 +49,38 @@ def _lt_vf_is_native(v, latent_types):
     return t in _LT_VF_SCALARS or t in latent_types
 
 
+def _lt_vf_has_host_int(v):
+    pending = [v]
+    seen = set()
+    while pending:
+        current = pending.pop()
+        if isinstance(current, bool):
+            continue
+        if isinstance(current, int):
+            return True
+        if not isinstance(current, (list, tuple, dict, set, frozenset)):
+            continue
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        if isinstance(current, dict):
+            for key, value in dict.items(current):
+                pending.append(key)
+                pending.append(value)
+        elif isinstance(current, list):
+            pending.extend(list.__iter__(current))
+        elif isinstance(current, tuple):
+            pending.extend(tuple.__iter__(current))
+        elif isinstance(current, set):
+            pending.extend(set.__iter__(current))
+        else:
+            pending.extend(frozenset.__iter__(current))
+    return False
+
+
 def _lt_vf_check_out(name, v):
-    if type(v) is int:
+    if _lt_vf_has_host_int(v):
         raise LatentVerifierError(
             "verifier: %s produced a host int, which is not a Latent value" % name)
     return v
@@ -66,6 +98,9 @@ def _lt_vf_reject(name, fn, args, kinds):
 
 def _lt_vf_wrap_binary(name, fn, allowed, latent_types):
     def checked(a, b):
+        if _lt_vf_has_host_int(a) or _lt_vf_has_host_int(b):
+            raise LatentVerifierError(
+                "verifier: %s got a host int operand" % name[4:])
         if _lt_vf_is_native(a, latent_types) and _lt_vf_is_native(b, latent_types):
             if (type(a), type(b)) not in allowed:
                 _lt_vf_reject(name, fn, (a, b), "(%s, %s)"
@@ -74,10 +109,7 @@ def _lt_vf_wrap_binary(name, fn, allowed, latent_types):
             if type(r) not in _LT_VF_SCALARS:
                 raise LatentVerifierError(
                     "verifier: %s returned a non-Latent value" % name[4:])
-            return r
-        if type(a) is int or type(b) is int:
-            raise LatentVerifierError(
-                "verifier: %s got a host int operand" % name[4:])
+            return _lt_vf_check_out(name, r)
         return _lt_vf_check_out(name, fn(a, b))
     checked.__name__ = name
     return checked
@@ -85,6 +117,9 @@ def _lt_vf_wrap_binary(name, fn, allowed, latent_types):
 
 def _lt_vf_wrap_unary(name, fn, allowed, latent_types):
     def checked(a):
+        if _lt_vf_has_host_int(a):
+            raise LatentVerifierError(
+                "verifier: %s got a host int operand" % name[4:])
         if _lt_vf_is_native(a, latent_types):
             if type(a) not in allowed:
                 _lt_vf_reject(name, fn, (a,), _lt_vf_kind(a))
@@ -92,10 +127,7 @@ def _lt_vf_wrap_unary(name, fn, allowed, latent_types):
             if type(r) not in _LT_VF_SCALARS:
                 raise LatentVerifierError(
                     "verifier: %s returned a non-Latent value" % name[4:])
-            return r
-        if type(a) is int:
-            raise LatentVerifierError(
-                "verifier: %s got a host int operand" % name[4:])
+            return _lt_vf_check_out(name, r)
         return _lt_vf_check_out(name, fn(a))
     checked.__name__ = name
     return checked
@@ -104,7 +136,11 @@ def _lt_vf_wrap_unary(name, fn, allowed, latent_types):
 def _lt_vf_wrap_output(name, fn):
     def checked(*args, **kwargs):
         for a in args:
-            if type(a) is int:
+            if _lt_vf_has_host_int(a):
+                raise LatentVerifierError(
+                    "verifier: %s got a host int operand" % name[4:])
+        for a in kwargs.values():
+            if _lt_vf_has_host_int(a):
                 raise LatentVerifierError(
                     "verifier: %s got a host int operand" % name[4:])
         return _lt_vf_check_out(name, fn(*args, **kwargs))

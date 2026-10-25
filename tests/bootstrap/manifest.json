@@ -1799,6 +1799,7 @@
       "test_audit_namespace.py",
       "test_audit_playground.py",
       "test_audit_python_fixes.py",
+      "test_audit_verifier.py",
       "test_bootstrap_host.py",
       "test_bootstrap_lexer.py",
       "test_bootstrap_parser.py",
@@ -3040,6 +3041,10 @@
     "test_module/test_audit_python_fixes.py": {
       "disposition": "include",
       "reason": "Focused cross-backend numeric, keyword identifier and native attribute access regressions, run by the complete regression suite."
+    },
+    "test_module/test_audit_verifier.py": {
+      "disposition": "include",
+      "reason": "Independent recursive value-domain verifier tests and end-to-end R1 rejection checks, run by the complete regression suite without changing fixed-Stage0 deltas."
     },
     "test_module/test_audit_error_messages.py": {
       "disposition": "include",

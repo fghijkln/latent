@@ -19,6 +19,18 @@ class _Obj:
     pass
 
 
+class _HostInt(int):
+    pass
+
+
+class _HostList(list):
+    pass
+
+
+class _HostDict(dict):
+    pass
+
+
 def _ns():
     # Deliberately naive "implementations": Python operators, no guards,
     # exactly the fallback that produced R1.
@@ -32,6 +44,9 @@ def _ns():
         "_wv_neg": lambda a: -a,
         "_wv_wgetattr": lambda h, attr: getattr(h, attr),
         "_wv_index": lambda v, k: v[int(k)],
+        "_wv_keys": lambda _m: [7],
+        "_wv_push": lambda xs, x: xs.append(x),
+        "_wv_wsetattr": lambda h, attr, value: setattr(h, attr, value),
         "_LtObj": _Obj,
     }
 
@@ -75,6 +90,46 @@ class VerifierContractTests(unittest.TestCase):
         with self.assertRaises(verifier.LatentVerifierError):
             self.ns["_wv_index"]((7, 8), 0.0)  # host tuple yields a raw int
 
+    def test_nested_host_ints_are_rejected_on_input_and_output(self):
+        values = ([7], {"x": (7,)}, {"x": {"nested": [7]}},
+                  {"x": {_HostInt(7)}}, {7: "host-int-key"},
+                  _HostList([_HostInt(7)]),
+                  _HostDict({"x": _HostList([7])}))
+        for value in values:
+            with self.subTest(value=value):
+                with self.assertRaises(verifier.LatentVerifierError):
+                    self.ns["_wv_add"](value, [])
+
+        class _Host:
+            value = {"nested": ([1.0, _HostInt(7)],)}
+
+        with self.assertRaises(verifier.LatentVerifierError):
+            self.ns["_wv_wgetattr"](_Host(), "value")
+        with self.assertRaises(verifier.LatentVerifierError):
+            self.ns["_wv_keys"](None)
+        with self.assertRaises(verifier.LatentVerifierError):
+            self.ns["_wv_push"]([], {"nested": (7,)})
+        with self.assertRaises(verifier.LatentVerifierError):
+            self.ns["_wv_wsetattr"](_Host(), "value", [7])
+
+    def test_cyclic_native_container_walk_is_bounded(self):
+        value = []
+        value.append(value)
+        result = self.ns["_wv_add"](value, [])
+        self.assertIs(result[0], value)
+
+        deep = []
+        for _ in range(1500):
+            deep = [deep]
+        deep_result = self.ns["_wv_add"](deep, [])
+        self.assertIs(deep_result[0], deep[0])
+
+        deep_with_int = [7]
+        for _ in range(1500):
+            deep_with_int = [deep_with_int]
+        with self.assertRaises(verifier.LatentVerifierError):
+            self.ns["_wv_add"](deep_with_int, [])
+
     def test_verifier_is_self_contained(self):
         import ast
         with open(verifier.__file__, encoding="utf-8") as f:
@@ -95,7 +150,8 @@ class VerifierInstalledEndToEndTests(unittest.TestCase):
                     "x = -true\nsay x.__class__\n"):
             r = self.run_latent(src)
             self.assertFalse(r["ok"], src)
-            self.assertIn("LatentVerifierError", r.get("stderr", ""), src)
+            self.assertIn("Latent runtime error:", r.get("stderr", ""), src)
+            self.assertNotIn("<class 'int'>", r.get("stdout", ""), src)
 
     def test_violation_is_catchable_like_other_runtime_errors(self):
         r = self.run_latent('try:\n    say true + 1\ncatch e:\n    say "caught"\n')
