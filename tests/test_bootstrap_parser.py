@@ -393,10 +393,17 @@ class BootstrapParserTests(unittest.TestCase):
     def test_repository_latent_sources_match_fixed_stage0_parser(self):
         roots = (ROOT / "bootstrap", ROOT / "tests", ROOT / "cookbook")
         sources = []
+        # Fixed Stage0 predates signed64 bounds; these P20 range-error fixtures
+        # are intentionally projected through Stage1 and Stage2 only.
+        stage0_incompatible = {
+            "tests/bootstrap/p20_int64_negative_overflow.lt",
+            "tests/bootstrap/p20_int64_positive_overflow.lt",
+        }
         for base in roots:
             for path in sorted(base.rglob("*.lt")):
-                sources.append((path.relative_to(ROOT).as_posix(),
-                                path.read_text(encoding="utf-8")))
+                label = path.relative_to(ROOT).as_posix()
+                if label not in stage0_incompatible:
+                    sources.append((label, path.read_text(encoding="utf-8")))
         self.assertGreater(len(sources), 250)
         with tempfile.TemporaryDirectory(prefix="p15-parser-corpus-") as temporary_name:
             temporary = Path(temporary_name)
