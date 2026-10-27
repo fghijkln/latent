@@ -441,6 +441,10 @@ public class LtRt {
         }
         if (x instanceof String) {
             String text = trimIntWhitespace((String) x);
+            // BigInteger accepts any Unicode decimal digit (Character.digit);
+            // Latent int() parses ASCII decimal only, matching the Python backend.
+            if (!isAsciiDecimalLiteral(text))
+                throw new ArgumentError("invalid literal for int()");
             try { return new BigInteger(text).longValueExact(); }
             catch (NumberFormatException e) {
                 throw new ArgumentError("invalid literal for int()");
@@ -456,6 +460,16 @@ public class LtRt {
         while (start < end && isIntWhitespace(value.charAt(start))) start++;
         while (end > start && isIntWhitespace(value.charAt(end - 1))) end--;
         return value.substring(start, end);
+    }
+
+    static boolean isAsciiDecimalLiteral(String text) {
+        int start = text.startsWith("+") || text.startsWith("-") ? 1 : 0;
+        if (start == text.length()) return false;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
     }
 
     static boolean isIntWhitespace(char c) {

@@ -299,6 +299,21 @@ say ignorecase.value
 '''
         self.run_both_targets("audit_int_subclass", source, "IGNORECASE\n2\n")
 
+    def test_int_string_parsing_accepts_ascii_decimal_only(self):
+        # Java's BigInteger accepts any Unicode Nd digit; Latent int() is
+        # ASCII decimal on both targets (AUDIT-1027 D2).
+        source = """\
+for text in ["\u0663", "\uff15", "1\u0662", "-\u0661", "+", "-", ""]:
+    try:
+        say int(text)
+    catch error:
+        say error
+say int(" +42 ")
+say int("-0009223372036854775808")
+"""
+        expected = "invalid literal for int()\n" * 7 + "42\n-9223372036854775808\n"
+        self.run_both_targets("audit_int_ascii", source, expected)
+
     def test_signed64_literal_overflow_is_a_compile_time_error(self):
         cases = (
             "say 9223372036854775808\n",
