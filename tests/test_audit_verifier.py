@@ -47,7 +47,7 @@ def _ns():
         "_wv_neg": lambda a: -a,
         "_wv_wgetattr": getattr,
         "_wv_index": lambda v, k: v[int(k)],
-        "_wv_keys": lambda _m: [7],
+        "_wv_keys": lambda _m: [1 << 63],
         "_wv_push": lambda xs, x: xs.append(x),
         "_wv_wsetattr": setattr,
         "_LtObj": _Obj,
@@ -59,9 +59,12 @@ class VerifierContractTests(unittest.TestCase):
         self.ns = verifier._lt_vf_install(_ns())
 
     def test_legal_transitions_pass_through(self):
+        self.assertEqual(self.ns["_wv_add"](1, 2), 3)
         self.assertEqual(self.ns["_wv_add"](1.0, 2.0), 3.0)
+        self.assertEqual(self.ns["_wv_add"](1, 0.5), 1.5)
         self.assertEqual(self.ns["_wv_add"]("a", "b"), "ab")
         self.assertEqual(self.ns["_wv_add"]([1.0], [2.0]), [1.0, 2.0])
+        self.assertEqual(self.ns["_wv_neg"](2), -2)
         self.assertEqual(self.ns["_wv_neg"](2.5), -2.5)
         self.assertEqual(self.ns["_wv_pow"](2.0, 3.0), 8.0)
 
@@ -87,33 +90,41 @@ class VerifierContractTests(unittest.TestCase):
         with self.assertRaises(verifier.LatentVerifierError):
             self.ns["_wv_mul"](True, 3.0)
 
-    def test_host_int_never_crosses_a_transition(self):
+    def test_int64_overflow_and_precision_loss_are_rejected(self):
+        self.assertEqual(self.ns["_wv_index"]((7, 8), 0.0), 7)
         with self.assertRaises(verifier.LatentVerifierError):
-            self.ns["_wv_wgetattr"](1, "__class__")
+            self.ns["_wv_add"]((1 << 63) - 1, 1)
         with self.assertRaises(verifier.LatentVerifierError):
-            self.ns["_wv_index"]((7, 8), 0.0)  # host tuple yields a raw int
+            self.ns["_wv_neg"](-(1 << 63))
+        with self.assertRaises(verifier.LatentVerifierError):
+            self.ns["_wv_add"](9007199254740993, 0.5)
 
-    def test_nested_host_ints_are_rejected_on_input_and_output(self):
-        values = ([7], {"x": (7,)}, {"x": {"nested": [7]}},
-                  {"x": {_HostInt(7)}}, {7: "host-int-key"},
-                  _HostList([_HostInt(7)]),
-                  _HostDict({"x": _HostList([7])}))
+    def test_nested_out_of_range_ints_are_rejected_on_input_and_output(self):
+        self.assertFalse(verifier._lt_vf_has_host_int([7]))
+        self.assertFalse(verifier._lt_vf_has_host_int(_HostInt(1 << 63)))
+        values = ([1 << 63], {"x": (1 << 63,)},
+                  {"x": {"nested": [1 << 63]}},
+                  {"x": {1 << 63}},
+                  {1 << 63: "host-int-key"},
+                  _HostList([1 << 63]),
+                  _HostDict({"x": _HostList([1 << 63])}))
         for value in values:
             with self.subTest(value=value):
+                self.assertTrue(verifier._lt_vf_has_host_int(value))
                 with self.assertRaises(verifier.LatentVerifierError):
-                    self.ns["_wv_add"](value, [])
+                    self.ns["_wv_push"]([], value)
 
         class _Host:
-            value = {"nested": ([1.0, _HostInt(7)],)}
+            value = {"nested": ([1.0, 1 << 63],)}
 
         with self.assertRaises(verifier.LatentVerifierError):
             self.ns["_wv_wgetattr"](_Host(), "value")
         with self.assertRaises(verifier.LatentVerifierError):
             self.ns["_wv_keys"](None)
         with self.assertRaises(verifier.LatentVerifierError):
-            self.ns["_wv_push"]([], {"nested": (7,)})
+            self.ns["_wv_push"]([], {"nested": (1 << 63,)})
         with self.assertRaises(verifier.LatentVerifierError):
-            self.ns["_wv_wsetattr"](_Host(), "value", [7])
+            self.ns["_wv_wsetattr"](_Host(), "value", [1 << 63])
 
     def test_cyclic_native_container_walk_is_bounded(self):
         value = []
@@ -127,7 +138,7 @@ class VerifierContractTests(unittest.TestCase):
         deep_result = self.ns["_wv_add"](deep, [])
         self.assertIs(deep_result[0], deep[0])
 
-        deep_with_int = [7]
+        deep_with_int = [1 << 63]
         for _ in range(1500):
             deep_with_int = [deep_with_int]
         with self.assertRaises(verifier.LatentVerifierError):

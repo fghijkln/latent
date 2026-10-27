@@ -269,7 +269,7 @@ class ExprStmt(Node):
 class Num(Node):
     def __init__(self, value, **kw):
         super().__init__(**kw)
-        self.value = value  # float
+        self.value = value  # signed 64-bit int or float64
 
 
 class Str(Node):

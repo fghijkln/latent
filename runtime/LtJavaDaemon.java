@@ -230,6 +230,12 @@ public class LtJavaDaemon {
     static int toIndex(Object k, int n) {
         if (!(k instanceof Number))
             throw new RuntimeException("index must be a number");
+        if (k instanceof Long) {
+            long value = (Long) k;
+            if (value < -(long) n || value >= (long) n)
+                throw new RuntimeException("index out of range: " + value);
+            return value < 0 ? (int) (value + n) : (int) value;
+        }
         double d = ((Number) k).doubleValue();
         if (d != Math.rint(d))
             throw new RuntimeException("index must be an integer");
@@ -299,7 +305,7 @@ public class LtJavaDaemon {
         if (v instanceof JReflect.JObj) {
             long id = nextId++;
             objs.put(id, (JReflect.JObj) v);
-            return Collections.singletonMap("__jref", (double) id);
+            return Collections.singletonMap("__jref", id);
         }
         if (v instanceof JReflect.JClass)
             return Collections.singletonMap("__jclass",
@@ -319,6 +325,6 @@ public class LtJavaDaemon {
             }
             return Collections.singletonMap("__map", entries);
         }
-        return v; // Double / String / Boolean / null
+        return v; // Long / Double / String / Boolean / null
     }
 }

@@ -1,6 +1,9 @@
 """Latent parser: recursive descent -> AST (nodes.py)."""
 from nodes import *
 
+INT64_MAX = (1 << 63) - 1
+INT64_MIN_MAGNITUDE = 1 << 63
+
 
 class ParseError(Exception):
     pass
@@ -356,6 +359,11 @@ class Parser:
     def factor(self):
         if self.peek().kind == "-":
             t = self.next()
+            number = self.peek()
+            if (number.kind == "NUM" and type(number.value) is int and
+                    number.value == INT64_MIN_MAGNITUDE):
+                self.next()
+                return Num(-INT64_MIN_MAGNITUDE, line=t.line, col=t.col)
             return UnOp("-", self.factor(), line=t.line, col=t.col)
         return self.power()
 
@@ -421,6 +429,8 @@ class Parser:
     def primary(self):
         t = self.peek()
         if t.kind == "NUM":
+            if type(t.value) is int and t.value > INT64_MAX:
+                self.err("integer literal outside signed 64-bit range", t)
             self.next()
             return Num(t.value, line=t.line, col=t.col)
         if t.kind == "STR":

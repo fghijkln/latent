@@ -102,6 +102,21 @@ def differential_fixture(reference_lexer, cases: list[tuple[str, bool]]) -> str:
             ]
             for token_index, token in enumerate(tokens):
                 token_value = token.value
+                token_kind = token.kind
+                if token.kind == "NUM":
+                    source_line = source.split("\n")[token.line - 1]
+                    start = token.col - 1
+                    end = start
+                    while (end < len(source_line) and
+                           (source_line[end].isdecimal() or
+                            source_line[end] == ".")):
+                        end += 1
+                    raw = source_line[start:end]
+                    if "." not in raw:
+                        token_kind = "INT"
+                        token_value = int("".join(
+                            str(unicodedata.decimal(character))
+                            for character in raw))
                 if token_value is None:
                     value_expression = "nil"
                 elif isinstance(token_value, str):
@@ -109,12 +124,21 @@ def differential_fixture(reference_lexer, cases: list[tuple[str, bool]]) -> str:
                 else:
                     value_expression = repr(token_value)
                 token_name = f"{result_name}_tokens[{token_index}]"
-                checks = (
-                    ("kind", latent_string(token.kind), "kind"),
-                    ("value", value_expression, "value"),
+                checks = [
+                    ("kind", latent_string(token_kind), "kind"),
                     ("line", str(token.line), "line"),
                     ("col", str(token.col), "column"),
-                )
+                ]
+                if token.kind == "NUM":
+                    numeric_text = str(token_value)
+                    if isinstance(token_value, float) and token_value.is_integer():
+                        numeric_text = str(int(token_value))
+                    lines += [
+                        f'if str({token_name}["value"]) != {latent_string(numeric_text)}:',
+                        f'    throw "value mismatch in case {case_index}, token {token_index}"',
+                    ]
+                else:
+                    checks.append(("value", value_expression, "value"))
                 for field, expression, label in checks:
                     lines += [
                         f'if {token_name}["{field}"] != {expression}:',

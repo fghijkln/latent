@@ -45,6 +45,8 @@ def cls_name(stem):
 
 
 def java_num(v):
+    if type(v) is int:
+        return str(v) + "L"
     if math.isnan(v):
         return "Double.NaN"
     if math.isinf(v):

@@ -80,8 +80,10 @@ fn run_desugar_checks():
     assert_equal(tree["stmts"][6]["type"], "NonlocalStmt", "nonlocal preserved")
     class_node = tree["stmts"][7]
     assert_equal(class_node["parent"]["display"], "lib.Base", "qualified class parent preserved")
-    assert_equal(class_node["methods"][0]["param_specs"][1]["default"]["value"], 2, "parameter default traversed")
-    assert_equal(class_node["methods"][0]["params"][1]["default"]["value"], 2, "source-form default remains transformed")
+    if str(class_node["methods"][0]["param_specs"][1]["default"]["value"]) != "2":
+        throw "parameter default must survive desugar"
+    if str(class_node["methods"][0]["params"][1]["default"]["value"]) != "2":
+        throw "source-form default must survive desugar"
     try_node = class_node["methods"][0]["body"][0]
     assert_equal(try_node["type"], "Try", "try/catch preserved")
     assert_equal(try_node["body"][0]["type"], "Throw", "throw preserved")
@@ -264,7 +266,9 @@ fn main():
     assert_equal(specs[0]["name"], "a", "normalized required parameter name")
     assert_equal(params[1]["type"], "DefaultParam", "default positional node")
     assert_equal(params[1]["name"], "b", "default positional name")
-    assert_equal(params[1]["default"]["value"], 3, "default positional expression")
+    if str(params[1]["default"]["value"]) != "3":
+        throw "default positional expression must preserve its value"
+    assert_equal(params[1]["default"]["is_int"], true, "default positional expression is an int literal")
     assert_equal(params[1]["line"], 1, "default positional source line")
     assert_equal(params[1]["col"], 12, "default positional name column")
     assert_equal(params[2]["type"], "RestParam", "rest parameter node")
@@ -273,7 +277,9 @@ fn main():
     assert_equal(params[3]["default"], nil, "required keyword-only marker")
     assert_equal(params[3]["col"], 24, "required keyword-only name column")
     assert_equal(params[4]["type"], "KeywordOnlyParam", "default keyword-only node")
-    assert_equal(params[4]["default"]["value"], 2, "keyword-only default expression")
+    if str(params[4]["default"]["value"]) != "2":
+        throw "keyword-only default expression must preserve its value"
+    assert_equal(params[4]["default"]["is_int"], true, "keyword-only default is an int literal")
     assert_equal(params[4]["col"], 30, "default keyword-only name column")
     assert_equal(params[5]["type"], "ExtraParam", "extra keyword parameter node")
     assert_equal(params[5]["col"], 39, "extra parameter marker column")

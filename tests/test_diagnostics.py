@@ -55,7 +55,7 @@ class DiagnosticTests(unittest.TestCase):
             separators=(",", ":")).encode("utf-8")).hexdigest()
         self.assertEqual(
             tree_digest,
-            "488f03fb04b840ae8eaa32efa559ba1161bbbfc34760fd49bf936590dad3c750")
+            "a5a3e187946e0631aa12d2f6bb87ddab747b08b267b783cc4b0bb7c9b76569fc")
         node_types = {node["node"] for node in _nodes(document["tree"])}
         self.assertTrue({"SetAttr", "Dot", "If", "While"} <= node_types)
         for node in _nodes(document["tree"]):

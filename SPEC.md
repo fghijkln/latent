@@ -20,7 +20,7 @@
 ## 1. 设计目标
 
 1. **直观**：缩进块、无分号、无括号 print、心智模型接近 Python 但更少仪式。
-2. **代码少**：表达式导向（函数末表达式即返回值）、字符串插值、单数字类型。
+2. **代码少**：表达式导向（函数末表达式即返回值）、字符串插值、两种数值类型。
 3. **双后端**：同一份源码，`latent a.lt -t py` / `-t java`，语义一致。
 4. **按需加载 Python 与 Java** 是一等语法：`py "numpy"` / `java "java.util.ArrayList"`
    一行即得懒加载句柄，双后端语义一致（用不上的那一端解释器/JVM 根本不启动）。
@@ -29,11 +29,14 @@
 
 - 缩进敏感（空格，禁止 tab）。`#` 单行注释。
 - 关键字：`fn if elif else while for in and or not true false nil py java say return break continue global nonlocal import as super`
-- 字面量：数字 `42` `3.14`（**全语言只有一种数字类型：float64**），
+- 字面量：整数 `42`（signed 64-bit `int`）和带小数点的数字 `3.14`（`float64`），
   字符串 `".."` `'..'`（支持 `$name` / `${expr}` 插值），`true false nil`，
   列表 `[1, 2]`，映射 `{"a": 1}`（键为字符串）。
 - 运算符：`+ - * / % **`，比较 `== != < <= > >=`，逻辑 `and or not`，
   `=` 赋值，`.` 属性访问（用于 py / java 句柄），`=>` 单行函数。
+- 整数字面量范围为 `-9223372036854775808` 到 `9223372036854775807`；超界在编译期报错。
+  `-0` 是整数零；需要带符号的浮点零时写 `-0.0`。没有小数点的整数字面量保持精确，
+  `3.`, `.5` 和 `3.14` 都是 `float64`。
 
 ## 3. 语法（当前工作树）
 
@@ -285,7 +288,8 @@ throw "boom"           # 主动抛错；catch 到的 e 就是 "boom"
 5. 未被 `catch` 的运行期错误在 Python 与 Java 后端均尽量显示原始 `.lt` 文件、
    行号和 Latent 调用栈；暂不提供运行期列号。映射不可用时安全回退到后端原生
    traceback/堆栈。此诊断不改变 `catch e` 的消息字符串、跨生态异常原文或失败退出状态。
-6. 未捕获的 Latent `throw` 在两后端均显示为 `Exception`，Latent 列表/字符串下标越界
+6. 未捕获的 Latent `throw` 在两后端均显示为 `Exception`，整数算术/转换溢出均显示为
+   `OverflowError: int64 overflow`；Latent 列表/字符串下标越界
    显示为 `IndexError`。`range` 的非数值端点显示为 `TypeError`，并使用统一文案
    `number expected, got <repr>`；非有限端点和超限长度继续显示为 `ArgumentError`，
    且两后端使用相同诊断文案。跨生态异常仍保留对方运行时的原文。
@@ -312,8 +316,12 @@ say a                    # 打印远端对象：[1 2 3]
    自动转回本地值；dict/list 的**子类实例**（如 `Counter`、`defaultdict`、
    `namedtuple`）保持为句柄以免方法丢失；tuple 转为 list（两端 `say` 一致）。
 4. Python 出错 → Java 端抛运行时异常（带 Python 堆栈信息）；Python 后端直接透出。
-5. **互操作数值规则**：调用 Python 时，整数值（`3.0`）以 `int` 传入、
-   非整数值保持 `float`（numpy 等库要求真正的 int；双后端一致）。
+5. **互操作数值规则**：Latent `int` 以精确 Python `int` 传入；只有精确 built-in `int` 返回值
+   会转为 Latent `int`，`int` 子类（如 `enum.IntEnum`/`re.RegexFlag`）保留为不透明宿主对象；
+   `float64` 中可精确表示的
+   整数值（如 `3.0`）仍按兼容规则以 Python `int` 传入，负零保留为 `float`；其他值以
+   `float` 传入。Python 返回的 `int` 在 signed 64-bit 范围内转为 Latent `int`，范围外报
+   `OverflowError: int64 overflow`，不得先转 float64。容器递归保留这两种数值类型。
 6. **远端算术**：`+ - * / % **` 作用于远端对象时，通过 Python dunder
   （`__add__` 等）委托执行，双后端一致；`say` 远端对象走远端 `str()`。
 7. **`==` 在远端对象上是 identity 比较**（同一句柄才相等），双后端一致；
@@ -365,12 +373,14 @@ for x in a:                      # Java List/数组可迭代
      一个数组形参的组件类型转换。任一实参无法转换的候选不适用。
    - **转换等级**：精确匹配（等级 0）指不需值转换即可按 §8.4 的直接传递规则传入，
      包括 `Double`→`double`/`Double`、`String`→`String`、`Boolean`→`boolean`/`Boolean`、
-     Latent 列表/映射→`List`/`Map`，以及 Java 对象句柄解包后实际类与形参类相同。无损
+     `int`→`long`/`Long`、Latent 列表/映射→`List`/`Map`，以及 Java 对象句柄解包后实际类与形参类相同。无损
      转换（等级 1）指受支持的转换保留 Latent 可观察值；传递 Java 对象引用（包括装箱后
      的 Latent 标量引用）到其超类或接口、以及将 `nil` 传给引用形参均属无损。`Double`
      到数值形参仅在目标类型可精确表示该值且转回 Latent `float64` 后保持原值时无损：
      整数目标要求有限整数且在目标范围内，`-0.0` 因符号丢失按有损处理；`float` 目标要求
      往返后的 `float64` 与原值相同（保留有符号零，`NaN` 只要求往返后仍为 `NaN`）。
+     Latent `int` 到较窄整数类型仅在目标范围内转换；到 `float`/`double` 仅在该整数可
+     精确表示时转换，否则该候选不适用。新型 `int` 不会因 Java 重载匹配而被静默舍入。
      其他受支持但会改变值或容器身份的转换为有损转换（等级 2），包括精度丢失、截断及
      Latent 列表转 Java 数组；不受支持的转换不构成候选。
    - **选择**：逐参数比较候选。等级较低者较优；等级相同时，若对应形参均为引用类型且
@@ -389,14 +399,16 @@ for x in a:                      # Java List/数组可迭代
      基本类型使用其 Java 名称，引用类型使用二进制名，数组类型在元素类型名后加 `[]`，
      变长形参加 `...`，构造器成员名为 `<init>`。候选签名按 Unicode 码点字典序排列。
 4. **边界类型规则**（双后端一致）：
-   - Latent → Java：`Double` 按目标形参转 `int/long/double/...`（向零截断，
-     同 `int()`）；`String`→`String`；`Boolean`→`boolean`；Latent 列表/映射→`List`/`Map`
+   - Latent → Java：`int` 精确映射为 `long`，仅按 §8.3 的无损规则适配其他数字形参；
+     `Double` 按既有转换等级适配 `int/long/double/...`（向零截断，同 `int()`）；
+     `String`→`String`；`Boolean`→`boolean`；Latent 列表/映射→`List`/`Map`
      形参直接传、`T[]` 形参逐个转换；其他按 `Object`。
-   - Java → Latent：只有标量跨边界——整数类型→`Double`、`String`→`String`、
+   - Java → Latent：只有标量跨边界——`Byte`/`Short`/`Integer`/`Long`→Latent `int`，
+     `Float`/`Double`→`float64`、`String`→`String`、
      `boolean`→`Boolean`、`char`→单字符字符串、`void`/`null`→`nil`；
-     **其他一切 Java 对象（List/Map/数组/普通对象）保持为不透明句柄**，
+     **其他一切 Java 对象（List/Map/数组/普通对象及非标准 `Number`）保持为不透明句柄**，
      可继续在其上调方法/读字段/`say`（走 Java 侧格式化）/`for` 迭代。
-     例外：`BigDecimal`/`BigInteger` 存在的意义就是不当 double，保留为句柄。
+     `BigDecimal`/`BigInteger` 与其他非标准 `Number` 不会被强制转成 `double`，避免静默精度损失。
 5. `say` Java 句柄：类句柄打印 `<class com.foo.Bar>`；对象句柄尽量按
    Latent 风格打印（List/Map/数组展开元素），否则走 `toString()`。
 6. **`==` 在 java 句柄上是 identity 比较**（同一对象才相等），与 py 句柄一致；
@@ -421,12 +433,29 @@ for x in a:                      # Java List/数组可迭代
 | 函数 | 说明 |
 |---|---|
 | `say x` | 打印（语句形式） |
-| `len(x)` | 列表/映射/字符串长度（字符串按 Unicode 码点计数） |
-| `range(n)` / `range(a, b)` | 有限数端点，返回列表 `[a, b)`；结果最多 1,000,000 项，超限报 `ArgumentError` |
+| `len(x)` | 列表/映射/字符串长度，返回 `int`（字符串按 Unicode 码点计数） |
+| `range(n)` / `range(a, b)` | 有限数端点（float 向零截断），返回 int 列表 `[a, b)`；结果最多 1,000,000 项，超限报 `ArgumentError` |
 | `str(x)` | 转字符串（同 say 的格式化） |
-| `int(x)` | 有限数向零截断取整；`NaN` 与无穷报 `int() of <repr>` |
+| `int(x)` | 返回 signed 64-bit `int`；int 保持不变，bool 转为 0/1，有限 float 向零截断，十进制字符串解析；超范围报 `OverflowError: int64 overflow` |
 | `push(xs, x)` | 列表末尾追加（原地），返回 `nil` |
 | `keys(m)` | 映射键列表 |
+
+### 数值运算
+
+- `int` 与 `float64` 是不同的运行期类型。列表、映射、函数参数和返回值可保存两者；打印时
+  int 使用精确十进制、float64 使用既有格式化。相同数学值的 int/float64 比较相等；int 与
+  float64 比较按其精确数值比较，不先把 int 舍入成 float64。
+- 两个 int 的 `+`、`-`、`*` 和非负整数幂返回 int；结果超出 signed 64-bit 范围时抛出
+  `OverflowError: int64 overflow`。`-` 取负 `-9223372036854775808` 同样溢出。int `%` int
+  返回 int，余数符号与除数相同。`/` 对任何数值组合都返回 float64；int/int 除法不是整除，
+  操作数按 binary64 运算规则转换，结果按 IEEE-754 round-to-nearest-even 舍入；除数为零时
+  抛出 `ZeroDivisionError: division by zero`。int 的负指数幂返回 float64，但只有底数和指数都
+  能被 float64 精确表示时才执行，否则抛出 `TypeError: cannot mix int and float without precision loss`。
+- int 与 float64 的算术混算及幂运算时，只有 int 可被 float64 精确表示才允许运算；否则抛出
+  `TypeError: cannot mix int and float without precision loss`。比较不受此限制并保持精确。
+  `bool` 不属于数值类型。float64 的 NaN、无穷、负零及既有浮点运算规则保持不变。
+- 下标接受 int，或有限且为整数值的 float64；所有整数 literal 均在编译期检查范围，
+  `int(x)`、索引、互操作和运算均不得因中间转成 float64 而丢失精度。
 
 ## 10. 编译器架构
 
@@ -519,7 +548,8 @@ P2 模块与 P3 继承一起包含在 v0.6.0 中。双后端维持相同的模�
 - v0.12.0 发布语义不含可变参数或实参展开；v0.13.0/P10 引入两者，v0.13.3/P11 加入仅限关键字形参。`py` 内联代码块（`py:` 多行 Python 源码）仍不支持。
 - Java 基本类型类名（`java "int"`）不支持；`int[]` 等数组类名不支持
   （用 `java.util.ArrayList` 或 Latent 原生列表代替）。
-- Java 后端数字目前全 `Double`；`int(x)` 语义两端一致即可。
+- Python 后端以 Python `int`/`float` 表示 Latent int/float64；Java 后端以 `Long`/`Double`
+  表示。整数字面量和 JSON-RPC 互操作均保留 signed 64-bit 精度；浮点字面量继续默认 float64。
 - 性能：Java 后端装箱 + 守护进程 JSON-RPC 只求正确，不求快。
 
 以上涉及 P13/P14 的 callable 准入边界按 v0.13.5 发布基线描述；当前开发线的 P18/P19-B/P19-C 例外见上。详见 [P13 设计与实现记录](P13_INTEROP_BOUND_METHOD_VALUES_DESIGN.md)、[P14 设计与实现记录](P14_MODULE_AND_STATIC_FUNCTION_VALUES_DESIGN.md)、[P18 契约](P18_SYNCHRONOUS_CALLBACKS.md) 与 [P19 契约](docs/P19_A_NAMED_ARGUMENTS_CONTRACT.md)。

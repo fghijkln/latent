@@ -431,6 +431,38 @@ public class JReflect {
                 return new Conversion(value, target == Double.class ? 0 : 1);
             return null;
         }
+        if (value instanceof Long) {
+            long n = (Long) value;
+            if (target == long.class || target == Long.class)
+                return new Conversion(value, 0);
+            if (target == int.class || target == Integer.class) {
+                if (n < Integer.MIN_VALUE || n > Integer.MAX_VALUE) return null;
+                return new Conversion((int) n, 1);
+            }
+            if (target == short.class || target == Short.class) {
+                if (n < Short.MIN_VALUE || n > Short.MAX_VALUE) return null;
+                return new Conversion((short) n, 1);
+            }
+            if (target == byte.class || target == Byte.class) {
+                if (n < Byte.MIN_VALUE || n > Byte.MAX_VALUE) return null;
+                return new Conversion((byte) n, 1);
+            }
+            if (target == double.class || target == Double.class) {
+                double d = (double) n;
+                if (new java.math.BigDecimal(d).compareTo(
+                        java.math.BigDecimal.valueOf(n)) != 0) return null;
+                return new Conversion(d, 1);
+            }
+            if (target == float.class || target == Float.class) {
+                float f = (float) n;
+                if (new java.math.BigDecimal((double) f).compareTo(
+                        java.math.BigDecimal.valueOf(n)) != 0) return null;
+                return new Conversion(f, 1);
+            }
+            if (!target.isPrimitive() && target.isInstance(value))
+                return new Conversion(value, target == Long.class ? 0 : 1);
+            return null;
+        }
         if (value instanceof String) {
             if (target == String.class) return new Conversion(value, 0);
             if ((target == char.class || target == Character.class) &&
@@ -500,11 +532,15 @@ public class JReflect {
         if (v == null) return null;
         if (v instanceof Double || v instanceof String || v instanceof Boolean)
             return v;
+        if (v instanceof Byte || v instanceof Short ||
+                v instanceof Integer || v instanceof Long)
+            return ((Number) v).longValue();
+        if (v instanceof Float) return ((Float) v).doubleValue();
         // BigDecimal/BigInteger exist precisely to NOT be doubles;
         // keep them as opaque objects so their methods keep working.
         if (v instanceof java.math.BigDecimal || v instanceof java.math.BigInteger)
             return new JObj(v);
-        if (v instanceof Number) return ((Number) v).doubleValue();
+        if (v instanceof Number) return new JObj(v);
         if (v instanceof Character) return String.valueOf((char) (Character) v);
         if (v instanceof JObj || v instanceof JClass) return v;
         return new JObj(v);
@@ -516,7 +552,11 @@ public class JReflect {
         if (v == null) return null;
         if (v instanceof Double || v instanceof String || v instanceof Boolean)
             return v;
-        if (v instanceof Number) return ((Number) v).doubleValue();
+        if (v instanceof Byte || v instanceof Short ||
+                v instanceof Integer || v instanceof Long)
+            return ((Number) v).longValue();
+        if (v instanceof Float) return ((Float) v).doubleValue();
+        if (v instanceof Number) return new JObj(v);
         if (v instanceof Character) return String.valueOf((char) (Character) v);
         if (v instanceof JObj || v instanceof JClass) return v;
         if (v instanceof List) {

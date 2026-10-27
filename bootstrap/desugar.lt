@@ -400,6 +400,8 @@ fn expression(expression_node):
         converted = node(kind, expression_node)
         if kind == "Num" or kind == "Bool":
             converted["value"] = expression_node["value"]
+            if kind == "Num":
+                converted["is_int"] = expression_node["is_int"]
         elif kind == "Name":
             converted["id"] = expression_node["id"]
         return success(converted)

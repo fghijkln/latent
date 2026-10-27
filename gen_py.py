@@ -100,15 +100,50 @@ def _wv_say(v):
     _builtins.print(_wv_repr(v))
 
 
-def _wv_num(v):
-    if not isinstance(v, float):
-        raise TypeError("number expected, got " + _wv_repr(v))
+_WV_INT64_MIN = -(1 << 63)
+_WV_INT64_MAX = (1 << 63) - 1
+
+
+def _wv_is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _wv_is_number(v):
+    return _wv_is_int(v) or isinstance(v, float)
+
+
+def _wv_checked_int(v):
+    if v < _WV_INT64_MIN or v > _WV_INT64_MAX:
+        raise OverflowError("int64 overflow")
     return v
 
 
+def _wv_float_exact(v):
+    if isinstance(v, float):
+        return v
+    if _wv_is_int(v):
+        result = float(v)
+        if int(result) == v:
+            return result
+        raise TypeError("cannot mix int and float without precision loss")
+    raise TypeError("number expected, got " + _wv_repr(v))
+
+
+def _wv_numeric_pair(a, b):
+    if not _wv_is_number(a) or not _wv_is_number(b):
+        raise TypeError("bad numeric operands: %s, %s" %
+                        (_wv_repr(a), _wv_repr(b)))
+    if _wv_is_int(a) and _wv_is_int(b):
+        return a, b
+    return _wv_float_exact(a), _wv_float_exact(b)
+
+
 def _wv_add(a, b):
-    if isinstance(a, float) and isinstance(b, float):
-        return a + b
+    if _wv_is_int(a) and _wv_is_int(b):
+        return _wv_checked_int(a + b)
+    if _wv_is_number(a) and _wv_is_number(b):
+        x, y = _wv_numeric_pair(a, b)
+        return x + y
     if isinstance(a, str) and isinstance(b, str):
         return a + b
     if isinstance(a, list) and isinstance(b, list):
@@ -122,8 +157,11 @@ def _wv_add(a, b):
 
 
 def _wv_sub(a, b):
-    if isinstance(a, float) and isinstance(b, float):
-        return a - b
+    if _wv_is_int(a) and _wv_is_int(b):
+        return _wv_checked_int(a - b)
+    if _wv_is_number(a) and _wv_is_number(b):
+        x, y = _wv_numeric_pair(a, b)
+        return x - y
     if not _wv_host_operation(a, b):
         _wv_bad_numeric_operands(a, b, "-")
     try:
@@ -133,8 +171,11 @@ def _wv_sub(a, b):
 
 
 def _wv_mul(a, b):
-    if isinstance(a, float) and isinstance(b, float):
-        return a * b
+    if _wv_is_int(a) and _wv_is_int(b):
+        return _wv_checked_int(a * b)
+    if _wv_is_number(a) and _wv_is_number(b):
+        x, y = _wv_numeric_pair(a, b)
+        return x * y
     if not _wv_host_operation(a, b):
         _wv_bad_numeric_operands(a, b, "*")
     try:
@@ -144,10 +185,13 @@ def _wv_mul(a, b):
 
 
 def _wv_div(a, b):
-    if isinstance(a, float) and isinstance(b, float):
+    if _wv_is_number(a) and _wv_is_number(b):
         if b == 0:
             raise ZeroDivisionError("division by zero")
-        return a / b
+        if _wv_is_int(a) and _wv_is_int(b):
+            return float(a) / float(b)
+        x, y = _wv_numeric_pair(a, b)
+        return x / y
     if not _wv_host_operation(a, b):
         _wv_bad_numeric_operands(a, b, "/")
     try:
@@ -157,10 +201,15 @@ def _wv_div(a, b):
 
 
 def _wv_mod(a, b):
-    if isinstance(a, float) and isinstance(b, float):
+    if _wv_is_int(a) and _wv_is_int(b):
         if b == 0:
             raise ZeroDivisionError("division by zero")
         return a % b
+    if _wv_is_number(a) and _wv_is_number(b):
+        x, y = _wv_numeric_pair(a, b)
+        if y == 0:
+            raise ZeroDivisionError("division by zero")
+        return x % y
     if not _wv_host_operation(a, b):
         _wv_bad_numeric_operands(a, b, "%")
     try:
@@ -170,29 +219,42 @@ def _wv_mod(a, b):
 
 
 def _wv_pow(a, b):
-    if isinstance(a, float) and isinstance(b, float):
-        if a < 0 and _math.isfinite(b) and not b.is_integer():
-            return _math.nan
-        # Java Math.pow returns NaN for unit bases with non-finite exponents;
-        # Python math.pow returns 1.0 for these cases.
-        if abs(a) == 1.0 and not _math.isfinite(b):
-            return _math.nan
-        # Java Math.pow returns infinity for zero to a negative power and on
-        # overflow; Python's float power raises instead.
-        if a == 0 and b < 0:
-            odd_negative = (_math.copysign(1.0, a) < 0 and b.is_integer() and
-                            int(abs(b)) % 2 == 1)
-            return -_math.inf if odd_negative else _math.inf
+    if _wv_is_int(a) and _wv_is_int(b):
+        if b >= 0:
+            result, factor, exponent = 1, a, b
+            while exponent:
+                if exponent & 1:
+                    result = _wv_checked_int(result * factor)
+                exponent >>= 1
+                if exponent:
+                    factor = _wv_checked_int(factor * factor)
+            return result
+        x, y = _wv_float_exact(a), _wv_float_exact(b)
+    elif _wv_is_number(a) and _wv_is_number(b):
+        x, y = _wv_numeric_pair(a, b)
+    else:
+        if not _wv_host_operation(a, b):
+            _wv_bad_numeric_operands(a, b, "**")
         try:
-            return _math.pow(a, b)
-        except OverflowError:
-            odd_negative = (a < 0 and b.is_integer() and
-                            int(abs(b)) % 2 == 1)
-            return -_math.inf if odd_negative else _math.inf
-    if not _wv_host_operation(a, b):
-        _wv_bad_numeric_operands(a, b, "**")
+            return _wv_pyresult(a ** b)
+        except Exception:
+            raise TypeError("bad ** operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
+    if x < 0 and _math.isfinite(y) and not y.is_integer():
+        return _math.nan
+    # Java Math.pow returns NaN for unit bases with non-finite exponents.
+    if abs(x) == 1.0 and not _math.isfinite(y):
+        return _math.nan
+    # Java Math.pow returns infinity for zero to a negative power and on
+    # overflow; Python's float power raises instead.
+    if x == 0 and y < 0:
+        odd_negative = (_math.copysign(1.0, x) < 0 and y.is_integer() and
+                        int(abs(y)) % 2 == 1)
+        return -_math.inf if odd_negative else _math.inf
     try:
-        return _wv_pyresult(a ** b)
+        return _math.pow(x, y)
+    except OverflowError:
+        odd_negative = (x < 0 and y.is_integer() and int(abs(y)) % 2 == 1)
+        return -_math.inf if odd_negative else _math.inf
     except Exception:
         raise TypeError("bad ** operands: %s, %s" % (_wv_repr(a), _wv_repr(b)))
 
@@ -200,6 +262,8 @@ def _wv_pow(a, b):
 def _wv_neg(a):
     if isinstance(a, float):
         return -a
+    if _wv_is_int(a):
+        return _wv_checked_int(-a)
     if not _wv_host_operand(a):
         _wv_bad_numeric_operands(a, None, "unary -")
     try:
@@ -209,13 +273,14 @@ def _wv_neg(a):
 
 
 def _wv_eq(a, b):
-    if isinstance(a, float) and isinstance(b, float):
-        if _math.isnan(a) or _math.isnan(b):
+    if _wv_is_number(a) and _wv_is_number(b):
+        if ((isinstance(a, float) and _math.isnan(a)) or
+                (isinstance(b, float) and _math.isnan(b))):
             return False
         return a == b
     # remote objects (py handles): identity comparison, matches Java backend
-    if not isinstance(a, (bool, float, str, list, dict)) or \
-       not isinstance(b, (bool, float, str, list, dict)):
+    if not isinstance(a, (bool, int, float, str, list, dict)) or \
+       not isinstance(b, (bool, int, float, str, list, dict)):
         return a is b
     if type(a) is not type(b):
         return False
@@ -230,8 +295,9 @@ def _wv_eq(a, b):
 
 
 def _wv_cmp(a, b):
-    if isinstance(a, float) and isinstance(b, float):
-        if _math.isnan(a) or _math.isnan(b):
+    if _wv_is_number(a) and _wv_is_number(b):
+        if ((isinstance(a, float) and _math.isnan(a)) or
+                (isinstance(b, float) and _math.isnan(b))):
             return _math.nan
         return (a > b) - (a < b)
     if isinstance(a, str) and isinstance(b, str):
@@ -241,23 +307,33 @@ def _wv_cmp(a, b):
 
 def _wv_len(x):
     if isinstance(x, (list, dict, str)):
-        return _builtins.float(_builtins.len(x))
+        return _builtins.len(x)
     raise TypeError("len() of " + _wv_repr(x))
 
 
 # shortcut: cap eager ranges at 1M items; revisit when ranges become lazy.
 def _wv_range(a, b=None):
     if b is None:
-        a, b = 0.0, a
-    lo, hi = _wv_num(a), _wv_num(b)
-    if not _math.isfinite(lo) or not _math.isfinite(hi):
-        raise _LtArgumentError("range() arguments must be finite")
-    start, stop = int(_math.trunc(lo)), int(_math.trunc(hi))
+        a, b = 0, a
+
+    def endpoint(value):
+        if _wv_is_int(value):
+            return value
+        if not isinstance(value, float):
+            raise TypeError("number expected, got " + _wv_repr(value))
+        if not _math.isfinite(value):
+            raise _LtArgumentError("range() arguments must be finite")
+        truncated = int(_math.trunc(value))
+        if truncated < _WV_INT64_MIN or truncated > _WV_INT64_MAX:
+            raise _LtArgumentError("range() arguments outside signed 64-bit range")
+        return truncated
+
+    start, stop = endpoint(a), endpoint(b)
     length = stop - start
     if length > 1_000_000:
         raise _LtArgumentError(
             "range() result too large (maximum 1000000 items)")
-    return [_builtins.float(i) for i in _builtins.range(start, stop)]
+    return list(_builtins.range(start, stop))
 
 
 def _wv_str(x):
@@ -266,13 +342,25 @@ def _wv_str(x):
 
 def _wv_int(x):
     if isinstance(x, bool):
-        return float(int(x))
+        return int(x)
+    if _wv_is_int(x):
+        return x
     if isinstance(x, float):
         if not _math.isfinite(x):
             raise _LtArgumentError("int() of " + _wv_repr(x))
-        return float(_math.trunc(x))
+        return _wv_checked_int(_math.trunc(x))
     if isinstance(x, str):
-        return float(int(x.strip()))
+        text = x.strip(" \t\n\r\f\v")
+        digits = text[1:] if text.startswith(("+", "-")) else text
+        if not digits or any(ch < "0" or ch > "9" for ch in digits):
+            raise _LtArgumentError("invalid literal for int()")
+        significant = digits.lstrip("0") or "0"
+        limit = "9223372036854775808" if text.startswith("-") else "9223372036854775807"
+        if (len(significant) > 19 or
+                (len(significant) == 19 and significant > limit)):
+            raise OverflowError("int64 overflow")
+        normalized = ("-" if text.startswith("-") else "") + significant
+        return _builtins.int(normalized, 10)
     raise TypeError("int() of " + _wv_repr(x))
 
 
@@ -290,7 +378,8 @@ def _wv_keys(m):
 
 
 def _wv_idx(k, n):
-    if isinstance(k, bool) or not isinstance(k, float) or not k.is_integer():
+    if isinstance(k, bool) or not (_wv_is_int(k) or
+                                   (isinstance(k, float) and k.is_integer())):
         raise TypeError("index must be an integer")
     i = int(k)
     if i < 0:
@@ -367,11 +456,11 @@ _WV_PYRESULT_IN_PROGRESS = object()
 
 
 def _wv_pyresult(v, _memo=None, _depth=0):
-    """Normalize host ints recursively at the Python interop boundary."""
+    """Normalize host values without losing signed 64-bit integer precision."""
     if _builtins.isinstance(v, _builtins.bool):
         return v
-    if _builtins.isinstance(v, _builtins.int):
-        return _builtins.float(_builtins.int.__int__(v))
+    if _builtins.type(v) is _builtins.int:
+        return _wv_checked_int(v)
     if _builtins.type(v) not in (
             _builtins.list, _builtins.tuple, _builtins.dict,
             _builtins.set, _builtins.frozenset):
@@ -479,7 +568,7 @@ def _wv_callback_to_latent(value, ancestors=None, depth=0):
     if isinstance(value, bool) or value is None or isinstance(value, (float, str)):
         return value
     if isinstance(value, int):
-        return float(value)
+        return _wv_checked_int(int.__int__(value))
     if type(value) not in (list, tuple, dict):
         return value
     if ancestors is None:
@@ -987,6 +1076,8 @@ def _jvm_encode(v):
         return {"__jclass": v._name}
     if isinstance(v, bool):
         return v
+    if _wv_is_int(v):
+        return _wv_checked_int(v)
     if isinstance(v, float):
         if _math.isnan(v):
             return {"__num": "nan"}
@@ -1033,7 +1124,7 @@ def _jvm_decode(v):
     if isinstance(v, list):
         return [_jvm_decode(x) for x in v]
     if isinstance(v, int) and not isinstance(v, bool):
-        return float(v)  # the language has one number type: float64
+        return _wv_checked_int(v)
     return v
 
 
@@ -1162,7 +1253,7 @@ def _wv_jclass(name):
 
 def _wv_non_handle_type(h):
     """Return Latent's display type for values without host handles."""
-    native_types = {type(None): "nil", bool: "bool", int: "num", float: "num",
+    native_types = {type(None): "nil", bool: "bool", int: "int", float: "num",
                     str: "str", list: "list", dict: "map"}
     kind = native_types.get(type(h))
     if kind is not None:
@@ -1188,7 +1279,7 @@ def _wv_host_operation(a, b):
 def _wv_bad_numeric_operands(a, b, op):
     values = (a,) if op == "unary -" else (a, b)
     for value in values:
-        if isinstance(value, float):
+        if _wv_is_number(value):
             continue
         kind = _wv_non_handle_type(value)
         if kind is not None:
@@ -1938,6 +2029,8 @@ class Gen:
         raise Exception(f"py backend: unexpected {type(e).__name__}")
 
     def num(self, v):
+        if type(v) is int:
+            return str(v)
         if v != v:
             return f'{self._host_builtins()}.float("nan")'
         if v == float("inf"):

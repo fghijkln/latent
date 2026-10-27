@@ -415,6 +415,12 @@ fn parse_multiplicative(p):
 fn parse_factor(p):
     if current(p)["kind"] == "-":
         operator = advance(p)
+        if current(p)["kind"] == "NUM_MIN_MAG":
+            advance(p)
+            result = node("Num", operator)
+            result["value"] = int("-9223372036854775808")
+            result["is_int"] = true
+            return result
         result = node("UnOp", operator)
         result["op"] = operator["kind"]
         result["operand"] = parse_factor(p)
@@ -502,11 +508,14 @@ fn parse_postfix(p):
 fn parse_primary(p):
     token = current(p)
     kind = token["kind"]
-    if kind == "NUM":
+    if kind == "INT" or kind == "NUM":
         advance(p)
         result = node("Num", token)
         result["value"] = token["value"]
+        result["is_int"] = kind == "INT"
         return result
+    if kind == "NUM_MIN_MAG":
+        fail(p, "integer literal outside signed 64-bit range")
     if kind == "STR":
         advance(p)
         result = node("Str", token)

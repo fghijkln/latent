@@ -1505,6 +1505,9 @@
     "tests_lt": [
       "bootstrap/p19_callback_kwargs_feature.lt",
       "bootstrap/p19_named_feature.lt",
+      "bootstrap/p20_int64_feature.lt",
+      "bootstrap/p20_int64_negative_overflow.lt",
+      "bootstrap/p20_int64_positive_overflow.lt",
       "bootstrap_lexer.lt",
       "bootstrap_parser.lt",
       "class_basic.lt",
@@ -3021,6 +3024,18 @@
       "disposition": "include",
       "reason": "Independent P19-B Latent-to-Python named-call feature fixture, projected through Stage1 and Stage2 only; not an extra legacy runner ID or fixed-Stage0 case."
     },
+    "tests_lt/bootstrap/p20_int64_feature.lt": {
+      "disposition": "include",
+      "reason": "Independent P20 signed-64-bit vertical slice covering exact literals, checked arithmetic, conversions, containers, Python host values, and Java interop through Stage1 and Stage2; not an extra legacy runner ID or fixed-Stage0 case."
+    },
+    "tests_lt/bootstrap/p20_int64_negative_overflow.lt": {
+      "disposition": "include",
+      "reason": "P20 compile-negative fixture pins rejection below the signed-64-bit minimum while preserving the minimum literal; projected through Stage1 and Stage2 only."
+    },
+    "tests_lt/bootstrap/p20_int64_positive_overflow.lt": {
+      "disposition": "include",
+      "reason": "P20 compile-negative fixture pins rejection above the signed-64-bit maximum; projected through Stage1 and Stage2 only."
+    },
     "test_module/test_p19_named_host.py": {
       "disposition": "include",
       "reason": "P19-B focused dual-backend Latent-to-Python named-host regression matrix, invoked through the existing runner auxiliary path."
@@ -3317,6 +3332,42 @@
       }
     }
   },
+  "p20_stage0_deltas": {
+    "phase1_semantics": {
+      "reason": "P20 gives integer-form literals the int64 runtime kind; the pinned Stage0 fixture still parses them as float64, so this positive case is retained and its repr difference is pinned by the exact full-stdout digests.",
+      "fixed_stage0": {
+        "phase": "run",
+        "rc": 0,
+        "stdout_sha256": "13a009095872d9ba052bdf91e5df9e6075d69ea8d8eb80ce4c299e78b9ca7c55",
+        "stderr": "",
+        "output_exists": true
+      },
+      "stage1_stage2": {
+        "phase": "run",
+        "rc": 0,
+        "stdout_sha256": "e5b0accfc506d6b2cb0c5278c22b78deaac06febcb4201a9f03adb885f4c8659",
+        "stderr": "",
+        "output_exists": true
+      }
+    },
+    "java_collections": {
+      "reason": "P20 passes integer-form literals to Java collections as Long rather than Stage0 Double; the retained cookbook fixture keeps its full coverage while pinning the complete output difference.",
+      "fixed_stage0": {
+        "phase": "run",
+        "rc": 0,
+        "stdout_sha256": "fd73184bdad8190c5db9e5cbb9dfd822fc79ffa86261e8f1c1d51726e8dc0ae9",
+        "stderr": "",
+        "output_exists": true
+      },
+      "stage1_stage2": {
+        "phase": "run",
+        "rc": 0,
+        "stdout_sha256": "5a7919b5f45f73275f64c7e478a0af9ee7a1e040cc60a66227e842c5eee4f8bf",
+        "stderr": "",
+        "output_exists": true
+      }
+    }
+  },
   "p19_stage1_features": [
     {
       "name": "p19_named_host_calls",
@@ -3336,6 +3387,44 @@
         "rc": 0,
         "stdout": "stage1-callback-kwargs-ok\n",
         "stderr": ""
+      }
+    }
+  ],
+  "p20_stage1_features": [
+    {
+      "name": "p20_int64_vertical_slice",
+      "source": "tests/bootstrap/p20_int64_feature.lt",
+      "expected": {
+        "phase": "run",
+        "rc": 0,
+        "stdout": "9007199254740993\n-9223372036854775808\n9223372036854775807\n1024\n0.125\n3\n0.5\n2\n[1, 2, 3]\nrange() result too large (maximum 1000000 items)\n[2, -2]\n9\n3\n[9007199254740993, 1]\nfalse\ntrue\n9007199254740993\n2432902008176640000\nint64 overflow\n9007199254740993\n9007199254740993\ncannot mix int and float without precision loss\ncannot mix int and float without precision loss\nIGNORECASE\n2\nint64 overflow\nint64 overflow\nint64 overflow\nint64 overflow\nint64 overflow\ncannot mix int and float without precision loss\ndivision by zero\n",
+        "stderr": ""
+      }
+    },
+    {
+      "name": "p20_int64_positive_overflow",
+      "source": "tests/bootstrap/p20_int64_positive_overflow.lt",
+      "expected": {
+        "phase": "compile",
+        "rc": 1,
+        "stdout": "",
+        "stderr_contains": [
+          "p20_int64_positive_overflow.lt:1:5",
+          "integer literal outside signed 64-bit range"
+        ]
+      }
+    },
+    {
+      "name": "p20_int64_negative_overflow",
+      "source": "tests/bootstrap/p20_int64_negative_overflow.lt",
+      "expected": {
+        "phase": "compile",
+        "rc": 1,
+        "stdout": "",
+        "stderr_contains": [
+          "p20_int64_negative_overflow.lt:1:6",
+          "integer literal outside signed 64-bit range"
+        ]
       }
     }
   ]

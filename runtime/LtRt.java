@@ -14,7 +14,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Latent Java-backend runtime.
  *
  * Value model: every Latent value is an Object
- *   num    -> Double      (the language has a single float64 number type)
+ *   int    -> Long        (signed 64-bit)
+ *   float64 -> Double
  *   str    -> String
  *   bool   -> Boolean
  *   nil    -> null
@@ -30,6 +31,7 @@ public class LtRt {
     public static boolean truthy(Object v) {
         if (v == null) return false;
         if (v instanceof Boolean) return (Boolean) v;
+        if (v instanceof Long) return (Long) v != 0L;
         if (v instanceof Double) {
             double d = (Double) v;
             return d != 0.0;
@@ -43,11 +45,51 @@ public class LtRt {
 
     static double num(Object v, String op) {
         if (v instanceof Double) return (Double) v;
-        throw new RuntimeException("bad " + op + " operand: " + typeName(v));
+        throw new TypeError("bad " + op + " operand: " + typeName(v));
+    }
+
+    static boolean isInt(Object v) { return v instanceof Long; }
+    static boolean isNumber(Object v) { return isInt(v) || v instanceof Double; }
+
+    static long addExact(long a, long b) {
+        try { return Math.addExact(a, b); }
+        catch (ArithmeticException e) { throw new OverflowError("int64 overflow"); }
+    }
+
+    static long subtractExact(long a, long b) {
+        try { return Math.subtractExact(a, b); }
+        catch (ArithmeticException e) { throw new OverflowError("int64 overflow"); }
+    }
+
+    static long multiplyExact(long a, long b) {
+        try { return Math.multiplyExact(a, b); }
+        catch (ArithmeticException e) { throw new OverflowError("int64 overflow"); }
+    }
+
+    static double exactDouble(Object value) {
+        if (value instanceof Double) return (Double) value;
+        if (value instanceof Long) {
+            long integer = (Long) value;
+            double result = (double) integer;
+            if (new BigDecimal(result).compareTo(BigDecimal.valueOf(integer)) == 0)
+                return result;
+            throw new TypeError(
+                "cannot mix int and float without precision loss");
+        }
+        throw new TypeError("number expected, got " + repr(value));
+    }
+
+    static double[] numericPair(Object a, Object b, String op) {
+        if (!isNumber(a))
+            throw new TypeError("bad " + op + " operand: " + typeName(a));
+        if (!isNumber(b))
+            throw new TypeError("bad " + op + " operand: " + typeName(b));
+        return new double[] { exactDouble(a), exactDouble(b) };
     }
 
     static String typeName(Object v) {
         if (v == null) return "nil";
+        if (v instanceof Long) return "int";
         if (v instanceof Double) return "num";
         if (v instanceof String) return "str";
         if (v instanceof Boolean) return "bool";
@@ -66,6 +108,12 @@ public class LtRt {
     public static Object add(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__add__", a, b);
+        if (a instanceof Long && b instanceof Long)
+            return addExact((Long) a, (Long) b);
+        if (isNumber(a) && isNumber(b)) {
+            double[] n = numericPair(a, b, "+");
+            return n[0] + n[1];
+        }
         if (a instanceof Double && b instanceof Double) return (Double) a + (Double) b;
         if (a instanceof String && b instanceof String) return (String) a + (String) b;
         if (a instanceof List && b instanceof List) {
@@ -79,28 +127,49 @@ public class LtRt {
     public static Object sub(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__sub__", a, b);
-        return num(a, "-") - num(b, "-");
+        if (a instanceof Long && b instanceof Long)
+            return subtractExact((Long) a, (Long) b);
+        double[] n = numericPair(a, b, "-");
+        return n[0] - n[1];
     }
 
     public static Object mul(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__mul__", a, b);
-        return num(a, "*") * num(b, "*");
+        if (a instanceof Long && b instanceof Long)
+            return multiplyExact((Long) a, (Long) b);
+        double[] n = numericPair(a, b, "*");
+        return n[0] * n[1];
     }
 
     public static Object div(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__truediv__", a, b);
-        double x = num(a, "/"), y = num(b, "/");
-        if (y == 0) throw new RuntimeException("division by zero");
+        if (!isNumber(a)) throw new TypeError("bad / operand: " + typeName(a));
+        if (!isNumber(b)) throw new TypeError("bad / operand: " + typeName(b));
+        double x, y;
+        if (a instanceof Long && b instanceof Long) {
+            x = ((Long) a).doubleValue();
+            y = ((Long) b).doubleValue();
+        } else {
+            double[] n = numericPair(a, b, "/");
+            x = n[0]; y = n[1];
+        }
+        if (y == 0) throw new ZeroDivisionError("division by zero");
         return x / y;
     }
 
     public static Object mod(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__mod__", a, b);
-        double x = num(a, "%"), y = num(b, "%");
-        if (y == 0) throw new RuntimeException("division by zero");
+        if (a instanceof Long && b instanceof Long) {
+            long x = (Long) a, y = (Long) b;
+            if (y == 0) throw new ZeroDivisionError("division by zero");
+            return Math.floorMod(x, y);
+        }
+        double[] n = numericPair(a, b, "%");
+        double x = n[0], y = n[1];
+        if (y == 0) throw new ZeroDivisionError("division by zero");
         double result = x % y;
         if (result != 0 && (result < 0) != (y < 0)) result += y;
         return result == 0 ? Math.copySign(0.0, y) : result;
@@ -109,7 +178,20 @@ public class LtRt {
     public static Object pow(Object a, Object b) {
         if (a instanceof PyHandle || b instanceof PyHandle)
             return Daemon.inst().binop("__pow__", a, b);
-        double x = num(a, "**"), y = num(b, "**");
+        if (a instanceof Long && b instanceof Long) {
+            long base = (Long) a, exponent = (Long) b;
+            if (exponent >= 0) {
+                long result = 1, factor = base, remaining = exponent;
+                while (remaining != 0) {
+                    if ((remaining & 1L) != 0) result = multiplyExact(result, factor);
+                    remaining >>>= 1;
+                    if (remaining != 0) factor = multiplyExact(factor, factor);
+                }
+                return result;
+            }
+        }
+        double[] n = numericPair(a, b, "**");
+        double x = n[0], y = n[1];
         if (x < 0 && Double.isFinite(y) && y != Math.rint(y))
             return Double.NaN;
         return Math.pow(x, y);
@@ -117,6 +199,11 @@ public class LtRt {
 
     public static Object neg(Object a) {
         if (a instanceof PyHandle) return Daemon.inst().binop("__neg__", a);
+        if (a instanceof Long) {
+            long value = (Long) a;
+            if (value == Long.MIN_VALUE) throw new OverflowError("int64 overflow");
+            return -value;
+        }
         return -num(a, "unary -");
     }
 
@@ -130,11 +217,8 @@ public class LtRt {
         if (a instanceof LtFunction || b instanceof LtFunction) return a == b;
         if (a instanceof JReflect.JClass || b instanceof JReflect.JClass) return a == b;
         if (a instanceof JReflect.JObj || b instanceof JReflect.JObj) return a == b;
-        if (a instanceof Double && b instanceof Double) {
-            double x = (Double) a, y = (Double) b;
-            if (Double.isNaN(x) || Double.isNaN(y)) return false;
-            return x == y;
-        }
+        if (isNumber(a) && isNumber(b))
+            return !unordered(a, b) && compareNumeric(a, b) == 0;
         if (a instanceof String && b instanceof String) return a.equals(b);
         if (a instanceof Boolean && b instanceof Boolean) return a.equals(b);
         if (a instanceof List && b instanceof List) {
@@ -157,20 +241,29 @@ public class LtRt {
     }
 
     static int cmp(Object a, Object b, String op) {
-        if (a instanceof Double && b instanceof Double) {
-            double x = (Double) a, y = (Double) b;
-            if (Double.isNaN(x) || Double.isNaN(y))
-                return 0;
-            return x > y ? 1 : (x < y ? -1 : 0);
-        }
+        if (isNumber(a) && isNumber(b)) return compareNumeric(a, b);
         if (a instanceof String && b instanceof String)
             return JReflect.compareCodePoints((String) a, (String) b);
         throw new RuntimeException("bad " + op + " operands: " + typeName(a) + ", " + typeName(b));
     }
 
     static boolean unordered(Object a, Object b) {
-        return a instanceof Double && b instanceof Double &&
-            (Double.isNaN((Double) a) || Double.isNaN((Double) b));
+        return (a instanceof Double && Double.isNaN((Double) a)) ||
+            (b instanceof Double && Double.isNaN((Double) b));
+    }
+
+    static int compareNumeric(Object a, Object b) {
+        if (a instanceof Long && b instanceof Long)
+            return Long.compare((Long) a, (Long) b);
+        if (a instanceof Double && b instanceof Double) {
+            double x = (Double) a, y = (Double) b;
+            return x > y ? 1 : (x < y ? -1 : 0);
+        }
+        BigDecimal x = a instanceof Long ? BigDecimal.valueOf((Long) a) :
+            new BigDecimal((Double) a);
+        BigDecimal y = b instanceof Long ? BigDecimal.valueOf((Long) b) :
+            new BigDecimal((Double) b);
+        return x.compareTo(y);
     }
     public static boolean lt(Object a, Object b) {
         return !unordered(a, b) && cmp(a, b, "<") < 0;
@@ -293,66 +386,81 @@ public class LtRt {
 
     // ---------------- builtins ----------------
     public static Object len(Object x) {
-        if (x instanceof List) return (double) ((List<?>) x).size();
-        if (x instanceof Map) return (double) ((Map<?, ?>) x).size();
+        if (x instanceof List) return (long) ((List<?>) x).size();
+        if (x instanceof Map) return (long) ((Map<?, ?>) x).size();
         if (x instanceof String) {
             String s = (String) x;
-            return (double) s.codePointCount(0, s.length());
+            return (long) s.codePointCount(0, s.length());
         }
         throw new RuntimeException("len() of " + typeName(x));
     }
 
-    public static Object range(Object n) { return range(0.0, n); }
+    public static Object range(Object n) { return range(0L, n); }
 
-    static double rangeNumber(Object value) {
+    static long rangeNumber(Object value) {
+        if (value instanceof Long) return (Long) value;
         if (!(value instanceof Double))
             throw new TypeError("number expected, got " + repr(value));
-        return (Double) value;
+        double number = (Double) value;
+        if (!Double.isFinite(number))
+            throw new ArgumentError("range() arguments must be finite");
+        try { return new BigDecimal(number).toBigInteger().longValueExact(); }
+        catch (ArithmeticException outsideRange) {
+            throw new ArgumentError("range() arguments outside signed 64-bit range");
+        }
     }
 
     public static Object range(Object a, Object b) {
-        double lo = rangeNumber(a), hi = rangeNumber(b);
-        if (!Double.isFinite(lo) || !Double.isFinite(hi))
-            throw new ArgumentError("range() arguments must be finite");
-        // Convert the exact binary values so small ranges beyond long stay correct.
-        BigInteger start = new BigDecimal(lo).toBigInteger();
-        BigInteger stop = new BigDecimal(hi).toBigInteger();
-        BigInteger length = stop.subtract(start);
+        long start = rangeNumber(a), stop = rangeNumber(b);
+        BigInteger startBig = BigInteger.valueOf(start);
+        BigInteger stopBig = BigInteger.valueOf(stop);
+        BigInteger length = stopBig.subtract(startBig);
         if (length.signum() <= 0) return new ArrayList<>();
         if (length.compareTo(BigInteger.valueOf(MAX_RANGE_ITEMS)) > 0)
             throw new ArgumentError(
                 "range() result too large (maximum 1000000 items)");
         int count = length.intValue();
         List<Object> r = new ArrayList<>(count);
-        try {
-            long first = start.longValueExact();
-            long end = stop.longValueExact();
-            for (long i = first; i < end; i++) r.add((double) i);
-        } catch (ArithmeticException outsideLongRange) {
-            BigInteger i = start;
-            for (int n = 0; n < count; n++, i = i.add(BigInteger.ONE))
-                r.add(i.doubleValue());
-        }
+        long value = start;
+        for (int i = 0; i < count; i++, value++) r.add(value);
         return r;
     }
 
     public static Object strOf(Object x) { return repr(x); }
 
     public static Object toInt(Object x) {
-        if (x instanceof Boolean) return (Boolean) x ? 1.0 : 0.0;
+        if (x instanceof Boolean) return (Boolean) x ? 1L : 0L;
+        if (x instanceof Long) return x;
         if (x instanceof Double) {
             double d = (Double) x;
             if (!Double.isFinite(d))
                 throw new ArgumentError("int() of " + repr(x));
-            return d >= 0 ? Math.floor(d) : Math.ceil(d);
+            if (d < -0x1.0p63 || d >= 0x1.0p63)
+                throw new OverflowError("int64 overflow");
+            return new BigDecimal(d).toBigInteger().longValueExact();
         }
         if (x instanceof String) {
-            try { return (double) Long.parseLong(((String) x).trim()); }
+            String text = trimIntWhitespace((String) x);
+            try { return new BigInteger(text).longValueExact(); }
             catch (NumberFormatException e) {
-                throw new RuntimeException("int() of " + repr(x));
+                throw new ArgumentError("invalid literal for int()");
+            } catch (ArithmeticException e) {
+                throw new OverflowError("int64 overflow");
             }
         }
-        throw new RuntimeException("int() of " + typeName(x));
+        throw new TypeError("int() of " + typeName(x));
+    }
+
+    static String trimIntWhitespace(String value) {
+        int start = 0, end = value.length();
+        while (start < end && isIntWhitespace(value.charAt(start))) start++;
+        while (end > start && isIntWhitespace(value.charAt(end - 1))) end--;
+        return value.substring(start, end);
+    }
+
+    static boolean isIntWhitespace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+            c == '\f' || c == '\u000b';
     }
 
     @SuppressWarnings("unchecked")
@@ -521,6 +629,12 @@ public class LtRt {
     }
     public static class TypeError extends RuntimeException {
         public TypeError(String message) { super(message); }
+    }
+    public static class OverflowError extends RuntimeException {
+        public OverflowError(String message) { super(message); }
+    }
+    public static class ZeroDivisionError extends RuntimeException {
+        public ZeroDivisionError(String message) { super(message); }
     }
     public static Object named(String name, Object value) {
         return new NamedArg(name, value);
@@ -1233,19 +1347,22 @@ public class LtRt {
     }
 
     static int toIndex(Object k, int n) {
-        if (k instanceof Boolean || !(k instanceof Number))
+        if (k instanceof Boolean || !(k instanceof Long || k instanceof Double))
             throw new TypeError("index must be an integer");
-        double d = ((Number) k).doubleValue();
-        if (!Double.isFinite(d) || d != Math.rint(d))
-            throw new TypeError("index must be an integer");
-        if (d < Integer.MIN_VALUE || d > Integer.MAX_VALUE)
-            throw new IndexError("index out of range: " +
-                new java.math.BigDecimal(d).toBigInteger().toString());
-        int i = (int) d;
-        if (i < 0) i += n;
-        if (i < 0 || i >= n)
-            throw new IndexError("index out of range: " + (int) d);
-        return i;
+        BigInteger raw;
+        if (k instanceof Long) {
+            raw = BigInteger.valueOf((Long) k);
+        } else {
+            double d = (Double) k;
+            if (!Double.isFinite(d) || d != Math.rint(d))
+                throw new TypeError("index must be an integer");
+            raw = new BigDecimal(d).toBigInteger();
+        }
+        BigInteger adjusted = raw.signum() < 0
+            ? raw.add(BigInteger.valueOf(n)) : raw;
+        if (adjusted.signum() < 0 || adjusted.compareTo(BigInteger.valueOf(n)) >= 0)
+            throw new IndexError("index out of range: " + raw);
+        return adjusted.intValue();
     }
 
     public static void shutdown() {
@@ -1669,6 +1786,13 @@ public class LtRt {
                         throw Daemon.<RuntimeException>throwOriginal(original);
                     }
                     if (payload.containsKey("error")) {
+                        if (payload.containsKey("error_kind")) {
+                            exactKeys(payload, "error payload", "error", "error_kind");
+                            if (!"int64_overflow".equals(payload.get("error_kind")) ||
+                                    !"int64 overflow".equals(payload.get("error")))
+                                throw new ProtocolException("invalid Python error payload schema");
+                            throw new OverflowError("int64 overflow");
+                        }
                         exactKeys(payload, "error payload", "error");
                         if (!(payload.get("error") instanceof String))
                             throw new ProtocolException("invalid Python error payload schema");
@@ -1879,7 +2003,7 @@ public class LtRt {
                     return result;
                 }
                 if (m.size() == 1 && m.containsKey("__ref"))
-                    return new PyHandle(((Double) m.get("__ref")).longValue());
+                    return new PyHandle(((Number) m.get("__ref")).longValue());
                 if (m.size() == 1 && m.containsKey("__num")) {
                     String k = (String) m.get("__num");
                     if (k.equals("nan")) return Double.NaN;
@@ -1923,6 +2047,7 @@ public class LtRt {
         static String encode(Object v) {
             if (v == null) return "null";
             if (v instanceof Boolean) return v.toString();
+            if (v instanceof Long) return v.toString();
             if (v instanceof Double) {
                 double d = (Double) v;
                 if (Double.isNaN(d)) return "{\"__num\":\"nan\"}";
@@ -2030,12 +2155,19 @@ public class LtRt {
                     } else sb.append(c);
                 }
             }
-            Double number() {
+            Object number() {
                 int j = i;
                 while (j < s.length() && "-+0123456789.eE".indexOf(s.charAt(j)) >= 0) j++;
-                double d = Double.parseDouble(s.substring(i, j));
+                String raw = s.substring(i, j);
                 i = j;
-                return d;
+                if (raw.indexOf('.') < 0 && raw.indexOf('e') < 0 && raw.indexOf('E') < 0) {
+                    try { return Long.parseLong(raw); }
+                    catch (NumberFormatException e) {
+                        throw new IllegalArgumentException(
+                            "JSON integer outside signed 64-bit range");
+                    }
+                }
+                return Double.parseDouble(raw);
             }
         }
     }

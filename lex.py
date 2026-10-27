@@ -85,10 +85,11 @@ def _lex_line(line, lineno, base):
             j = i
             while j < n and (line[j].isdigit() or line[j] == "."):
                 j += 1
+            raw = line[i:j]
             try:
-                val = float(line[i:j])
+                val = float(raw) if "." in raw else int(raw, 10)
             except ValueError:
-                _err(f"bad number {line[i:j]!r}", lineno, col)
+                _err(f"bad number {raw!r}", lineno, col)
             toks.append(Tok("NUM", val, lineno, col))
             i = j
             continue

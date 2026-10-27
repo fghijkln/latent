@@ -1,6 +1,7 @@
 # P15 M3 full-source lexical scan, written in Latent (no host tokenizer).
 import "model.lt" as model
 import "unicode_tables.lt" as unicode
+python_json = py "json"
 
 fn contains_character(text, target):
     for candidate in text:
@@ -133,9 +134,8 @@ fn scan_number(line, start, lineno):
         i = i + 1
     if dot_count > 1 or digit_count == 0 or invalid_digit:
         return {"ok": false, "end": end, "value": 0, "error": "bad number '" + raw + "'", "line": lineno, "col": start + 1}
-    whole = 0
-    fraction = 0
-    scale = 1
+    whole_digits = ""
+    fraction_digits = ""
     after_dot = false
     i = start
     while i < end:
@@ -143,12 +143,38 @@ fn scan_number(line, start, lineno):
         if ch == ".":
             after_dot = true
         elif after_dot:
-            fraction = fraction * 10 + digit_value(ch)
-            scale = scale * 10
+            fraction_digits = fraction_digits + str(digit_value(ch))
         else:
-            whole = whole * 10 + digit_value(ch)
+            whole_digits = whole_digits + str(digit_value(ch))
         i = i + 1
-    return {"ok": true, "end": end, "value": whole + fraction / scale, "error": nil, "line": lineno, "col": start + 1}
+    if dot_count > 0:
+        normalized_whole = ""
+        whole_started = false
+        for digit in whole_digits:
+            if digit != "0":
+                whole_started = true
+            if whole_started:
+                normalized_whole = normalized_whole + digit
+        if normalized_whole == "":
+            normalized_whole = "0"
+        if fraction_digits == "":
+            fraction_digits = "0"
+        value = python_json.loads(normalized_whole + "." + fraction_digits)
+        return {"ok": true, "kind": "NUM", "end": end, "value": value, "error": nil, "line": lineno, "col": start + 1}
+    significant = ""
+    started = false
+    for digit in whole_digits:
+        if digit != "0":
+            started = true
+        if started:
+            significant = significant + digit
+    if significant == "":
+        significant = "0"
+    if len(significant) > 19 or (len(significant) == 19 and significant > "9223372036854775807"):
+        if significant == "9223372036854775808":
+            return {"ok": true, "kind": "NUM_MIN_MAG", "end": end, "value": nil, "error": nil, "line": lineno, "col": start + 1}
+        return {"ok": false, "end": end, "value": nil, "error": "integer literal outside signed 64-bit range", "line": lineno, "col": start + 1}
+    return {"ok": true, "kind": "INT", "end": end, "value": python_json.loads(significant), "error": nil, "line": lineno, "col": start + 1}
 fn scan_string(line, start, lineno):
     quote = line[start]
     i = start + 1
@@ -201,7 +227,7 @@ fn scan_line(line, lineno, base):
             number = scan_number(line, i, lineno)
             if not number["ok"]:
                 return model.failure(tokens, number["error"], number["line"], number["col"])
-            tokens = tokens + [token_at("NUM", number["value"], lineno, col)]
+            tokens = tokens + [token_at(number["kind"], number["value"], lineno, col)]
             i = number["end"]
         elif ch == "\"" or ch == "'":
             string = scan_string(line, i, lineno)

@@ -1,2 +1,2 @@
 O = java "Stage1Overloads"
-O.sameGrade(7)
+O.sameGrade(7.0)

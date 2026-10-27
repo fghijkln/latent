@@ -690,19 +690,19 @@ def add_numeric_boundary_cases(cases):
                  setup=setup)
 
     ambiguous = (
-        ("java_overload.byte_exact_upper_ambiguous", "O.narrow(127)",
+        ("java_overload.byte_exact_upper_ambiguous", "O.narrow(127.0)",
          "java: ambiguous method Stage1Overloads.narrow(1 args): "
          "[Stage1Overloads#narrow(byte), Stage1Overloads#narrow(int)]"),
-        ("java_overload.byte_exact_lower_ambiguous", "O.narrow(-128)",
+        ("java_overload.byte_exact_lower_ambiguous", "O.narrow(-128.0)",
          "java: ambiguous method Stage1Overloads.narrow(1 args): "
          "[Stage1Overloads#narrow(byte), Stage1Overloads#narrow(int)]"),
-        ("java_overload.int_exact_upper_ambiguous", "O.wide(2147483647)",
+        ("java_overload.int_exact_upper_ambiguous", "O.wide(2147483647.0)",
          "java: ambiguous method Stage1Overloads.wide(1 args): "
          "[Stage1Overloads#wide(int), Stage1Overloads#wide(long)]"),
-        ("java_overload.int_exact_lower_ambiguous", "O.wide(-2147483648)",
+        ("java_overload.int_exact_lower_ambiguous", "O.wide(-2147483648.0)",
          "java: ambiguous method Stage1Overloads.wide(1 args): "
          "[Stage1Overloads#wide(int), Stage1Overloads#wide(long)]"),
-        ("java_overload.past_long_ambiguous", "O.wide(9223372036854775808)",
+        ("java_overload.past_long_ambiguous", "O.wide(9223372036854775808.0)",
          "java: ambiguous method Stage1Overloads.wide(1 args): "
          "[Stage1Overloads#wide(int), Stage1Overloads#wide(long)]"),
     )

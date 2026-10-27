@@ -188,13 +188,17 @@ NUMERIC_UNICODE_STDOUT = (
 RANGE_LIMIT_SOURCE = '''\
 math = py "math"
 say len(range(1000000))
-say len(range(2 ** 63, 2 ** 63 + 2048))
+say len(range(2 ** 62, 2 ** 62 + 2048))
 try:
     values = range(1000001)
 catch error:
     say error
 try:
-    values = range(2 ** 63)
+    values = range(2 ** 62)
+catch error:
+    say error
+try:
+    values = range(-9223372036854775808, 9223372036854775807)
 catch error:
     say error
 try:
@@ -204,6 +208,7 @@ catch error:
 '''
 RANGE_LIMIT_STDOUT = (
     "1000000\n2048\n"
+    "range() result too large (maximum 1000000 items)\n"
     "range() result too large (maximum 1000000 items)\n"
     "range() result too large (maximum 1000000 items)\n"
     "range() arguments must be finite\n")
@@ -435,7 +440,7 @@ class TestAuditJavaFixes(unittest.TestCase):
             "say [12345678.5, 0.0005]\n"
             'say {"large": 12345678.5, "small": 0.0005}\n'
             "say [0.00001, 0.000015, -0.000001]\n"
-            "say 12345678901234568\n")
+            "say 12345678901234568.0\n")
         expected = (
             "12345678.5\n"
             "-12345678.5\n"
@@ -624,7 +629,7 @@ class TestAuditJavaFixes(unittest.TestCase):
                     self.assertEqual(result.stdout, RANGE_LIMIT_STDOUT)
                     self.assertEqual(result.stderr, "")
             uncaught = temp / "range_uncaught.lt"
-            uncaught.write_text("values = range(2 ** 63)\n",
+            uncaught.write_text("values = range(2 ** 62)\n",
                                 encoding="utf-8")
             for target in TARGETS:
                 with self.subTest(target=target, uncaught=True):

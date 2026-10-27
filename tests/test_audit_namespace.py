@@ -333,7 +333,7 @@ fn broken():
             '    catch err:\n        say err\n',
             "cannot set attribute on nil\n"
             "cannot set attribute on bool\n"
-            "cannot set attribute on num\n"
+            "cannot set attribute on int\n"
             "cannot set attribute on str\n"
             "cannot set attribute on list\n"
             "cannot set attribute on map\n")

@@ -29,6 +29,9 @@ _module_functions = {}
 _next_id = [1]
 _mods = {}
 
+class _LatentInt64Overflow(OverflowError):
+    pass
+
 
 def encode(v):
     # Interop rule: only exact-type JSON natives cross the boundary.
@@ -36,8 +39,10 @@ def encode(v):
     # opaque handles so their methods keep working.
     if v is None or isinstance(v, (bool, str)):
         return v
-    if isinstance(v, int) and not isinstance(v, bool):
-        return float(v)
+    if type(v) is int:
+        if v < -(1 << 63) or v > (1 << 63) - 1:
+            raise _LatentInt64Overflow("int64 overflow")
+        return v
     if isinstance(v, float):
         if v != v:
             return {"__num": "nan"}
@@ -86,6 +91,9 @@ def decode(v):
         return {k: decode(x) for k, x in v.items()}
     if isinstance(v, list):
         return [decode(x) for x in v]
+    if type(v) is int:
+        if v < -(1 << 63) or v > (1 << 63) - 1:
+            raise _LatentInt64Overflow("int64 overflow")
     return v
 
 
@@ -651,6 +659,8 @@ def _serve(frame):
             payload = execute(frame["payload"], scope)
         except CallbackError as exc:
             payload = {"callback_error": _positive_id(exc.error_id, "callback error")}
+        except _LatentInt64Overflow as exc:
+            payload = {"error": str(exc), "error_kind": "int64_overflow"}
         except Exception:
             payload = {"error": traceback.format_exc()}
         _protocol_send({"kind": "response", "id": request_id,
@@ -678,6 +688,8 @@ def _legacy_request(req):
         return execute(req, scope)
     except CallbackError:
         return {"error": "legacy protocol cannot transport callback failures"}
+    except _LatentInt64Overflow as exc:
+        return {"error": str(exc), "error_kind": "int64_overflow"}
     except Exception:
         return {"error": traceback.format_exc()}
     finally:

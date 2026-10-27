@@ -52,7 +52,7 @@ try:
 catch err:
     say err
 '''
-ESCAPE_STDOUT = ("attribute access on non-handle value: num\n"
+ESCAPE_STDOUT = ("attribute access on non-handle value: int\n"
                  "attribute access on non-handle value: function\n"
                  "call on non-handle value: str\n")
 NATIVE_ATTRIBUTE_SOURCE = '''\
@@ -179,6 +179,19 @@ say a ** b
 say -a
 '''
 HOST_ARITHMETIC_STDOUT = "9\n5\n14\n3.5\n1\n49\n-7\n"
+INT64_STDOUT = (
+    "9007199254740993\n-9223372036854775808\n9223372036854775807\n"
+    "1024\n0.125\n3\n0.5\n2\n[1, 2, 3]\n"
+    "range() result too large (maximum 1000000 items)\n[2, -2]\n9\n3\n"
+    "[9007199254740993, 1]\nfalse\ntrue\n9007199254740993\n"
+    "2432902008176640000\nint64 overflow\n"
+    "9007199254740993\n9007199254740993\n"
+    "cannot mix int and float without precision loss\n"
+    "cannot mix int and float without precision loss\nIGNORECASE\n2\n"
+    "int64 overflow\nint64 overflow\nint64 overflow\n"
+    "int64 overflow\nint64 overflow\n"
+    "cannot mix int and float without precision loss\n"
+    "division by zero\n")
 
 
 def boolean_native_arithmetic_cases():
@@ -270,6 +283,38 @@ class AuditPythonFixes(unittest.TestCase):
         self.run_both_targets("audit_host_arithmetic",
                               HOST_ARITHMETIC_SOURCE,
                               HOST_ARITHMETIC_STDOUT)
+
+    def test_signed64_vertical_slice_is_identical_across_targets(self):
+        source = (ROOT / "tests" / "bootstrap" / "p20_int64_feature.lt").read_text(
+            encoding="utf-8")
+        self.run_both_targets("audit_int64", source, INT64_STDOUT)
+
+    def test_python_int_subclass_results_remain_opaque_host_objects(self):
+        source = '''\
+type = "shadowed"
+re = py "re"
+ignorecase = re.I
+say ignorecase.name
+say ignorecase.value
+'''
+        self.run_both_targets("audit_int_subclass", source, "IGNORECASE\n2\n")
+
+    def test_signed64_literal_overflow_is_a_compile_time_error(self):
+        cases = (
+            "say 9223372036854775808\n",
+            "say -9223372036854775809\n",
+        )
+        with tempfile.TemporaryDirectory(prefix="latent-audit-int64-bounds-") as tmp:
+            temp = Path(tmp)
+            for index, source in enumerate(cases):
+                for target in TARGETS:
+                    stem = f"audit_int64_bound_{index}_{target}"
+                    with self.subTest(target=target, source=source.strip()):
+                        result = run_case(temp, stem, source, target)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(
+                            "integer literal outside signed 64-bit range",
+                            result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

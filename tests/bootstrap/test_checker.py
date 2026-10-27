@@ -368,6 +368,58 @@ class ProjectionLedgerTests(unittest.TestCase):
         self.assertIn('extra["雪"] == 3', callback_source)
         self.assertIn("test_p19_callback_kwargs.py", manifest["auxiliary_tests"])
 
+    def test_p20_int64_features_are_separate_and_pin_both_boundaries(self):
+        manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
+        features = {item["name"]: item for item in manifest["p20_stage1_features"]}
+        self.assertEqual(set(features), {
+            "p20_int64_vertical_slice", "p20_int64_positive_overflow",
+            "p20_int64_negative_overflow"})
+        positive = features["p20_int64_vertical_slice"]
+        self.assertEqual(positive["expected"]["phase"], "run")
+        self.assertIn("9007199254740993\n", positive["expected"]["stdout"])
+        self.assertIn("2432902008176640000\n", positive["expected"]["stdout"])
+        self.assertIn("IGNORECASE\n2\n", positive["expected"]["stdout"])
+        self.assertIn("range() result too large (maximum 1000000 items)\n",
+                      positive["expected"]["stdout"])
+        self.assertEqual(positive["expected"]["stdout"].count(
+            "cannot mix int and float without precision loss\n"), 3)
+        self.assertEqual(positive["expected"]["stderr"], "")
+        for name in ("p20_int64_positive_overflow", "p20_int64_negative_overflow"):
+            expected = features[name]["expected"]
+            self.assertEqual((expected["phase"], expected["rc"], expected["stdout"]),
+                             ("compile", 1, ""))
+            self.assertIn("integer literal outside signed 64-bit range",
+                          expected["stderr_contains"])
+        self.assertEqual(project_stage0.EXPECTED_PROJECTION["p20_stage1_feature_samples"], 3)
+        delta = manifest["p20_stage0_deltas"]["phase1_semantics"]
+        self.assertEqual(delta["fixed_stage0"]["stdout_sha256"],
+                         "13a009095872d9ba052bdf91e5df9e6075d69ea8d8eb80ce4c299e78b9ca7c55")
+        self.assertEqual(delta["stage1_stage2"]["stdout_sha256"],
+                         "e5b0accfc506d6b2cb0c5278c22b78deaac06febcb4201a9f03adb885f4c8659")
+        self.assertEqual(set(manifest["p20_stage0_deltas"]),
+                         {"phase1_semantics", "java_collections"})
+        java_delta = manifest["p20_stage0_deltas"]["java_collections"]
+        self.assertEqual(java_delta["fixed_stage0"]["stdout_sha256"],
+                         "fd73184bdad8190c5db9e5cbb9dfd822fc79ffa86261e8f1c1d51726e8dc0ae9")
+        self.assertEqual(java_delta["stage1_stage2"]["stdout_sha256"],
+                         "5a7919b5f45f73275f64c7e478a0af9ee7a1e040cc60a66227e842c5eee4f8bf")
+        self.assertIn("java_collections", manifest["runner_references"]["COOKBOOK"])
+        self.assertEqual(manifest["runner_cases"]["java_collections"]["disposition"],
+                         "include")
+        self.assertEqual(manifest["fixture_decisions"]["cookbook_lt/java_collections.lt"]["disposition"],
+                         "include")
+        java_case = next(case for case in project_stage0.python_target_cases()
+                         if case["name"] == "java_collections")
+        self.assertEqual(java_case["kind"], "positive")
+        cases = project_stage0.python_target_cases()
+        self.assertEqual((len(cases), len({case["name"] for case in cases})),
+                         (244, 243))
+        for item in features.values():
+            path = "tests_lt/bootstrap/" + Path(item["source"]).name
+            self.assertIn(path.removeprefix("tests_lt/"),
+                          manifest["inventories"]["tests_lt"])
+            self.assertIn(path, manifest["fixture_decisions"])
+
     def test_java_host_callback_cases_remain_runtime_negative_and_delta_is_narrow(self):
         manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
         references = {name: list(items)

@@ -565,7 +565,7 @@ PHASE1_EXPECTED_STDOUT = (
     "3\n😀\n😀\nA\n😀\nB\n1.9\n1.9\n"
     "Number\nNumber\nList\nObject\nfixed\nvarargs\nString\n"
     "1.5\n1.1\n1\n"
-    "{__num=nan}\n{__num=nan, keep=1.0}\n"
+    "{__num=nan}\n{__num=nan, keep=1}\n"
     "{__map=[[__num, nan]]}\n{nested={__num=nan}}\n"
     '{"__num": "nan"}\n{"__num": "nan", "keep": 1}\n'
     '{"__map": [["__num", "nan"]]}\n'

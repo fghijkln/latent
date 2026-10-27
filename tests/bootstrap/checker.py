@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -71,6 +72,24 @@ def _test_modules(root: Path) -> list[str]:
     base = root / "tests"
     return sorted(path.relative_to(base).as_posix()
                   for path in base.rglob("test_*.py") if path.is_file())
+
+
+def _runner_string_constant(root: Path, name: str) -> str | None:
+    path = root / "tests" / "run_tests.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and
+                any(isinstance(target, ast.Name) and target.id == name
+                    for target in node.targets)):
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError):
+                return None
+            return value if isinstance(value, str) else None
+    return None
 
 
 def compare(manifest: dict, observed_refs: dict[str, list[str]],
@@ -201,6 +220,56 @@ def compare(manifest: dict, observed_refs: dict[str, list[str]],
             errors.append(f"P19 Stage0 behavior delta lacks its exact Stage1/2 outcome: {item}")
     if "p14_negative/static_named" in p19_deltas:
         errors.append("p14_negative/static_named must retain strict Stage0 comparison")
+    p20_deltas = manifest.get("p20_stage0_deltas", {})
+    if not isinstance(p20_deltas, dict):
+        errors.append("P20 Stage0 delta ledger must be an object")
+        p20_deltas = {}
+    required_p20_deltas = {"phase1_semantics", "java_collections"}
+    if set(p20_deltas) != required_p20_deltas:
+        errors.append("P20 Stage0 delta ledger must contain exactly phase1_semantics and java_collections")
+    phase1_decision = cases.get("phase1_semantics", {})
+    if ("phase1_semantics" not in observed_refs.get("POSITIVE", []) or
+            phase1_decision.get("disposition") != "include"):
+        errors.append("P20 Stage0 delta must retain included positive phase1_semantics coverage")
+    current_stdout = _runner_string_constant(root, "PHASE1_EXPECTED_STDOUT")
+    old_literal = "{__num=nan, keep=1.0}\n"
+    new_literal = "{__num=nan, keep=1}\n"
+    if current_stdout is None or current_stdout.count(new_literal) != 1:
+        errors.append("P20 phase1_semantics current golden must pin exactly one int repr change")
+        expected_hashes = {}
+    else:
+        fixed_stdout = current_stdout.replace(new_literal, old_literal, 1)
+        expected_hashes = {
+            "fixed_stage0": hashlib.sha256(fixed_stdout.encode("utf-8")).hexdigest(),
+            "stage1_stage2": hashlib.sha256(current_stdout.encode("utf-8")).hexdigest(),
+        }
+    for label in ("fixed_stage0", "stage1_stage2"):
+        expectation = p20_deltas.get("phase1_semantics", {}).get(label, {})
+        if (not isinstance(expectation, dict) or
+                expectation.get("phase") != "run" or
+                expectation.get("rc") != 0 or isinstance(expectation.get("rc"), bool) or
+                expectation.get("stderr") != "" or
+                expectation.get("output_exists") is not True or
+                expectation.get("stdout_sha256") != expected_hashes.get(label)):
+            errors.append(f"P20 phase1_semantics {label} outcome is not pinned to its exact full-output digest")
+    java_collections_decision = cases.get("java_collections", {})
+    if ("java_collections" not in observed_refs.get("COOKBOOK", []) or
+            java_collections_decision.get("disposition") != "include"):
+        errors.append("P20 Stage0 delta must retain included positive java_collections coverage")
+    java_collections_outputs = {
+        "fixed_stage0": "[1.0, 2.0, 3.0]\n1\n3\n3\nlatent\ntrue\n2\n2\ntrue\n1\n2\n3\n",
+        "stage1_stage2": "[1, 2, 3]\n1\n3\n3\nlatent\ntrue\n2\n2\ntrue\n1\n2\n3\n",
+    }
+    for label, stdout in java_collections_outputs.items():
+        expectation = p20_deltas.get("java_collections", {}).get(label, {})
+        expected_hash = hashlib.sha256(stdout.encode("utf-8")).hexdigest()
+        if (not isinstance(expectation, dict) or
+                expectation.get("phase") != "run" or
+                expectation.get("rc") != 0 or isinstance(expectation.get("rc"), bool) or
+                expectation.get("stderr") != "" or
+                expectation.get("output_exists") is not True or
+                expectation.get("stdout_sha256") != expected_hash):
+            errors.append(f"P20 java_collections {label} outcome is not pinned to its exact full-output digest")
     feature = manifest.get("p18_stage1_feature")
     if feature is not None:
         source = feature.get("source")
@@ -279,6 +348,54 @@ def compare(manifest: dict, observed_refs: dict[str, list[str]],
                 not isinstance(expected.get("stdout"), str) or
                 expected.get("stderr") != ""):
             errors.append(f"P19 Stage1 feature must pin successful output and empty stderr: {name}")
+    p20_features = manifest.get("p20_stage1_features")
+    if not isinstance(p20_features, list) or not p20_features:
+        errors.append("P20 Stage1 int64 feature ledger must contain samples")
+        p20_features = []
+    seen_p20_features: set[str] = set()
+    for feature in p20_features:
+        if not isinstance(feature, dict):
+            errors.append("P20 Stage1 int64 feature ledger contains a non-object entry")
+            continue
+        name = feature.get("name")
+        source = feature.get("source")
+        expected = feature.get("expected", {})
+        if not isinstance(name, str) or not name.startswith("p20_"):
+            errors.append(f"P20 Stage1 feature has invalid name: {name!r}")
+        elif name in seen_p20_features:
+            errors.append(f"duplicate P20 Stage1 feature: {name}")
+        else:
+            seen_p20_features.add(name)
+        if not isinstance(source, str) or not source.startswith("tests/bootstrap/"):
+            errors.append(f"P20 Stage1 feature must use a tests/bootstrap fixture: {name}")
+        elif not (root / source).is_file():
+            errors.append(f"P20 Stage1 feature source does not exist: {source}")
+        if not isinstance(expected, dict):
+            errors.append(f"P20 Stage1 feature has invalid expected outcome: {name}")
+            continue
+        phase = expected.get("phase")
+        rc = expected.get("rc")
+        if phase == "run":
+            if (rc != 0 or isinstance(rc, bool) or
+                    not isinstance(expected.get("stdout"), str) or
+                    expected.get("stderr") != ""):
+                errors.append(f"P20 successful feature must pin stdout and empty stderr: {name}")
+        elif phase == "compile":
+            markers = expected.get("stderr_contains")
+            if (rc != 1 or isinstance(rc, bool) or
+                    expected.get("stdout") != "" or
+                    not isinstance(markers, list) or not markers or
+                    any(not isinstance(item, str) or not item for item in markers)):
+                errors.append(f"P20 compile-negative feature must pin rc=1 and stderr markers: {name}")
+        else:
+            errors.append(f"P20 feature must pin run or compile phase: {name}")
+    required_p20_features = {
+        "p20_int64_vertical_slice",
+        "p20_int64_positive_overflow",
+        "p20_int64_negative_overflow",
+    }
+    if seen_p20_features != required_p20_features:
+        errors.append("P20 Stage1 int64 ledger must retain the vertical slice and both signed-boundary cases")
     callback_arity = next((case for case in feature_cases
                            if isinstance(case, dict) and
                            case.get("name") == "p18_callback_wrong_arity"), None)
