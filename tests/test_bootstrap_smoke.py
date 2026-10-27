@@ -717,12 +717,15 @@ class BootstrapEmitterTests(unittest.TestCase):
 
             for class_file in java_run_out.glob("*.class"):
                 class_file.unlink()
-            (java_run_out / "LtJavaDaemon.java").write_text(
-                "this is not valid Java\n", encoding="utf-8", newline="\n")
+            daemon_source = java_run_out / "LtJavaDaemon.java"
+            with daemon_source.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write("\nthis is not valid Java\n")
             java_compile_failure = run_stage_program(
                 java_run_out / "java_basic.py", invocation_dirs[0])
             self.assertEqual(java_compile_failure[0], 1)
             self.assertIn("javac failed", java_compile_failure[2])
+            self.assertNotIn("unsupported bundled Java runtime source",
+                             java_compile_failure[2])
             self.assertFalse((java_run_out / "LtJavaDaemon.class").exists())
             self.assertEqual(list(java_run_out.glob("*.class")), [])
 
@@ -736,7 +739,7 @@ class BootstrapEmitterTests(unittest.TestCase):
                 env=clean_env, text=True, encoding="utf-8",
                 capture_output=True, check=False)
             self.assertEqual(run_failure.returncode, 1)
-            self.assertIn("Latent runtime error: ZeroDivisionError: float division by zero",
+            self.assertIn("Latent runtime error: ZeroDivisionError: division by zero",
                           run_failure.stderr)
             self.assertIn("runtime-failure.lt:1 in main", run_failure.stderr)
             self.assertNotIn("Traceback (most recent call last):",
@@ -936,10 +939,29 @@ say invoke(describe, {"value": 70, "required": 71})
                         stage0_out / f"{source.stem}.py", root, runtime_env)
                     stage1_result = run_stage_program(
                         stage1_out / f"{source.stem}.py", root, runtime_env)
+                    expected_stage1 = stage0_result
+                    if source == tests_dir / "phase1_semantics.lt":
+                        # Fixed Stage0 transports every JSON number as Double;
+                        # Stage1 intentionally preserves signed64 integers as Long.
+                        old = "{__num=nan, keep=1.0}"
+                        self.assertIn(old, stage0_result[1])
+                        expected_stage1 = (
+                            stage0_result[0],
+                            stage0_result[1].replace(old, "{__num=nan, keep=1}"),
+                            stage0_result[2])
+                    elif source == cookbook_dir / "java_collections.lt":
+                        old = "[1.0, 2.0, 3.0]\n"
+                        self.assertIn(old, stage0_result[1])
+                        expected_stage1 = (
+                            stage0_result[0],
+                            stage0_result[1].replace(old, "[1, 2, 3]\n", 1),
+                            stage0_result[2])
                     self.assertEqual(
-                        stage1_result, stage0_result,
-                        f"{source.name} differs from fixed Stage0\\n"
-                        f"Stage0: {stage0_result!r}\\nStage1: {stage1_result!r}")
+                        stage1_result, expected_stage1,
+                        f"{source.name} differs from fixed Stage0/int64 expectation\\n"
+                        f"Stage0: {stage0_result!r}\\n"
+                        f"Expected Stage1: {expected_stage1!r}\\n"
+                        f"Stage1: {stage1_result!r}")
 
     def test_host_attribute_write_fails_closed_at_runtime(self):
         source = ('types = py "types"\n'
