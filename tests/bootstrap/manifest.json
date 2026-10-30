@@ -1479,6 +1479,7 @@
     }
   },
   "runner_auxiliary_paths": [
+    "test_c_backend.py",
     "test_diagnostics.py",
     "test_differential_properties.py",
     "test_p14_protocol.py",
@@ -1809,6 +1810,7 @@
       "test_bootstrap_lexer.py",
       "test_bootstrap_parser.py",
       "test_bootstrap_smoke.py",
+      "test_c_backend.py",
       "test_diagnostics.py",
       "test_differential_properties.py",
       "test_editor_metadata.py",
@@ -2968,6 +2970,10 @@
       "disposition": "include",
       "reason": "Fixed-Stage0 end-to-end bootstrap smoke covers the current compiler slice, including single-file class construction/fields/methods, parameter binding, diagnostics, interop boundaries and Stage1-to-Stage3 fixed point; not the full v0.13.5 projection."
     },
+    "test_module/test_c_backend.py": {
+      "disposition": "exclude",
+      "reason": "C-only native C11 backend integration suite exercises the third target and its host sidecars; it is outside the Python-target Stage1 projection and is covered by the main regression runner."
+    },
     "test_module/test_diagnostics.py": {
       "disposition": "exclude",
       "reason": "P15 M9 explicitly deferred the read-only AST/desugar diagnostics mode; this module contains no ordinary generated Python-target execution case."
@@ -3141,6 +3147,10 @@
     "test_bootstrap_smoke.py": {
       "disposition": "include",
       "reason": "Fixed-Stage0 end-to-end checks for the bootstrap emitter, including compile/runtime source mapping, classes and interop, Stage1-to-Stage3 fixed point, dual-root reproducibility, exact artifact manifests, and a source-tree read-only snapshot around both builds; full ledger projection is enforced separately by project_stage0.py."
+    },
+    "test_c_backend.py": {
+      "disposition": "exclude",
+      "reason": "C-only native C11 backend integration suite runs in the full regression runner but is outside the Python-target Stage1 projection."
     },
     "test_p18_callbacks.py": {
       "disposition": "include",

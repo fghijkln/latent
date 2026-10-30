@@ -489,7 +489,7 @@ class Gen:
             self.ind += 1
             self.w(f"const char *lt_c_message = lt_handler_message(&{handler});")
             self.w(f"lt_handler_pop(&{handler});")
-            self._assign(stmt.var, f"lt_str(lt_c_message ? lt_c_message : \"\")")
+            self._assign(stmt.var, "lt_str(lt_c_message ? lt_c_message : \"\")")
             self.stmtlist(stmt.handler)
             self.ind -= 1
             self.w("}")
@@ -628,7 +628,7 @@ class Gen:
     def _emit_class_metadata(self, classes):
         for cd in classes:
             specs = []
-            for i, method in enumerate(cd.methods):
+            for method in cd.methods:
                 self._emit_function_metadata(method, method=True)
                 specs.append(f"{self.fn_helpers[id(method)]}_spec")
             if specs:

@@ -441,8 +441,8 @@ def compare(manifest: dict, observed_refs: dict[str, list[str]],
             elif record["disposition"] == "exclude" and not record.get("reason", "").strip():
                 errors.append(f"excluded {label} path has no reason: {item}")
             elif record["disposition"] == "exclude" and not re.search(
-                    r"AST|editor|Java-only", record.get("reason", ""), re.IGNORECASE):
-                errors.append(f"excluded {label} path must state AST/editor or Java-only reason: {item}")
+                    r"AST|editor|Java-only|C-only", record.get("reason", ""), re.IGNORECASE):
+                errors.append(f"excluded {label} path must state AST/editor, Java-only, or C-only reason: {item}")
 
     expected_decision_paths = {
         f"{label}/{item}" for label, items in recorded_inventories.items()

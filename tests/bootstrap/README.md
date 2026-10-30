@@ -12,6 +12,7 @@
 - **AST/editor exclusions:** `tests/diagnostics_sample.lt`, `test_diagnostics.py`, and `test_editor_metadata.py` exercise read-only AST/desugar diagnostics or parser-derived editor metadata rather than generated Python-target behavior. Each is explicitly classified and justified in the manifest.
 - **Java-only exclusions:** The three `tests/java/*.java` host fixtures are compiled by `javac` for Java overload or host/static interop support; they are Java source dependencies, not Python-target source fixtures. Java interop **Latent** cases and cookbook examples remain included where the Python target leg is exercised.
 - **Bootstrap support:** `test_bootstrap_host.py` and its Python adapter, `test_bootstrap_smoke.py`, and the fixed-Stage0 Latent lexer/parser fixtures and orchestrators are included as bootstrap support coverage, even though the legacy differential runner does not invoke those standalone tests.
+- **C-only suite:** `test_c_backend.py` is inventoried and explicitly excluded from the Python-target Stage1 projection; it exercises the native C11 target and host sidecars in the full regression runner.
 
 ## M3 lexer Unicode coverage
 
