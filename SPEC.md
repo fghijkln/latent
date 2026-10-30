@@ -1,7 +1,7 @@
 # Latent 语言规范（v0.14.0 草案）
 
 > Latent（`.lt` 源码，`latent` 编译器）。
-> 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java 或 Python。
+> 定位：通用小语言，独立项目。直观、代码少；一份源码可编译为 Java、Python 或 C11。
 >
 > v0.2 变更：Python 与 Java 本体彻底纳入范围——`py "mod"` 与
 > `java "com.foo.Bar"` 对称，两个后端都能直接用两个生态的库。
@@ -21,9 +21,13 @@
 
 1. **直观**：缩进块、无分号、无括号 print、心智模型接近 Python 但更少仪式。
 2. **代码少**：表达式导向（函数末表达式即返回值）、字符串插值、两种数值类型。
-3. **双后端**：同一份源码，`latent a.lt -t py` / `-t java`，语义一致。
+3. **多后端**：同一份源码可交给 `latent a.lt -t py`、`-t java` 或 `-t c` 生成目标程序。
 4. **按需加载 Python 与 Java** 是一等语法：`py "numpy"` / `java "java.util.ArrayList"`
-   一行即得懒加载句柄，双后端语义一致（用不上的那一端解释器/JVM 根本不启动）。
+   一行即得懒加载句柄；Python/Java 互操作在三种目标中都可用，用不上的那一端运行时不会启动。
+
+### C11 编译目标
+
+现有 CLI 的 `-t c` 是第三种编译目标，生成 C11 源码与 `runtime/` 运行时包。当前 runtime 依赖 POSIX 进程 API；`--run` 会调用本机 C 编译器构建并执行程序。Python 宿主互操作按需启动 Python 3 daemon，Java 宿主互操作按需编译并启动 Java daemon，因此分别需要 Python 3 与 JDK。C runtime 支持 `py "..."`、`java "..."`、成员访问及直接/提取成员调用；同步 Python callback 也可作为 Python 宿主调用的直接实参。该目标不改变 Latent 语法或 AST schema。
 
 ## 2. 词法
 

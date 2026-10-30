@@ -41,7 +41,7 @@ jobs:
       - name: Check Python syntax
         run: >-
           python -m compileall -q ast_dump.py desugar.py editor_metadata.py
-          gen_java.py gen_py.py latent.py lex.py module_system.py nodes.py
+          gen_c.py gen_java.py gen_py.py latent.py lex.py module_system.py nodes.py
           parse.py semant.py
           runtime/ltpy.py tests
           tools/latent_stage1.py

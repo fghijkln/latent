@@ -1055,6 +1055,22 @@ def main():
         fails += max(1, audit_failures)
         print(f"  {audit_output[-5000:]}")
 
+    print("== native C11 backend integration tests ==")
+    rc, so, se = run([sys.executable, os.path.join(TESTS, "test_c_backend.py")],
+                     timeout=600)
+    c_output = so + se
+    c_count_match = re.search(r"Ran (\d+) tests?", c_output)
+    c_total = int(c_count_match.group(1)) if c_count_match else 1
+    print(("PASS " if rc == 0 else "FAIL ") +
+          f"C11 backend ({c_total} tests)")
+    if rc != 0:
+        c_failure_match = re.search(r"FAILED \(([^)]+)\)", c_output)
+        c_failures = (sum(int(n) for n in re.findall(
+            r"(?:failures|errors)=(\d+)", c_failure_match.group(1)))
+            if c_failure_match else c_total)
+        fails += max(1, c_failures)
+        print(f"  {c_output[-6000:]}")
+
     total = (audit_total + repl_total + diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
              len(P8_NEG_COMPILE) +
@@ -1063,7 +1079,7 @@ def main():
              len(P11_NEG_COMPILE) +
              len(P12_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
-             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 3)
+             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 3 + c_total)
     print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 

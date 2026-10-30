@@ -4,7 +4,7 @@
 
 ## 简体中文
 
-Latent 是一门通用小语言：语法直观、代码精简，同一份源码可由现有编译器生成 Python 或 Java。它的重点不是取代纯 Python，而是让一个程序能按需调用两边的库：`py "numpy"` 与 `java "java.time.LocalDate"` 可以共存于同一源码中；对应运行时只在真正使用时才启动或加载。
+Latent 是一门通用小语言：语法直观、代码精简，同一份源码可由现有编译器生成 Python、Java 或 C11。它的重点不是取代纯 Python，而是让一个程序能按需调用 Python 与 Java 两边的库：`py "numpy"` 与 `java "java.time.LocalDate"` 可以共存于同一源码中；对应运行时只在真正使用时才启动或加载。
 
 正式发布版本请见 [GitHub Releases](https://github.com/fghijkln/latent/releases)。当前开发线的 **P15 首期 DoD 已完成**：固定 v0.13.5 Stage0 → Stage1 → Stage2 → Stage3，范围限定为 Python 宿主上的 Python-target 自举。
 
@@ -20,7 +20,7 @@ P15 将编译器核心写在 Latent 中，并验证固定的阶段链：
 
 Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱糖、语义分析、模块处理、Python 代码生成和 CLI 策略由 Latent 编译器源码实现。Python 适配层只提供受限的操作系统服务，例如文件、路径与进程 I/O。CI 检查 Stage0/Stage1/Stage2 的 Python 目标行为投影，并验证 Stage2 与 Stage3 的产物在同一构建及不同干净 checkout 根目录下逐字节复现。
 
-这项工作是**运行在 Python 宿主上的自托管自举**，不是 native 或 host-independent bootstrap：生成的编译器仍需 Python 运行时。自举编译器当前只生成 Python；它不替代现有 `latent.py` 编译器，也不实现 Java 代码生成、REPL、AST/脱糖诊断或编辑器元数据模式。
+这项工作是**运行在 Python 宿主上的自托管自举**，不是 native 或 host-independent bootstrap：生成的编译器仍需 Python 运行时。自举编译器当前只生成 Python；它不替代现有 `latent.py` 编译器，也不实现 Java/C11 目标代码生成、REPL、AST/脱糖诊断或编辑器元数据模式。
 
 首期验收覆盖 **243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质案例，零差异**；同根 Stage2==Stage3，两个完整 clean-clone 根目录中的 Stage2/3 产物也逐字节一致；固定 Stage0 的完整双后端基线为 **259/259**。本结论不扩展到 native 或 host-independent bootstrap。CI 另运行 Python/JDK 版本矩阵和 VS Code 扩展检查。请参阅 [P15 设计说明](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) 与 [P15 实施及验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)。
 
@@ -32,7 +32,7 @@ Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱
 python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]
 ```
 
-这是**实验性、非默认入口**。首次调用会使用本机 Git 历史中的固定 Stage0 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` 按需构建 Stage1；不会自动联网取源码或发布预构建产物。Stage1 只生成 Python，默认输出目录为 `build/py`（与 `latent.py` 不同）；Java target、REPL、AST/脱糖诊断和编辑器元数据仍请使用现有 `latent.py`。包装器只接受仓库根目录或其子目录作为工作目录，构建缓存放在用户级 XDG cache（未设置时为 `~/.cache/latent/stage1/`）；不支持的宿主或 Stage1 错误会明确失败，不会回退到 `latent.py`。
+这是**实验性、非默认入口**。首次调用会使用本机 Git 历史中的固定 Stage0 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` 按需构建 Stage1；不会自动联网取源码或发布预构建产物。Stage1 只生成 Python，默认输出目录为 `build/py`（与 `latent.py` 不同）；Java/C11 target、REPL、AST/脱糖诊断和编辑器元数据仍请使用现有 `latent.py`。包装器只接受仓库根目录或其子目录作为工作目录，构建缓存放在用户级 XDG cache（未设置时为 `~/.cache/latent/stage1/`）；不支持的宿主或 Stage1 错误会明确失败，不会回退到 `latent.py`。
 
 若首次构建报告本地检出缺少固定 Stage0，包装器不会自动联网补取。先运行 `git rev-parse --is-shallow-repository`；若结果为 `true`，在仓库根目录手动执行 `git fetch --unshallow origin` 后重试（若远端不叫 `origin`，替换为实际远端名）。若检出不是浅克隆，请确认该固定 commit 已存在于本地 Git 历史。
 
@@ -52,6 +52,12 @@ python3 latent.py prog.lt -t py -o out --run
 python3 latent.py prog.lt -t java -o out --run
 ```
 
+运行 C11 后端（当前运行时要求 POSIX 类系统和 C11 编译器；Python/Java 互操作分别需要 Python 3/JDK）：
+
+```bash
+python3 latent.py prog.lt -t c -o out --run
+```
+
 查看语法树或脱糖后的 AST（只读诊断，不编译或运行）：
 
 ```bash
@@ -69,7 +75,7 @@ python3 latent.py repl
 
 ### 语言与互操作
 
-Latent 支持函数与闭包、默认参数、命名参数、变参与调用展开、仅限关键字形参、单继承与 `super`、本地显式别名模块、异常处理，以及 Python/Java 互操作。P13/P14 扩展了特定 Python/Java 方法和函数作为 Latent callable 值的能力；覆盖范围与限制见对应设计记录。
+Latent 支持函数与闭包、默认参数、命名参数、变参与调用展开、仅限关键字形参、单继承与 `super`、本地显式别名模块、异常处理，以及 Python/Java 互操作。P13/P14 扩展了特定 Python/Java 方法和函数作为 Latent callable 值的能力；覆盖范围与限制见对应设计记录。`-t c` 生成 C11 程序，并携带按需启动的 Python/Java 互操作运行时。
 
 ```latent
 fn fib(n):
@@ -88,21 +94,22 @@ say items
 
 ### 工程与验证
 
-- 现有 Python 编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`。
+- 现有编译器实现：`lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py / gen_c.py`。
 - P15 编译器核心源码位于 `bootstrap/`；薄 Python 宿主适配层为 `bootstrap/latent_host.py`。
 - 完整现有回归：`python3 tests/run_tests.py`。v0.13.5 基线套件包含 259 个回归条目；CI 覆盖 Python 3.11/3.12 与 JDK 17/21。
 - 自举阶段及双根复现门禁：`python3 -m unittest tests.test_bootstrap_smoke -v`。
 - Stage0/Stage1/Stage2/Stage3 的 Python 目标投影：`python3 tests/bootstrap/project_stage0.py`。
 - 自举 CI 覆盖 Python 3.11/UCD 14.0.0 与 Python 3.12/UCD 15.0.0（JDK 17）；另有 VS Code 扩展测试与打包任务。
 
-正例与 Cookbook 示例会对拍双后端输出；运行期负例检查失败状态及 `.lt` 源码位置。编译错误包含文件、行、列及源码定位；可映射的未捕获运行错误包含 `.lt` 文件、行号和 Latent 调用栈。
+现有正例与 Cookbook 示例会对拍 Python/Java 输出；C11 后端另有核心语义和互操作差分矩阵。运行期负例检查失败状态及 `.lt` 源码位置。编译错误包含文件、行、列及源码定位；可映射的未捕获运行错误包含 `.lt` 文件、行号和 Latent 调用栈。
 
 ### 当前边界
 
-- 自举编译器目前仅生成 Python；Java 后端由现有 `latent.py` 编译器提供。
+- 自举编译器目前仅生成 Python；Java 与 C11 后端由现有 `latent.py` 编译器提供。
 - P15 需要 Python 宿主；它不宣称无需 Python、native 或 host-independent。
+- C11 后端由 `latent.py -t c` 提供；当前运行时依赖 POSIX 进程 API，运行需 C11 编译器；使用 Python/Java 互操作时分别需 Python 3/JDK。它支持两种宿主互操作及同步 Python callback。
 - 模块导入限于显式本地 `.lt` 别名；不支持循环导入、包管理或多继承。
-- Python/Java 互操作 callable 值仅覆盖文档列出的受支持方法与函数；不支持任意 callable 对象、独立 builtin（如 `len`）或 Latent callback。
+- Python/Java 互操作 callable 值仅覆盖文档列出的受支持方法与函数；不支持任意 callable 对象或独立 builtin（如 `len`）。Java-host callback 及嵌套或返回的 Python callback 仍不支持。
 - 数值类型为 float64；`java "int"` 等 Java 基本类型名不支持。
 
 ### 文档
@@ -120,7 +127,7 @@ MIT，见 [LICENSE](LICENSE)。
 
 ## English
 
-Latent is a small general-purpose language with concise, approachable syntax. The existing compiler can compile the same source to Python or Java. The goal is not to replace pure Python, but to let one program use libraries from both ecosystems on demand: `py "numpy"` and `java "java.time.LocalDate"` can appear in the same source file, with the corresponding runtime loaded or started only when it is actually used.
+Latent is a small general-purpose language with concise, approachable syntax. The existing compiler can compile the same source to Python, Java, or C11. The goal is not to replace pure Python, but to let one program use libraries from both ecosystems on demand: `py "numpy"` and `java "java.time.LocalDate"` can appear in the same source file, with the corresponding runtime loaded or started only when it is actually used.
 
 See [GitHub Releases](https://github.com/fghijkln/latent/releases) for published versions. The **P15 first-phase DoD is complete**: fixed v0.13.5 Stage0 → Stage1 → Stage2 → Stage3, scoped to a Python-hosted, Python-target bootstrap.
 
@@ -136,7 +143,7 @@ fixed Stage0 (the v0.13.5 Python compiler) → Stage1 → Stage2 → Stage3
 
 Stage0 is used only to seed the bootstrap. The Stage1, Stage2, and Stage3 compiler logic—lexing, parsing, desugaring, semantic analysis, module handling, Python code generation, and CLI policy—is implemented in Latent. A small Python adapter provides operating-system services such as file, path, and process I/O. CI checks the Python-target behavior projection across Stage0/Stage1/Stage2 and verifies byte-for-byte Stage2/Stage3 reproducibility both within one build and across clean checkouts at different absolute paths.
 
-This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The bootstrap compiler currently emits Python only. It does not replace the existing `latent.py` compiler and does not implement Java code generation, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
+This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The bootstrap compiler currently emits Python only. It does not replace the existing `latent.py` compiler and does not implement Java/C11 code generation, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
 
 First-phase acceptance covers **243 projection case IDs, 244 fixture invocations, and 505 fixed-seed property cases with zero mismatches**; Stage2==Stage3 within a root, and Stage2/3 artifacts are byte-identical across two full clean-clone roots. The fixed Stage0 full dual-backend baseline is **259/259**. This does not extend the claim to native or host-independent bootstrap. CI also runs a Python/JDK version matrix and VS Code extension checks. See the [P15 design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) and [P15 implementation and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md).
 
@@ -148,7 +155,7 @@ From the repository checkout, explicitly try the Latent-implemented Stage1 compi
 python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]
 ```
 
-This is an **experimental, non-default entry point**. On first use it builds Stage1 on demand from the fixed Stage0 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` in the local Git history; it does not fetch source automatically or publish prebuilt artifacts. Stage1 emits Python only and defaults to `build/py` (unlike `latent.py`); continue to use `latent.py` for Java targets, the REPL, AST/desugared-AST diagnostics, and editor metadata. Run the wrapper from the checkout root or a directory inside the checkout. Its build cache is user-level XDG cache (or `~/.cache/latent/stage1/` when unset); unsupported hosts and Stage1 errors fail explicitly, with no fallback to `latent.py`.
+This is an **experimental, non-default entry point**. On first use it builds Stage1 on demand from the fixed Stage0 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` in the local Git history; it does not fetch source automatically or publish prebuilt artifacts. Stage1 emits Python only and defaults to `build/py` (unlike `latent.py`); continue to use `latent.py` for Java/C11 targets, the REPL, AST/desugared-AST diagnostics, and editor metadata. Run the wrapper from the checkout root or a directory inside the checkout. Its build cache is user-level XDG cache (or `~/.cache/latent/stage1/` when unset); unsupported hosts and Stage1 errors fail explicitly, with no fallback to `latent.py`.
 
 If the first build reports that the fixed Stage0 commit is missing from the local checkout, the launcher will not fetch it automatically. Run `git rev-parse --is-shallow-repository`; if it prints `true`, manually run `git fetch --unshallow origin` from the checkout root and retry (replace `origin` if your remote has a different name). For a non-shallow checkout, verify that the pinned commit exists in local Git history.
 
@@ -168,6 +175,12 @@ Run the Java backend (JDK 17+ required; Python is needed only when the program u
 python3 latent.py prog.lt -t java -o out --run
 ```
 
+Run the C11 backend (the current runtime requires a POSIX-like system and a C11 compiler; Python/Java interop requires Python 3/JDK respectively):
+
+```bash
+python3 latent.py prog.lt -t c -o out --run
+```
+
 Inspect the parsed or desugared AST (read-only diagnostics; no compilation or execution):
 
 ```bash
@@ -185,7 +198,7 @@ python3 latent.py repl
 
 ### Language and interop
 
-Latent supports functions and closures, default and named arguments, variadic parameters and argument expansion, keyword-only parameters, single inheritance and `super`, explicitly aliased local modules, exceptions, and Python/Java interop. P13/P14 add supported Python/Java methods and functions as Latent callable values; see the design notes for exact scope and limitations.
+Latent supports functions and closures, default and named arguments, variadic parameters and argument expansion, keyword-only parameters, single inheritance and `super`, explicitly aliased local modules, exceptions, and Python/Java interop. P13/P14 add supported Python/Java methods and functions as Latent callable values; see the design notes for exact scope and limitations. `-t c` emits a C11 program with on-demand Python/Java interop runtimes.
 
 ```latent
 fn fib(n):
@@ -204,21 +217,22 @@ say items
 
 ### Project and verification
 
-- Existing Python compiler pipeline: `lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py`.
+- Existing compiler pipeline: `lex.py → parse.py → desugar.py → semant.py → gen_py.py / gen_java.py / gen_c.py`.
 - P15 compiler sources are in `bootstrap/`; the thin Python host adapter is `bootstrap/latent_host.py`.
 - Full existing regression suite: `python3 tests/run_tests.py`. The v0.13.5 baseline contains 259 regression entries; CI covers Python 3.11/3.12 with JDK 17 and 21.
 - Bootstrap-stage and dual-root reproducibility gate: `python3 -m unittest tests.test_bootstrap_smoke -v`.
 - Python-target projection through Stage0/Stage1/Stage2/Stage3: `python3 tests/bootstrap/project_stage0.py`.
 - Bootstrap CI covers Python 3.11/UCD 14.0.0 and Python 3.12/UCD 15.0.0 (JDK 17); separate jobs test and package the VS Code extension.
 
-Positive cases and Cookbook examples compare output across both backends. Runtime negative cases check failure status and `.lt` source locations. Compile-time errors include file, line, column, and source context; mapped uncaught runtime errors include the `.lt` file, line, and Latent call stack.
+Existing positive cases and Cookbook examples compare Python/Java output; the C11 target has a dedicated core-semantics and interop differential matrix. Runtime negative cases check failure status and `.lt` source locations. Compile-time errors include file, line, column, and source context; mapped uncaught runtime errors include the `.lt` file, line, and Latent call stack.
 
 ### Current limitations
 
-- The bootstrap compiler currently emits Python only; Java code generation remains available through the existing `latent.py` compiler.
+- The bootstrap compiler currently emits Python only; Java and C11 code generation remain available through the existing `latent.py` compiler.
 - P15 requires a Python host. It does not claim to run without Python or to be native/host-independent.
+- The C11 target is available through `latent.py -t c`; the current runtime relies on POSIX process APIs and requires a C11 compiler, while Python/Java host interop requires Python 3/JDK respectively. Synchronous Python callbacks are supported.
 - Imports are limited to explicitly aliased local `.lt` modules; circular imports, package management, and multiple inheritance are not supported.
-- Python/Java interop callable values are limited to documented supported methods and functions; arbitrary callable objects, standalone built-ins such as `len`, and Latent callbacks are unsupported.
+- Python/Java interop callable values are limited to documented supported methods and functions; arbitrary callable objects and standalone built-ins such as `len` are unsupported. Java-host callbacks and nested or returned Python callbacks remain unsupported.
 - Numbers use float64; Java primitive type names such as `java "int"` are unsupported.
 
 ### Documentation

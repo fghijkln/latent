@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""latent - the Latent compiler.  latent prog.lt -t py|java [-o OUTDIR] [--run]"""
+"""latent - the Latent compiler.  latent prog.lt -t py|java|c [-o OUTDIR] [--run]"""
 import argparse
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -206,7 +207,7 @@ def main():
         return run_repl()
     ap = argparse.ArgumentParser(prog="latent", description="Latent compiler")
     ap.add_argument("src", nargs="?", help=".lt source file")
-    ap.add_argument("-t", "--target", choices=["py", "java"], default="py")
+    ap.add_argument("-t", "--target", choices=["py", "java", "c"], default="py")
     ap.add_argument("-o", "--outdir", default=None)
     ap.add_argument("--run", action="store_true", help="compile and run")
     diagnostics = ap.add_mutually_exclusive_group()
@@ -309,7 +310,7 @@ def main():
         if args.run:
             r = subprocess.run([sys.executable, out], check=False)
             return r.returncode
-    else:
+    elif args.target == "java":
         import gen_java
         cls = gen_java.cls_name(stem)
         try:
@@ -343,6 +344,54 @@ def main():
         # code-source dir still works? No - keep classes next to sources:
         if args.run:
             r = subprocess.run(["java", "-cp", outdir, cls], check=False, cwd=outdir)
+            return r.returncode
+    else:
+        import gen_c
+        try:
+            code = gen_c.generate(prog, source_path=os.path.realpath(args.src))
+        except Exception as e:
+            print(f"{args.src}: codegen error: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            return 1
+        main_c = os.path.join(outdir, stem + ".c")
+        with open(main_c, "w", encoding="utf-8") as f:
+            f.write(code)
+        runtime_dir = os.path.join(outdir, "runtime")
+        os.makedirs(runtime_dir, exist_ok=True)
+        runtime_files = (
+            "lt_runtime.c", "lt_runtime.h", "lt_json.c", "lt_json.h",
+            "ltpy.py", "LtJavaDaemon.java", "JReflect.java", "LtRt.java",
+        )
+        for runtime_file in runtime_files:
+            source_runtime = os.path.join(HERE, "runtime", runtime_file)
+            target_runtime = os.path.join(runtime_dir, runtime_file)
+            if os.path.realpath(source_runtime) != os.path.realpath(target_runtime):
+                shutil.copy(source_runtime, target_runtime)
+        print(f"wrote {main_c} (+ C runtime and Python/Java interop sidecars)",
+              flush=True)
+        if args.run:
+            compiler = shlex.split(os.environ.get("CC", "cc"))
+            if not compiler:
+                print("error: CC is empty; set it to a C11 compiler, or omit "
+                      "--run to emit C source only", file=sys.stderr)
+                return 1
+            executable = os.path.join(outdir, stem)
+            try:
+                r = subprocess.run(
+                    compiler + ["-std=c11", "-Wall", "-Wextra", "-O0",
+                                main_c, os.path.join(runtime_dir, "lt_runtime.c"),
+                                os.path.join(runtime_dir, "lt_json.c"),
+                                "-I", outdir, "-lm", "-o", executable],
+                    check=False, capture_output=True, text=True, cwd=outdir)
+            except OSError as e:
+                print(f"error: C compiler not available ({e}); the c target "
+                      "needs a C11 compiler for --run. Install one, or omit "
+                      "--run to emit C source only", file=sys.stderr)
+                return 1
+            if r.returncode != 0:
+                print(r.stdout + r.stderr, end="", file=sys.stderr)
+                return r.returncode or 1
+            r = subprocess.run(["./" + stem], check=False, cwd=outdir)
             return r.returncode
     return 0
 
