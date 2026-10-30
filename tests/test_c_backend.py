@@ -113,6 +113,18 @@ class CBackendDifferentialTests(unittest.TestCase):
                 self.assertEqual(program_output(c), program_output(py), fixture)
                 self.assertEqual(c.stderr, "", fixture)
 
+    def test_int64_vertical_slice_matches_python_backend(self):
+        source = TESTS / "bootstrap" / "p20_int64_feature.lt"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            py = invoke(source, "py", root / "py")
+            c = invoke(source, "c", root / "c")
+            self.assertEqual(py.returncode, 0, py.stderr)
+            self.assertEqual(c.returncode, 0,
+                             f"C int64 fixture failed:\n{c.stderr}\n{c.stdout}")
+            self.assertEqual(program_output(c), program_output(py))
+            self.assertEqual(c.stderr, "")
+
     def test_python_and_java_host_interop_fixtures_match_python_backend(self):
         if not shutil.which("java") or not shutil.which("javac"):
             self.skipTest("Java host interop requires java and javac")
