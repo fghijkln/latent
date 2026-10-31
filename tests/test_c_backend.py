@@ -144,6 +144,48 @@ class CBackendDifferentialTests(unittest.TestCase):
                                  f"C failed for {fixture}:\n{c.stderr}\n{c.stdout}")
                 self.assertEqual(program_output(c), program_output(py), fixture)
 
+    def test_host_sidecars_start_when_parent_stdio_is_closed(self):
+        if os.name != "posix":
+            self.skipTest("C11 sidecar process management requires POSIX")
+        if not shutil.which("java") or not shutil.which("javac"):
+            self.skipTest("Java host interop requires java and javac")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "sidecars.lt"
+            source.write_text('''\
+m = py "math"
+say m.sqrt(9)
+A = java "java.util.ArrayList"
+say A
+''', encoding="utf-8")
+            outdir = root / "out"
+            generated = invoke(source, "c", outdir, run=False)
+            self.assertEqual(generated.returncode, 0, generated.stderr)
+            cc = shutil.which(os.environ.get("CC", "cc"))
+            self.assertIsNotNone(cc, "C compiler cc is required")
+            env = clean_env()
+            compiled = subprocess.run(
+                [cc, "-std=c11", "-Wall", "-Wextra", "-O0",
+                 str(outdir / "sidecars.c"),
+                 str(outdir / "runtime" / "lt_runtime.c"),
+                 str(outdir / "runtime" / "lt_json.c"), "-I", str(outdir),
+                 "-lm", "-o", str(outdir / "sidecars")],
+                capture_output=True, text=True, env=env, timeout=60, check=False)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+            for descriptor in (0, 1):
+                with self.subTest(closed_descriptor=descriptor):
+                    result = subprocess.run(
+                        [str(outdir / "sidecars")], capture_output=True,
+                        text=True, env=env, cwd=outdir, timeout=60, check=False,
+                        preexec_fn=lambda fd=descriptor: os.close(fd))
+                    self.assertEqual(result.returncode, 0,
+                                     f"closed fd {descriptor}: {result.stderr}")
+                    self.assertEqual(result.stderr, "")
+                    if descriptor == 0:
+                        self.assertEqual(result.stdout,
+                                         "3\n<class java.util.ArrayList>\n")
+
     def test_python_host_member_values_named_args_and_callbacks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

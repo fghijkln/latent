@@ -797,9 +797,17 @@ static int host_child_start(LtHostChild *child, char *const argv[]) {
     }
     if (pid == 0) {
         if (dup2(to_pipe[0], STDIN_FILENO) < 0 ||
-                dup2(from_pipe[1], STDOUT_FILENO) < 0) _exit(126);
-        close(to_pipe[0]); close(to_pipe[1]);
-        close(from_pipe[0]); close(from_pipe[1]);
+                dup2(from_pipe[1], STDOUT_FILENO) < 0 ||
+                fcntl(STDIN_FILENO, F_SETFD, 0) < 0 ||
+                fcntl(STDOUT_FILENO, F_SETFD, 0) < 0) _exit(126);
+        if (to_pipe[0] != STDIN_FILENO && to_pipe[0] != STDOUT_FILENO)
+            close(to_pipe[0]);
+        if (to_pipe[1] != STDIN_FILENO && to_pipe[1] != STDOUT_FILENO)
+            close(to_pipe[1]);
+        if (from_pipe[0] != STDIN_FILENO && from_pipe[0] != STDOUT_FILENO)
+            close(from_pipe[0]);
+        if (from_pipe[1] != STDIN_FILENO && from_pipe[1] != STDOUT_FILENO)
+            close(from_pipe[1]);
         execvp(argv[0], argv);
         (void)fprintf(stderr, "Latent: cannot start %s: %s\n", argv[0], strerror(errno));
         _exit(127);
