@@ -237,6 +237,26 @@ say bump(2)
             self.assertEqual(program_output(c), program_output(py))
             self.assertEqual(program_output(c), "9\n5\n5\n12\n")
 
+    def test_python_callback_rejects_positional_keyword_conflict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "callback_positional_keyword_conflict.lt"
+            source.write_text('''\
+host = py "p18_callbacks_host"
+fn callback(value):
+    say "MUST-NOT-RUN"
+    return value
+say host.call_conflicting_kwargs(callback)
+''', encoding="utf-8")
+            env = clean_env(PYTHONPATH=str(TESTS / "python"))
+            for target in ("py", "c"):
+                with self.subTest(target=target):
+                    result = invoke(source, target, root / target, env=env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("multiple values for argument 'value'",
+                                  result.stderr)
+                    self.assertNotIn("MUST-NOT-RUN", program_output(result))
+
     def test_extracted_java_bound_method_matches_python_backend(self):
         if not shutil.which("java") or not shutil.which("javac"):
             self.skipTest("Java host interop requires java and javac")
