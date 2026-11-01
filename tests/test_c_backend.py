@@ -125,6 +125,137 @@ class CBackendDifferentialTests(unittest.TestCase):
             self.assertEqual(program_output(c), program_output(py))
             self.assertEqual(c.stderr, "")
 
+    def test_embedded_nul_string_semantics_match_python_backend(self):
+        source_text = r'''
+text = "a\0b"
+say len(text)
+say text[0]
+say text[1]
+say text[2]
+say text[-1]
+say text + "c"
+say text == "a\0b"
+say text == "a"
+try:
+    throw "x\0y"
+catch message:
+    say len(message)
+    say message[2]
+if "\0":
+    say "truthy"
+for char in text:
+    say char
+unicode = "é\0😀z"
+say len(unicode)
+say unicode[1]
+say unicode[2]
+items = {"a": 1, "a\0b": 2, "\0": 3}
+say len(items)
+say items["a"]
+say items["a\0b"]
+say items["\0"]
+items["a\0b"] = 4
+say items["a\0b"]
+say items == {"a": 1, "a\0b": 4, "\0": 3}
+'''
+        expected = """\
+3
+a
+<NUL>
+b
+b
+a<NUL>bc
+true
+false
+3
+y
+truthy
+a
+<NUL>
+b
+4
+<NUL>
+😀
+3
+1
+2
+3
+4
+true
+""".replace("<NUL>", chr(0))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "embedded_nul.lt"
+            source.write_text(source_text, encoding="utf-8")
+            py = invoke(source, "py", root / "py")
+            c = invoke(source, "c", root / "c")
+            self.assertEqual(py.returncode, 0, py.stderr)
+            self.assertEqual(c.returncode, 0,
+                             f"C embedded-NUL fixture failed:\n{c.stderr}\n{c.stdout}")
+            self.assertEqual(program_output(c), program_output(py))
+            self.assertEqual(program_output(c), expected)
+            self.assertEqual(c.stderr, "")
+
+    def test_embedded_nul_roundtrips_through_python_host_sidecar(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "nul_host.py").write_text('''\
+def echo(value):
+    return value
+
+def echo_map(value):
+    return value
+''', encoding="utf-8")
+            source = root / "python_host_nul.lt"
+            source.write_text(r'''
+text = "a\0b"
+host = py "nul_host"
+result = host.echo(text)
+say len(result)
+say result[2]
+say result == text
+mapped = host.echo_map({"a": 1, "a\0b": text})
+say mapped["a"]
+say len(mapped["a\0b"])
+say mapped["a\0b"][2]
+''', encoding="utf-8")
+            env = clean_env(PYTHONPATH=str(root))
+            py = invoke(source, "py", root / "py", env=env)
+            c = invoke(source, "c", root / "c", env=env)
+            self.assertEqual(py.returncode, 0, py.stderr)
+            self.assertEqual(c.returncode, 0, f"{c.stderr}\n{c.stdout}")
+            self.assertEqual(program_output(c), program_output(py))
+            self.assertEqual(program_output(c), "3\nb\ntrue\n1\n3\nb\n")
+
+    def test_embedded_nul_roundtrips_through_java_host_sidecar(self):
+        if not shutil.which("java") or not shutil.which("javac"):
+            self.skipTest("Java host interop requires java and javac")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            java_fixture = root / "NulInteropFixture.java"
+            java_fixture.write_text('''\
+public class NulInteropFixture {
+    public static String echo(String value) { return value; }
+}
+''', encoding="utf-8")
+            source = root / "java_host_nul.lt"
+            source.write_text(r'''
+text = "a\0b"
+NulInterop = java "NulInteropFixture"
+result = NulInterop.echo(text)
+say len(result)
+say result[2]
+say result == text
+''', encoding="utf-8")
+            py = run_java_interop_fixture(source, "py", root / "py",
+                                          (java_fixture,))
+            c = run_java_interop_fixture(source, "c", root / "c",
+                                         (java_fixture,))
+            self.assertEqual(py.returncode, 0, py.stderr)
+            self.assertEqual(c.returncode, 0, f"{c.stderr}\n{c.stdout}")
+            self.assertEqual(c.stdout, py.stdout)
+            self.assertEqual(c.stdout, "3\nb\ntrue\n")
+
     def test_python_and_java_host_interop_fixtures_match_python_backend(self):
         if not shutil.which("java") or not shutil.which("javac"):
             self.skipTest("Java host interop requires java and javac")

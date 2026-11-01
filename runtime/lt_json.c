@@ -16,11 +16,13 @@ typedef struct {
 
 typedef struct {
     char *key;
+    size_t key_length;
     LtJson *value;
 } LtJsonMember;
 
 struct LtJson {
     LtJsonType type;
+    size_t text_length;
     union {
         int boolean;
         char *text;
@@ -133,30 +135,36 @@ static int utf8_decode(const unsigned char *text, size_t *length, unsigned long 
     return 0;
 }
 
-static int valid_utf8_string(const char *text)
+static int valid_utf8_bytes(const char *text, size_t length)
 {
-    const unsigned char *cursor;
-    size_t length;
+    size_t offset = 0U;
+    size_t width;
     unsigned long codepoint;
 
     if (text == NULL) return 0;
-    cursor = (const unsigned char *)text;
-    while (*cursor != '\0') {
-        if (!utf8_decode(cursor, &length, &codepoint) || codepoint == 0UL) return 0;
-        cursor += length;
+    while (offset < length) {
+        if (!utf8_decode((const unsigned char *)text + offset, &width, &codepoint)) return 0;
+        offset += width;
     }
     return 1;
 }
 
-static char *copy_string(const char *text)
+static char *copy_bytes(const char *text, size_t length)
 {
-    size_t length = strlen(text);
     char *copy;
 
-    if (length == SIZE_MAX) return NULL;
+    if (text == NULL || length == SIZE_MAX) return NULL;
     copy = (char *)malloc(length + 1U);
-    if (copy != NULL) memcpy(copy, text, length + 1U);
+    if (copy != NULL) {
+        if (length != 0U) memcpy(copy, text, length);
+        copy[length] = '\0';
+    }
     return copy;
+}
+
+static char *copy_string(const char *text)
+{
+    return text == NULL ? NULL : copy_bytes(text, strlen(text));
 }
 
 static LtJson *new_value(LtJsonType type)
@@ -216,6 +224,7 @@ LtJson *lt_json_number(const char *raw_json_number)
     result = new_value(LT_JSON_NUMBER);
     if (result == NULL) return NULL;
     result->as.text = copy_string(raw_json_number);
+    result->text_length = length;
     if (result->as.text == NULL) {
         free(result);
         return NULL;
@@ -225,12 +234,18 @@ LtJson *lt_json_number(const char *raw_json_number)
 
 LtJson *lt_json_string(const char *utf8)
 {
+    return utf8 == NULL ? NULL : lt_json_string_n(utf8, strlen(utf8));
+}
+
+LtJson *lt_json_string_n(const char *utf8, size_t length)
+{
     LtJson *result;
 
-    if (!valid_utf8_string(utf8)) return NULL;
+    if (!valid_utf8_bytes(utf8, length)) return NULL;
     result = new_value(LT_JSON_STRING);
     if (result == NULL) return NULL;
-    result->as.text = copy_string(utf8);
+    result->as.text = copy_bytes(utf8, length);
+    result->text_length = length;
     if (result->as.text == NULL) {
         free(result);
         return NULL;
@@ -325,24 +340,33 @@ static int reserve_object(LtJson *object, size_t needed)
 
 int lt_json_object_set(LtJson *object, const char *key, LtJson *value)
 {
+    return key != NULL && lt_json_object_set_n(object, key, strlen(key), value);
+}
+
+int lt_json_object_set_n(LtJson *object, const char *key, size_t key_length,
+                         LtJson *value)
+{
     size_t i;
     char *key_copy;
 
     if (object == NULL || object->type != LT_JSON_OBJECT || value == NULL
-        || !valid_utf8_string(key) || contains_value(value, object, 0U)) return 0;
+        || !valid_utf8_bytes(key, key_length) || contains_value(value, object, 0U)) return 0;
     for (i = 0U; i < object->as.object.count; ++i) {
-        if (strcmp(object->as.object.members[i].key, key) == 0) {
-            LtJson *old = object->as.object.members[i].value;
-            object->as.object.members[i].value = value;
+        LtJsonMember *member = &object->as.object.members[i];
+        if (member->key_length == key_length
+            && memcmp(member->key, key, key_length) == 0) {
+            LtJson *old = member->value;
+            member->value = value;
             if (old != value) lt_json_free(old);
             return 1;
         }
     }
     if (object->as.object.count == SIZE_MAX
         || !reserve_object(object, object->as.object.count + 1U)) return 0;
-    key_copy = copy_string(key);
+    key_copy = copy_bytes(key, key_length);
     if (key_copy == NULL) return 0;
     object->as.object.members[object->as.object.count].key = key_copy;
+    object->as.object.members[object->as.object.count].key_length = key_length;
     object->as.object.members[object->as.object.count].value = value;
     ++object->as.object.count;
     return 1;
@@ -389,10 +413,18 @@ const LtJson *lt_json_at(const LtJson *array, size_t index)
 
 const LtJson *lt_json_get(const LtJson *object, const char *key)
 {
+    return key == NULL ? NULL : lt_json_get_n(object, key, strlen(key));
+}
+
+const LtJson *lt_json_get_n(const LtJson *object, const char *key,
+                            size_t key_length)
+{
     size_t i;
     if (object == NULL || object->type != LT_JSON_OBJECT || key == NULL) return NULL;
     for (i = 0U; i < object->as.object.count; ++i) {
-        if (strcmp(object->as.object.members[i].key, key) == 0) return object->as.object.members[i].value;
+        const LtJsonMember *member = &object->as.object.members[i];
+        if (member->key_length == key_length
+            && memcmp(member->key, key, key_length) == 0) return member->value;
     }
     return NULL;
 }
@@ -401,6 +433,12 @@ const char *lt_json_object_key(const LtJson *object, size_t index)
 {
     if (object == NULL || object->type != LT_JSON_OBJECT || index >= object->as.object.count) return NULL;
     return object->as.object.members[index].key;
+}
+
+size_t lt_json_object_key_length(const LtJson *object, size_t index)
+{
+    if (object == NULL || object->type != LT_JSON_OBJECT || index >= object->as.object.count) return 0U;
+    return object->as.object.members[index].key_length;
 }
 
 const LtJson *lt_json_object_value(const LtJson *object, size_t index)
@@ -412,6 +450,11 @@ const LtJson *lt_json_object_value(const LtJson *object, size_t index)
 const char *lt_json_as_string(const LtJson *value)
 {
     return value != NULL && value->type == LT_JSON_STRING ? value->as.text : NULL;
+}
+
+size_t lt_json_string_length(const LtJson *value)
+{
+    return value != NULL && value->type == LT_JSON_STRING ? value->text_length : 0U;
 }
 
 const char *lt_json_number_text(const LtJson *value)
@@ -489,15 +532,16 @@ static int append_hex4(LtJsonBuffer *buffer, unsigned long codepoint)
     return buffer_append(buffer, escaped, sizeof(escaped));
 }
 
-static int stringify_string(LtJsonBuffer *buffer, const char *text)
+static int stringify_string(LtJsonBuffer *buffer, const char *text, size_t text_length)
 {
     const unsigned char *cursor = (const unsigned char *)text;
+    size_t offset = 0U;
     size_t length;
     unsigned long codepoint;
 
     if (!buffer_byte(buffer, '"')) return 0;
-    while (*cursor != '\0') {
-        unsigned char byte = *cursor;
+    while (offset < text_length) {
+        unsigned char byte = cursor[offset];
         const char *escape = NULL;
         if (byte == '"') escape = "\\\"";
         else if (byte == '\\') escape = "\\\\";
@@ -508,14 +552,15 @@ static int stringify_string(LtJsonBuffer *buffer, const char *text)
         else if (byte == '\t') escape = "\\t";
         if (escape != NULL) {
             if (!buffer_append(buffer, escape, 2U)) return 0;
-            ++cursor;
+            ++offset;
         } else if (byte < 0x20U) {
             if (!append_hex4(buffer, (unsigned long)byte)) return 0;
-            ++cursor;
+            ++offset;
         } else {
-            if (!utf8_decode(cursor, &length, &codepoint)
-                || !buffer_append(buffer, (const char *)cursor, length)) return 0;
-            cursor += length;
+            if (!utf8_decode(cursor + offset, &length, &codepoint)
+                || length > text_length - offset
+                || !buffer_append(buffer, (const char *)cursor + offset, length)) return 0;
+            offset += length;
         }
     }
     return buffer_byte(buffer, '"');
@@ -535,7 +580,7 @@ static int stringify_value(LtJsonBuffer *buffer, const LtJson *value, size_t dep
     case LT_JSON_NUMBER:
         return buffer_append(buffer, value->as.text, strlen(value->as.text));
     case LT_JSON_STRING:
-        return stringify_string(buffer, value->as.text);
+        return stringify_string(buffer, value->as.text, value->text_length);
     case LT_JSON_ARRAY:
         if (!buffer_byte(buffer, '[')) return 0;
         for (i = 0U; i < value->as.array.count; ++i) {
@@ -547,7 +592,8 @@ static int stringify_value(LtJsonBuffer *buffer, const LtJson *value, size_t dep
         if (!buffer_byte(buffer, '{')) return 0;
         for (i = 0U; i < value->as.object.count; ++i) {
             if ((i != 0U && !buffer_byte(buffer, ','))
-                || !stringify_string(buffer, value->as.object.members[i].key)
+                || !stringify_string(buffer, value->as.object.members[i].key,
+                                     value->as.object.members[i].key_length)
                 || !buffer_byte(buffer, ':')
                 || !stringify_value(buffer, value->as.object.members[i].value, depth + 1U)) return 0;
         }
@@ -609,7 +655,7 @@ static int append_codepoint(LtJsonBuffer *buffer, unsigned long codepoint)
     char bytes[4];
     size_t length;
 
-    if (codepoint == 0UL || codepoint > 0x10ffffUL
+    if (codepoint > 0x10ffffUL
         || (codepoint >= 0xd800UL && codepoint <= 0xdfffUL)) return 0;
     if (codepoint <= 0x7fUL) {
         bytes[0] = (char)codepoint;
@@ -633,7 +679,7 @@ static int append_codepoint(LtJsonBuffer *buffer, unsigned long codepoint)
     return buffer_append(buffer, bytes, length);
 }
 
-static char *parse_string(LtJsonParser *parser)
+static char *parse_string(LtJsonParser *parser, size_t *text_length)
 {
     LtJsonBuffer buffer = {NULL, 0U, 0U};
     if (*parser->cursor != '"') return NULL;
@@ -671,7 +717,7 @@ static char *parse_string(LtJsonParser *parser)
             size_t length;
             unsigned long codepoint;
             if (!utf8_decode((const unsigned char *)parser->cursor, &length, &codepoint)
-                || codepoint == 0UL || !buffer_append(&buffer, parser->cursor, length)) goto error;
+                || !buffer_append(&buffer, parser->cursor, length)) goto error;
             parser->cursor += length;
         }
     }
@@ -682,6 +728,7 @@ static char *parse_string(LtJsonParser *parser)
         if (buffer.data == NULL) return NULL;
         buffer.data[0] = '\0';
     }
+    *text_length = buffer.length;
     return buffer.data;
 error:
     free(buffer.data);
@@ -733,16 +780,19 @@ static LtJson *parse_object(LtJsonParser *parser, size_t depth)
     }
     for (;;) {
         char *key;
+        size_t key_length;
         LtJson *value;
         size_t i;
 
-        key = parse_string(parser);
+        key = parse_string(parser, &key_length);
         if (key == NULL) {
             lt_json_free(object);
             return NULL;
         }
         for (i = 0U; i < object->as.object.count; ++i) {
-            if (strcmp(object->as.object.members[i].key, key) == 0) {
+            LtJsonMember *member = &object->as.object.members[i];
+            if (member->key_length == key_length
+                && memcmp(member->key, key, key_length) == 0) {
                 free(key);
                 lt_json_free(object);
                 return NULL;
@@ -757,7 +807,7 @@ static LtJson *parse_object(LtJsonParser *parser, size_t depth)
         ++parser->cursor;
         skip_whitespace(parser);
         value = parse_value(parser, depth + 1U);
-        if (value == NULL || !lt_json_object_set(object, key, value)) {
+        if (value == NULL || !lt_json_object_set_n(object, key, key_length, value)) {
             free(key);
             lt_json_free(value);
             lt_json_free(object);
@@ -798,7 +848,8 @@ static LtJson *parse_value(LtJsonParser *parser, size_t depth)
         return lt_json_bool(0);
     }
     if (*parser->cursor == '"') {
-        char *text = parse_string(parser);
+        size_t text_length;
+        char *text = parse_string(parser, &text_length);
         if (text == NULL) return NULL;
         value = new_value(LT_JSON_STRING);
         if (value == NULL) {
@@ -806,6 +857,7 @@ static LtJson *parse_value(LtJsonParser *parser, size_t depth)
             return NULL;
         }
         value->as.text = text;
+        value->text_length = text_length;
         return value;
     }
     if (*parser->cursor == '[') return parse_array(parser, depth);

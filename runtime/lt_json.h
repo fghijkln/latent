@@ -22,10 +22,13 @@ LtJson *lt_json_null(void);
 LtJson *lt_json_bool(int value);
 LtJson *lt_json_number(const char *raw_json_number);
 LtJson *lt_json_string(const char *utf8);
+LtJson *lt_json_string_n(const char *utf8, size_t length);
 LtJson *lt_json_array(void);
 LtJson *lt_json_object(void);
 int lt_json_array_push(LtJson *array, LtJson *item);
 int lt_json_object_set(LtJson *object, const char *key, LtJson *value);
+int lt_json_object_set_n(LtJson *object, const char *key, size_t key_length,
+                         LtJson *value);
 LtJson *lt_json_parse(const char *text, const char **error);
 char *lt_json_stringify(const LtJson *value);
 void lt_json_free(LtJson *value);
@@ -33,9 +36,13 @@ LtJsonType lt_json_type(const LtJson *value);
 size_t lt_json_size(const LtJson *value);
 const LtJson *lt_json_at(const LtJson *array, size_t index);
 const LtJson *lt_json_get(const LtJson *object, const char *key);
+const LtJson *lt_json_get_n(const LtJson *object, const char *key,
+                            size_t key_length);
 const char *lt_json_object_key(const LtJson *object, size_t index);
+size_t lt_json_object_key_length(const LtJson *object, size_t index);
 const LtJson *lt_json_object_value(const LtJson *object, size_t index);
 const char *lt_json_as_string(const LtJson *value);
+size_t lt_json_string_length(const LtJson *value);
 const char *lt_json_number_text(const LtJson *value);
 int lt_json_as_bool(const LtJson *value, int *out);
 int lt_json_as_int64(const LtJson *value, int64_t *out);

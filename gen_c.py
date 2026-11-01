@@ -264,7 +264,8 @@ class Gen:
         if isinstance(node, Num):
             return self._temp(c_num(node.value))
         if isinstance(node, Str):
-            return self._temp(f"lt_str({c_string(node.value)})")
+            length = len(node.value.encode("utf-8"))
+            return self._temp(f"lt_strn({c_string(node.value)}, {length}U)")
         if isinstance(node, Bool):
             return self._temp(f"lt_bool({1 if node.value else 0})")
         if isinstance(node, Nil):
@@ -285,11 +286,14 @@ class Gen:
             if not vals:
                 return self._temp("lt_map(NULL, NULL, 0)")
             keys = self._fresh("lt_c_keys")
+            key_lengths = self._fresh("lt_c_key_lengths")
             values = self._fresh("lt_c_values")
             key_values = ", ".join(c_string(key) for key, _ in node.pairs)
+            key_byte_lengths = ", ".join(f"{len(key.encode('utf-8'))}U" for key, _ in node.pairs)
             self.w(f"const char *{keys}[{len(vals)}] = {{{key_values}}};")
+            self.w(f"const size_t {key_lengths}[{len(vals)}] = {{{key_byte_lengths}}};")
             self.w(f"LtValue {values}[{len(vals)}] = {{{', '.join(vals)}}};")
-            return self._temp(f"lt_map({keys}, {values}, {len(vals)})")
+            return self._temp(f"lt_mapn({keys}, {key_lengths}, {values}, {len(vals)})")
         if isinstance(node, BinOp):
             left = self.expr(node.left)
             if node.op in ("and", "or"):
@@ -488,8 +492,9 @@ class Gen:
             self.w("} else {")
             self.ind += 1
             self.w(f"const char *lt_c_message = lt_handler_message(&{handler});")
+            self.w(f"const size_t lt_c_message_length = lt_handler_message_length(&{handler});")
             self.w(f"lt_handler_pop(&{handler});")
-            self._assign(stmt.var, "lt_str(lt_c_message ? lt_c_message : \"\")")
+            self._assign(stmt.var, "lt_strn(lt_c_message ? lt_c_message : \"\", lt_c_message ? lt_c_message_length : 0U)")
             self.stmtlist(stmt.handler)
             self.ind -= 1
             self.w("}")

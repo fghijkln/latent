@@ -20,7 +20,7 @@
 #define LT_RANGE_LIMIT 1000000U
 #define LT_EQ_DEPTH_LIMIT 128U
 
-typedef struct { char *key; LtValue value; } LtEntry;
+typedef struct { char *key; size_t key_length; LtValue value; } LtEntry;
 struct LtList { LtValue *items; size_t count, capacity; };
 struct LtMap { LtEntry *items; size_t count, capacity; };
 typedef struct { char *name; LtValue value; } LtSlot;
@@ -36,6 +36,7 @@ static const char *lt_current_function;
 static int lt_current_line;
 static const char *lt_current_error_type = "RuntimeError";
 static const char *lt_last_error_message = "uncaught exception";
+static size_t lt_last_error_message_length = sizeof("uncaught exception") - 1U;
 static char *lt_internal_repr(LtValue v, int depth);
 static char *lt_host_repr(LtValue v);
 static int lt_host_truthy(LtValue v);
@@ -61,11 +62,19 @@ static void *lt_realloc(void *p, size_t n) {
     if (!q) { fputs("Latent runtime: out of memory\n", stderr); exit(EXIT_FAILURE); }
     return q;
 }
+static void fail(const char *type, const char *fmt, ...);
 static char *lt_strdup(const char *s) {
     if (!s) s = "";
     size_t n = strlen(s) + 1;
     char *r = lt_alloc(n);
     memcpy(r, s, n);
+    return r;
+}
+static char *lt_memdup0(const char *s, size_t length) {
+    if (length == SIZE_MAX) fail("OverflowError", "string too large");
+    char *r = lt_alloc(length + 1U);
+    if (length) memcpy(r, s, length);
+    r[length] = '\0';
     return r;
 }
 static char *lt_fmt(const char *fmt, ...) {
@@ -82,7 +91,14 @@ LtValue lt_nil(void) { return value(LT_NIL); }
 LtValue lt_bool(int b) { LtValue v = value(LT_BOOL); v.as.boolean = !!b; return v; }
 LtValue lt_int(int64_t i) { LtValue v = value(LT_INT); v.as.integer = i; return v; }
 LtValue lt_float(double d) { LtValue v = value(LT_FLOAT); v.as.real = d; return v; }
-LtValue lt_str(const char *s) { LtValue v = value(LT_STR); v.as.string = lt_strdup(s ? s : ""); return v; }
+LtValue lt_strn(const char *s, size_t length) {
+    if (!s && length) fail("TypeError", "string data must not be null");
+    LtValue v = value(LT_STR);
+    v.as.string.data = lt_memdup0(s ? s : "", length);
+    v.as.string.length = length;
+    return v;
+}
+LtValue lt_str(const char *s) { return lt_strn(s ? s : "", s ? strlen(s) : 0U); }
 static LtValue missing(void) { return value(LT_MISSING); }
 int lt_is_missing(LtValue v) { return v.tag == LT_MISSING; }
 
@@ -111,22 +127,42 @@ static const char *type_name(LtValue v) {
     }
     return "value";
 }
-static void throw_message(const char *type, const char *message) {
+static void throw_message_n(const char *type, const char *message, size_t length) {
     LtHandler *h;
+    if (!message) { message = ""; length = 0U; }
     lt_current_error_type = type ? type : "RuntimeError";
-    lt_last_error_message = lt_strdup(message ? message : "");
+    lt_last_error_message = lt_memdup0(message, length);
+    lt_last_error_message_length = length;
     if ((h = lt_handlers) != NULL) {
-        h->message = lt_strdup(message ? message : "");
+        h->message = lt_memdup0(message, length);
+        h->message_length = length;
         h->error_type = lt_current_error_type;
         longjmp(h->buf, 1);
     }
-    fprintf(stderr, "%s%s%s: Latent runtime error: %s: %s\n",
+    fprintf(stderr, "%s%s%s: Latent runtime error: %s: ",
             lt_current_path ? lt_current_path : "<latent>",
             lt_current_path ? ":" : "", lt_current_path ? lt_fmt("%d", lt_current_line) : "",
-            lt_current_error_type, message ? message : "");
+            lt_current_error_type);
+    (void)fwrite(message, 1U, length, stderr);
+    fputc('\n', stderr);
     fflush(stderr);
     lt_runtime_shutdown();
     exit(EXIT_FAILURE);
+}
+static void throw_message(const char *type, const char *message) {
+    throw_message_n(type, message, message ? strlen(message) : 0U);
+}
+static void throw_prefixed_message(const char *type, const char *prefix,
+                                   const char *message, size_t message_length) {
+    size_t prefix_length = strlen(prefix);
+    if (message_length > SIZE_MAX - prefix_length - 1U)
+        throw_message("OverflowError", "string too large");
+    size_t length = prefix_length + message_length;
+    char *combined = lt_alloc(length + 1U);
+    memcpy(combined, prefix, prefix_length);
+    if (message_length) memcpy(combined + prefix_length, message, message_length);
+    combined[length] = '\0';
+    throw_message_n(type, combined, length);
 }
 static void fail(const char *type, const char *fmt, ...) {
     va_list ap, cp; va_start(ap, fmt); va_copy(cp, ap);
@@ -135,26 +171,34 @@ static void fail(const char *type, const char *fmt, ...) {
     char *s = lt_alloc((size_t)n + 1); (void)vsnprintf(s, (size_t)n + 1, fmt, ap); va_end(ap);
     throw_message(type, s);
 }
-void lt_handler_push(LtHandler *h) { if (!h) fail("RuntimeError", "null exception handler"); h->previous = lt_handlers; h->message = NULL; h->error_type = NULL; lt_handlers = h; }
+void lt_handler_push(LtHandler *h) { if (!h) fail("RuntimeError", "null exception handler"); h->previous = lt_handlers; h->message = NULL; h->message_length = 0U; h->error_type = NULL; lt_handlers = h; }
 void lt_handler_pop(LtHandler *h) {
     if (lt_handlers != h) fail("RuntimeError", "exception handler stack mismatch");
     lt_handlers = h->previous;
 }
 const char *lt_handler_message(const LtHandler *h) { return h && h->message ? h->message : ""; }
+size_t lt_handler_message_length(const LtHandler *h) { return h && h->message ? h->message_length : 0U; }
 void lt_throw(LtValue v) {
     char *s;
-    if (v.tag == LT_STR) s = (char *)v.as.string;
-    else {
-        /* Implemented below; declaration keeps user throw values consistent with str(). */
-        s = lt_internal_repr(v, 0);
+    size_t length;
+    if (v.tag == LT_STR) {
+        throw_message_n("Exception", v.as.string.data, v.as.string.length);
+        return;
     }
-    throw_message("Exception", s);
+    /* Implemented below; declaration keeps user throw values consistent with str(). */
+    s = lt_internal_repr(v, 0);
+    length = strlen(s);
+    throw_message_n("Exception", s, length);
 }
 void lt_report_uncaught(void) {
-    fprintf(stderr, "%s%s%s: Latent runtime error: %s: %s\n",
+    fprintf(stderr, "%s%s%s: Latent runtime error: %s: ",
             lt_current_path ? lt_current_path : "<latent>",
             lt_current_path ? ":" : "", lt_current_path ? lt_fmt("%d", lt_current_line) : "",
-            lt_current_error_type, lt_last_error_message ? lt_last_error_message : "uncaught exception");
+            lt_current_error_type);
+    const char *message = lt_last_error_message ? lt_last_error_message : "uncaught exception";
+    size_t length = lt_last_error_message ? lt_last_error_message_length : strlen(message);
+    (void)fwrite(message, 1U, length, stderr);
+    fputc('\n', stderr);
     fflush(stderr);
     lt_runtime_shutdown();
     exit(EXIT_FAILURE);
@@ -165,17 +209,30 @@ void lt_set_location(const char *path, int line, const char *function) {
     lt_current_function = function ? lt_strdup(function) : NULL;
 }
 
-static size_t map_find(const LtMap *m, const char *key) {
-    size_t i; if (!m) return SIZE_MAX;
-    for (i = 0; i < m->count; i++) if (strcmp(m->items[i].key, key) == 0) return i;
+static size_t map_find_n(const LtMap *m, const char *key, size_t key_length) {
+    size_t i;
+    if (!m || !key) return SIZE_MAX;
+    for (i = 0; i < m->count; i++)
+        if (m->items[i].key_length == key_length
+            && memcmp(m->items[i].key, key, key_length) == 0) return i;
     return SIZE_MAX;
 }
-static void map_set(LtMap *m, const char *key, LtValue v) {
-    size_t i = map_find(m, key);
+static size_t map_find(const LtMap *m, const char *key) {
+    return key ? map_find_n(m, key, strlen(key)) : SIZE_MAX;
+}
+static void map_set_n(LtMap *m, const char *key, size_t key_length, LtValue v) {
     if (!key) fail("TypeError", "map key must not be null");
+    size_t i = map_find_n(m, key, key_length);
     if (i != SIZE_MAX) { m->items[i].value = v; return; }
     if (m->count == m->capacity) { if (m->capacity > SIZE_MAX / 2) fail("OverflowError", "map too large"); m->capacity = m->capacity ? m->capacity * 2 : 8; if (m->capacity > SIZE_MAX / sizeof(*m->items)) fail("OverflowError", "map too large"); m->items = lt_realloc(m->items, m->capacity * sizeof(*m->items)); }
-    m->items[m->count].key = lt_strdup(key); m->items[m->count].value = v; m->count++;
+    m->items[m->count].key = lt_memdup0(key, key_length);
+    m->items[m->count].key_length = key_length;
+    m->items[m->count].value = v;
+    m->count++;
+}
+static void map_set(LtMap *m, const char *key, LtValue v) {
+    if (!key) fail("TypeError", "map key must not be null");
+    map_set_n(m, key, strlen(key), v);
 }
 LtValue lt_list(const LtValue *xs, size_t n) {
     if (n && !xs) fail("TypeError", "list values must not be null");
@@ -189,6 +246,13 @@ LtValue lt_map(const char *const *keys, const LtValue *vals, size_t n) {
     if (n && (!keys || !vals)) fail("TypeError", "map entries must not be null");
     LtValue v = value(LT_MAP); LtMap *m = lt_alloc(sizeof(*m)); memset(m, 0, sizeof(*m));
     for (size_t i = 0; i < n; i++) { if (!keys[i]) fail("TypeError", "map keys must be strings"); map_set(m, keys[i], vals[i]); }
+    v.as.map = m; return v;
+}
+LtValue lt_mapn(const char *const *keys, const size_t *key_lengths,
+                const LtValue *vals, size_t n) {
+    if (n && (!keys || !key_lengths || !vals)) fail("TypeError", "map entries must not be null");
+    LtValue v = value(LT_MAP); LtMap *m = lt_alloc(sizeof(*m)); memset(m, 0, sizeof(*m));
+    for (size_t i = 0; i < n; i++) map_set_n(m, keys[i], key_lengths[i], vals[i]);
     v.as.map = m; return v;
 }
 
@@ -239,14 +303,14 @@ static size_t utf8_next(const unsigned char *s, size_t n, size_t i, uint32_t *cp
     if ((need == 3 && x < 0x800U) || (need == 4 && x < 0x10000U) || x > 0x10FFFFU || (x >= 0xD800U && x <= 0xDFFFU)) fail("UnicodeError", "invalid UTF-8 string");
     *cp = x; return need;
 }
-static size_t utf8_count(const char *s) {
-    size_t n = strlen(s), i = 0, count = 0; uint32_t cp;
-    while (i < n) { i += utf8_next((const unsigned char *)s, n, i, &cp); count++; }
+static size_t utf8_count(LtString s) {
+    size_t i = 0, count = 0; uint32_t cp;
+    while (i < s.length) { i += utf8_next((const unsigned char *)s.data, s.length, i, &cp); count++; }
     return count;
 }
-static LtValue utf8_at(const char *s, size_t idx) {
-    size_t n = strlen(s), i = 0, count = 0; uint32_t cp;
-    while (i < n) { size_t bytes = utf8_next((const unsigned char *)s, n, i, &cp); if (count++ == idx) { char *r = lt_alloc(bytes + 1); memcpy(r, s + i, bytes); r[bytes] = '\0'; LtValue v = value(LT_STR); v.as.string = r; return v; } i += bytes; }
+static LtValue utf8_at(LtString s, size_t idx) {
+    size_t i = 0, count = 0; uint32_t cp;
+    while (i < s.length) { size_t bytes = utf8_next((const unsigned char *)s.data, s.length, i, &cp); if (count++ == idx) return lt_strn(s.data + i, bytes); i += bytes; }
     fail("IndexError", "index out of range: %zu", idx); return lt_nil();
 }
 static char *repr_q(LtValue v, int depth);
@@ -267,7 +331,7 @@ static char *lt_internal_repr(LtValue v, int depth) {
             }
             return lt_strdup(b);
         }
-        case LT_STR: return lt_strdup(v.as.string ? v.as.string : "");
+        case LT_STR: return lt_memdup0(v.as.string.data, v.as.string.length);
         case LT_FUNCTION: return lt_fmt("<function %s>", v.as.function->name);
         case LT_BOUND_METHOD: { LtBound *b = v.as.pointer; return lt_fmt("<bound method %s.%s>", b->object->klass->name, b->function->name); }
         case LT_CLASS: return lt_fmt("<class %s>", v.as.klass->name);
@@ -282,7 +346,7 @@ static char *lt_internal_repr(LtValue v, int depth) {
         }
         case LT_MAP: {
             size_t cap = 2, len = 0; char *s = lt_alloc(cap); s[len++] = '{';
-            for (size_t i = 0; i < v.as.map->count; i++) { LtValue k = lt_str(v.as.map->items[i].key); char *a = repr_q(k, depth + 1), *b = repr_q(v.as.map->items[i].value, depth + 1); size_t need = strlen(a) + strlen(b) + (i ? 4 : 2); while (len + need > cap) cap *= 2; s = lt_realloc(s, cap); if (i) { s[len++] = ','; s[len++] = ' '; } size_t al = strlen(a), bl = strlen(b); memcpy(s + len, a, al); len += al; s[len++] = ':'; s[len++] = ' '; memcpy(s + len, b, bl); len += bl; }
+            for (size_t i = 0; i < v.as.map->count; i++) { LtEntry *entry = &v.as.map->items[i]; LtValue k = lt_strn(entry->key, entry->key_length); char *a = repr_q(k, depth + 1), *b = repr_q(entry->value, depth + 1); size_t need = strlen(a) + strlen(b) + (i ? 4 : 2); while (len + need > cap) cap *= 2; s = lt_realloc(s, cap); if (i) { s[len++] = ','; s[len++] = ' '; } size_t al = strlen(a), bl = strlen(b); memcpy(s + len, a, al); len += al; s[len++] = ':'; s[len++] = ' '; memcpy(s + len, b, bl); len += bl; }
             if (len + 2 > cap) s = lt_realloc(s, len + 2);
             s[len++] = '}'; s[len] = 0; return s;
         }
@@ -291,8 +355,8 @@ static char *lt_internal_repr(LtValue v, int depth) {
 }
 static char *repr_q(LtValue v, int depth) {
     if (v.tag != LT_STR) return lt_internal_repr(v, depth);
-    const unsigned char *p = (const unsigned char *)(v.as.string ? v.as.string : "");
-    size_t n = strlen((const char *)p), cap = n * 6 + 3, len = 0; char *r = lt_alloc(cap); r[len++] = '"';
+    const unsigned char *p = (const unsigned char *)v.as.string.data;
+    size_t n = v.as.string.length, cap = n * 6 + 3, len = 0; char *r = lt_alloc(cap); r[len++] = '"';
     for (size_t i = 0; i < n; i++) {
         unsigned char c = p[i];
         if (c == '"' || c == '\\') { r[len++] = '\\'; r[len++] = (char)c; }
@@ -349,7 +413,7 @@ int lt_truthy(LtValue v) {
     switch (v.tag) {
         case LT_NIL: case LT_MISSING: return 0; case LT_BOOL: return v.as.boolean != 0;
         case LT_INT: return v.as.integer != 0; case LT_FLOAT: return v.as.real != 0.0;
-        case LT_STR: return v.as.string && v.as.string[0] != 0;
+        case LT_STR: return v.as.string.length != 0U;
         case LT_LIST: return v.as.list->count != 0; case LT_MAP: return v.as.map->count != 0;
         case LT_HOST: return lt_host_truthy(v);
         default: return 1;
@@ -360,7 +424,7 @@ LtValue lt_add(LtValue a, LtValue b) {
         LtValue args[] = {a, b};
         return lt_host_binop("__add__", args, 2);
     }
-    if (a.tag == LT_STR && b.tag == LT_STR) { size_t x = strlen(a.as.string), y = strlen(b.as.string); char *s = lt_alloc(x + y + 1); memcpy(s, a.as.string, x); memcpy(s + x, b.as.string, y + 1); LtValue v = value(LT_STR); v.as.string = s; return v; }
+    if (a.tag == LT_STR && b.tag == LT_STR) { size_t x = a.as.string.length, y = b.as.string.length; if (y >= SIZE_MAX - x) fail("OverflowError", "string too large"); size_t n = x + y; char *s = lt_alloc(n + 1U); memcpy(s, a.as.string.data, x); memcpy(s + x, b.as.string.data, y); s[n] = '\0'; LtValue v = value(LT_STR); v.as.string.data = s; v.as.string.length = n; return v; }
     if (a.tag == LT_LIST && b.tag == LT_LIST) { LtValue r = list_value_empty(); for (size_t i = 0; i < a.as.list->count; i++) list_append(r.as.list, a.as.list->items[i]); for (size_t i = 0; i < b.as.list->count; i++) list_append(r.as.list, b.as.list->items[i]); return r; }
     return numeric_bin(a, b, "+", '+');
 }
@@ -430,7 +494,7 @@ static int equal_rec(LtValue a, LtValue b, unsigned depth) {
         case LT_NIL: case LT_MISSING: return 1;
         case LT_INT: case LT_FLOAT: return 0;
         case LT_BOOL: return a.as.boolean == b.as.boolean;
-        case LT_STR: return strcmp(a.as.string, b.as.string) == 0;
+        case LT_STR: return a.as.string.length == b.as.string.length && memcmp(a.as.string.data, b.as.string.data, a.as.string.length) == 0;
         case LT_LIST:
             if (a.as.list == b.as.list) { /* Still compare contents: NaN makes a container unequal to itself. */ }
             if (a.as.list->count != b.as.list->count) return 0;
@@ -438,7 +502,7 @@ static int equal_rec(LtValue a, LtValue b, unsigned depth) {
             return 1;
         case LT_MAP:
             if (a.as.map->count != b.as.map->count) return 0;
-            for (size_t i = 0; i < a.as.map->count; i++) { size_t j = map_find(b.as.map, a.as.map->items[i].key); if (j == SIZE_MAX || !equal_rec(a.as.map->items[i].value, b.as.map->items[j].value, depth + 1)) return 0; }
+            for (size_t i = 0; i < a.as.map->count; i++) { LtEntry *entry = &a.as.map->items[i]; size_t j = map_find_n(b.as.map, entry->key, entry->key_length); if (j == SIZE_MAX || !equal_rec(entry->value, b.as.map->items[j].value, depth + 1)) return 0; }
             return 1;
         case LT_FUNCTION: return a.as.function == b.as.function;
         case LT_CLASS: return a.as.klass == b.as.klass;
@@ -458,10 +522,10 @@ static int equal_rec(LtValue a, LtValue b, unsigned depth) {
 }
 LtValue lt_eq(LtValue a, LtValue b) { return lt_bool(equal_rec(a,b,0)); }
 LtValue lt_ne(LtValue a, LtValue b) { return lt_bool(!equal_rec(a,b,0)); }
-static int codepoint_cmp(const char *a, const char *b) {
-    size_t an = strlen(a), bn = strlen(b), ai = 0, bi = 0; uint32_t x, y;
-    while (ai < an && bi < bn) { ai += utf8_next((const unsigned char *)a, an, ai, &x); bi += utf8_next((const unsigned char *)b, bn, bi, &y); if (x != y) return x < y ? -1 : 1; }
-    return ai == an ? (bi == bn ? 0 : -1) : 1;
+static int codepoint_cmp(LtString a, LtString b) {
+    size_t ai = 0, bi = 0; uint32_t x, y;
+    while (ai < a.length && bi < b.length) { ai += utf8_next((const unsigned char *)a.data, a.length, ai, &x); bi += utf8_next((const unsigned char *)b.data, b.length, bi, &y); if (x != y) return x < y ? -1 : 1; }
+    return ai == a.length ? (bi == b.length ? 0 : -1) : 1;
 }
 static int compare_values(LtValue a, LtValue b, const char *op) {
     if (numeric(a) && numeric(b)) return compare_numeric(a,b);
@@ -473,8 +537,23 @@ LtValue lt_lt(LtValue a,LtValue b){return lt_bool(!unordered(a,b)&&compare_value
 LtValue lt_lte(LtValue a,LtValue b){return lt_bool(!unordered(a,b)&&compare_values(a,b,"<=")<=0);}
 LtValue lt_gt(LtValue a,LtValue b){return lt_bool(!unordered(a,b)&&compare_values(a,b,">")>0);}
 LtValue lt_gte(LtValue a,LtValue b){return lt_bool(!unordered(a,b)&&compare_values(a,b,">=")>=0);}
-LtValue lt_str_of(LtValue v) { LtValue r = value(LT_STR); r.as.string = lt_internal_repr(v,0); return r; }
-LtValue lt_say(LtValue v) { char *s = lt_internal_repr(v,0); puts(s); return lt_nil(); }
+LtValue lt_str_of(LtValue v) {
+    if (v.tag == LT_STR) return v;
+    LtValue r = value(LT_STR);
+    r.as.string.data = lt_internal_repr(v, 0);
+    r.as.string.length = strlen(r.as.string.data);
+    return r;
+}
+LtValue lt_say(LtValue v) {
+    if (v.tag == LT_STR) {
+        (void)fwrite(v.as.string.data, 1U, v.as.string.length, stdout);
+        fputc('\n', stdout);
+    } else {
+        char *s = lt_internal_repr(v, 0);
+        puts(s);
+    }
+    return lt_nil();
+}
 
 static int64_t to_index(LtValue v, size_t n) {
     if (v.tag != LT_INT) fail("TypeError", "index must be an integer");
@@ -496,17 +575,17 @@ LtValue lt_index(LtValue o, LtValue k) {
     if (o.tag == LT_HOST) return lt_host_index(o, k);
     if (o.tag == LT_LIST) return o.as.list->items[to_index(k,o.as.list->count)];
     if (o.tag == LT_STR) return utf8_at(o.as.string,(size_t)to_index(k,utf8_count(o.as.string)));
-    if (o.tag == LT_MAP) { if (k.tag != LT_STR) fail("TypeError", "map key must be a string"); size_t i = map_find(o.as.map,k.as.string); if (i == SIZE_MAX) fail("RuntimeError", "key not found: %s", lt_internal_repr(k,0)); return o.as.map->items[i].value; }
+    if (o.tag == LT_MAP) { if (k.tag != LT_STR) fail("TypeError", "map key must be a string"); size_t i = map_find_n(o.as.map,k.as.string.data,k.as.string.length); if (i == SIZE_MAX) fail("RuntimeError", "key not found: %s", lt_internal_repr(k,0)); return o.as.map->items[i].value; }
     fail("RuntimeError", "cannot index %s", type_name(o)); return lt_nil();
 }
 LtValue lt_wsetindex(LtValue o, LtValue k, LtValue v) {
     if (o.tag == LT_HOST) return lt_host_setindex(o, k, v);
     if (o.tag == LT_LIST) { o.as.list->items[to_index(k,o.as.list->count)] = v; return lt_nil(); }
-    if (o.tag == LT_MAP) { if (k.tag != LT_STR) fail("TypeError", "map key must be a string"); map_set(o.as.map,k.as.string,v); return lt_nil(); }
+    if (o.tag == LT_MAP) { if (k.tag != LT_STR) fail("TypeError", "map key must be a string"); map_set_n(o.as.map,k.as.string.data,k.as.string.length,v); return lt_nil(); }
     fail("RuntimeError", "cannot index-assign %s", type_name(o)); return lt_nil();
 }
 LtValue lt_push(LtValue l, LtValue v) { if (l.tag != LT_LIST) fail("RuntimeError", "push() target must be a list"); (void)list_append(l.as.list,v); return lt_nil(); }
-LtValue lt_keys(LtValue v) { if (v.tag != LT_MAP) fail("RuntimeError", "keys() of non-map"); LtValue r = list_value_empty(); for (size_t i=0;i<v.as.map->count;i++) list_append(r.as.list,lt_str(v.as.map->items[i].key)); return r; }
+LtValue lt_keys(LtValue v) { if (v.tag != LT_MAP) fail("RuntimeError", "keys() of non-map"); LtValue r = list_value_empty(); for (size_t i=0;i<v.as.map->count;i++) list_append(r.as.list,lt_strn(v.as.map->items[i].key,v.as.map->items[i].key_length)); return r; }
 static int64_t range_endpoint(LtValue v) {
     if (v.tag == LT_INT) return v.as.integer;
     if (v.tag != LT_FLOAT) fail("TypeError", "number expected, got %s", lt_internal_repr(v,0));
@@ -528,11 +607,15 @@ LtValue lt_to_int(LtValue v) {
     if (v.tag == LT_INT) return v;
     if (v.tag == LT_FLOAT) { if (!isfinite(v.as.real)) fail("ArgumentError", "int() of %s", lt_internal_repr(v,0)); if (v.as.real < -0x1p63 || v.as.real >= 0x1p63) fail("OverflowError", "int64 overflow"); return lt_int((int64_t)v.as.real); }
     if (v.tag == LT_STR) {
-        const char *s=v.as.string; while (*s && isspace((unsigned char)*s)) s++; const char *end=s+strlen(s); while (end>s&&isspace((unsigned char)end[-1])) end--;
-        if (s==end) fail("ArgumentError", "invalid literal for int()");
-        size_t n=(size_t)(end-s); char *tmp=lt_alloc(n+1); memcpy(tmp,s,n); tmp[n]=0;
-        char *p=tmp; if (*p=='+'||*p=='-') p++; if (!*p) fail("ArgumentError", "invalid literal for int()"); for (char *q=p;*q;q++) if (*q<'0'||*q>'9') fail("ArgumentError", "invalid literal for int()");
-        errno=0; char *tail=NULL; long long x=strtoll(tmp,&tail,10); if (errno==ERANGE) fail("OverflowError", "int64 overflow"); if (!tail||*tail) fail("ArgumentError", "invalid literal for int()"); return lt_int((int64_t)x);
+        const char *s = v.as.string.data;
+        if (memchr(s, '\0', v.as.string.length)) fail("ArgumentError", "invalid literal for int()");
+        const char *end = s + v.as.string.length;
+        while (s < end && isspace((unsigned char)*s)) s++;
+        while (end > s && isspace((unsigned char)end[-1])) end--;
+        if (s == end) fail("ArgumentError", "invalid literal for int()");
+        size_t n = (size_t)(end - s); char *tmp = lt_alloc(n + 1U); memcpy(tmp, s, n); tmp[n] = 0;
+        char *p = tmp; if (*p == '+' || *p == '-') p++; if (!*p) fail("ArgumentError", "invalid literal for int()"); for (char *q = p; *q; q++) if (*q < '0' || *q > '9') fail("ArgumentError", "invalid literal for int()");
+        errno = 0; char *tail = NULL; long long x = strtoll(tmp, &tail, 10); if (errno == ERANGE) fail("OverflowError", "int64 overflow"); if (!tail || *tail) fail("ArgumentError", "invalid literal for int()"); return lt_int((int64_t)x);
     }
     fail("TypeError", "int() of %s", type_name(v)); return lt_nil();
 }
@@ -541,7 +624,7 @@ LtIterator lt_iter(LtValue v) {
     LtIterator it; memset(&it,0,sizeof(it)); it.source=v;
     if (v.tag == LT_HOST) v = lt_host_iter_values(v);
     if (v.tag==LT_LIST) { it.count=v.as.list->count; it.snapshot=it.count?lt_alloc(it.count*sizeof(*it.snapshot)):NULL; if(it.count)memcpy(it.snapshot,v.as.list->items,it.count*sizeof(*it.snapshot)); return it; }
-    if (v.tag==LT_MAP) { it.count=v.as.map->count; it.snapshot=it.count?lt_alloc(it.count*sizeof(*it.snapshot)):NULL; for(size_t i=0;i<it.count;i++)it.snapshot[i]=lt_str(v.as.map->items[i].key); return it; }
+    if (v.tag==LT_MAP) { it.count=v.as.map->count; it.snapshot=it.count?lt_alloc(it.count*sizeof(*it.snapshot)):NULL; for(size_t i=0;i<it.count;i++)it.snapshot[i]=lt_strn(v.as.map->items[i].key,v.as.map->items[i].key_length); return it; }
     if (v.tag==LT_STR) { it.count=utf8_count(v.as.string); it.snapshot=it.count?lt_alloc(it.count*sizeof(*it.snapshot)):NULL; for(size_t i=0;i<it.count;i++)it.snapshot[i]=utf8_at(v.as.string,i); return it; }
     fail("RuntimeError", "cannot iterate %s", type_name(v)); return it;
 }
@@ -663,6 +746,7 @@ typedef struct LtHostCallbacks {
     size_t count;
     size_t capacity;
     char *last_error;
+    size_t last_error_length;
 } LtHostCallbacks;
 
 enum { LT_HOST_ENDPOINT_PYTHON = 1, LT_HOST_ENDPOINT_JAVA = 2 };
@@ -929,10 +1013,13 @@ static LtJson *host_json_u64(uint64_t value) {
     return number;
 }
 
-static LtJson *host_json_text(const char *text) {
-    LtJson *string = lt_json_string(text ? text : "");
+static LtJson *host_json_text_n(const char *text, size_t length) {
+    LtJson *string = lt_json_string_n(text ? text : "", length);
     if (!string) fail("RuntimeError", "cannot encode host interop string");
     return string;
+}
+static LtJson *host_json_text(const char *text) {
+    return host_json_text_n(text ? text : "", text ? strlen(text) : 0U);
 }
 
 static const LtJson *host_json_field(const LtJson *object, const char *key) {
@@ -1027,7 +1114,7 @@ static LtJson *host_encode_value(LtValue value, int endpoint,
                 if (!number) fail("RuntimeError", "cannot encode host number");
                 return number;
             }
-        case LT_STR: return host_json_text(value.as.string);
+        case LT_STR: return host_json_text_n(value.as.string.data, value.as.string.length);
         case LT_LIST: {
             LtJson *array = lt_json_array();
             if (!array) fail("RuntimeError", "cannot encode host list");
@@ -1046,7 +1133,7 @@ static LtJson *host_encode_value(LtValue value, int endpoint,
             for (size_t i = 0; i < value.as.map->count; i++) {
                 LtJson *pair = lt_json_array();
                 if (!pair) { lt_json_free(envelope); lt_json_free(entries); fail("RuntimeError", "cannot encode host map"); }
-                host_json_push(pair, host_json_text(value.as.map->items[i].key));
+                host_json_push(pair, host_json_text_n(value.as.map->items[i].key, value.as.map->items[i].key_length));
                 host_json_push(pair, host_encode_value(value.as.map->items[i].value,
                                                        endpoint, callbacks, 0));
                 host_json_push(entries, pair);
@@ -1141,7 +1228,7 @@ static LtValue host_decode_value(const LtJson *json, int endpoint, unsigned dept
         case LT_JSON_STRING: {
             const char *text = lt_json_as_string(json);
             if (!text) fail("RuntimeError", "invalid host string");
-            return lt_str(text);
+            return lt_strn(text, lt_json_string_length(json));
         }
         case LT_JSON_ARRAY: {
             LtValue list = list_value_empty();
@@ -1170,8 +1257,8 @@ static LtValue host_decode_value(const LtJson *json, int endpoint, unsigned dept
                         fail("RuntimeError", "invalid host map entry");
                     const char *key = lt_json_as_string(lt_json_at(pair, 0));
                     if (!key) fail("RuntimeError", "host map key must be a string");
-                    map_set(map.as.map, key,
-                            host_decode_value(lt_json_at(pair, 1), endpoint, depth + 1));
+                    map_set_n(map.as.map, key, lt_json_string_length(lt_json_at(pair, 0)),
+                              host_decode_value(lt_json_at(pair, 1), endpoint, depth + 1));
                 }
                 return map;
             }
@@ -1249,7 +1336,8 @@ static void host_python_callback_result(LtHostCallbacks *callbacks,
                                         uint64_t request_id,
                                         uint64_t invocation_id,
                                         LtValue result,
-                                        const char *error_message) {
+                                        const char *error_message,
+                                        size_t error_message_length) {
     LtJson *frame = lt_json_object();
     if (!frame) fail("RuntimeError", "cannot construct Python callback response");
     host_json_set(frame, "kind", host_json_text("callback_result"));
@@ -1258,12 +1346,13 @@ static void host_python_callback_result(LtHostCallbacks *callbacks,
     if (error_message) {
         if (!callbacks) { lt_json_free(frame); fail("RuntimeError", "Python callback context expired"); }
         free(callbacks->last_error);
-        callbacks->last_error = lt_strdup(error_message);
+        callbacks->last_error = lt_memdup0(error_message, error_message_length);
+        callbacks->last_error_length = error_message_length;
         if (lt_python_next_error > LT_HOST_MAX_SAFE_ID) {
             lt_json_free(frame); fail("OverflowError", "Python callback error ID limit exceeded");
         }
         host_json_set(frame, "error_id", host_json_u64(lt_python_next_error++));
-        host_json_set(frame, "error_message", host_json_text(error_message));
+        host_json_set(frame, "error_message", host_json_text_n(error_message, error_message_length));
     } else {
         LtHandler encode_handler;
         int encode_status = LT_TRY(encode_handler);
@@ -1272,11 +1361,12 @@ static void host_python_callback_result(LtHostCallbacks *callbacks,
             lt_handler_pop(&encode_handler);
             host_json_set(frame, "value", encoded);
         } else {
-            char *message = lt_strdup(lt_handler_message(&encode_handler));
+            size_t message_length = lt_handler_message_length(&encode_handler);
+            char *message = lt_memdup0(lt_handler_message(&encode_handler), message_length);
             lt_handler_pop(&encode_handler);
             lt_json_free(frame);
             host_python_callback_result(callbacks, request_id, invocation_id,
-                                        lt_nil(), message);
+                                        lt_nil(), message, message_length);
             free(message);
             return;
         }
@@ -1338,17 +1428,20 @@ static void host_python_callback(LtJson *frame, LtHostCallbacks *callbacks,
     LtHandler callback_handler;
     LtValue result = lt_nil();
     char *callback_error = NULL;
+    size_t callback_error_length = 0U;
     if (LT_TRY(callback_handler) == 0) {
         result = lt_call(entry->callable, arguments, argument_count);
         lt_handler_pop(&callback_handler);
     } else {
-        callback_error = lt_strdup(lt_handler_message(&callback_handler));
+        callback_error_length = lt_handler_message_length(&callback_handler);
+        callback_error = lt_memdup0(lt_handler_message(&callback_handler), callback_error_length);
         lt_handler_pop(&callback_handler);
     }
     lt_current_path = old_path;
     lt_current_function = old_function;
     lt_current_line = old_line;
-    host_python_callback_result(callbacks, request_id, invocation, result, callback_error);
+    host_python_callback_result(callbacks, request_id, invocation, result,
+                                callback_error, callback_error_length);
     free(callback_error);
     free(arguments);
 }
@@ -1358,11 +1451,12 @@ static LtJson *host_python_exchange(LtJson *payload, LtHostCallbacks *callbacks)
     size_t depth_before = lt_python_request_depth;
     int status = LT_TRY(guard);
     if (status != 0) {
-        char *message = lt_strdup(lt_handler_message(&guard));
+        size_t message_length = lt_handler_message_length(&guard);
+        char *message = lt_memdup0(lt_handler_message(&guard), message_length);
         const char *type = guard.error_type ? guard.error_type : "RuntimeError";
         lt_handler_pop(&guard);
         lt_python_request_depth = depth_before;
-        throw_message(type, message);
+        throw_message_n(type, message, message_length);
     }
     host_ensure_python();
     if (lt_python_request_depth >= LT_HOST_RPC_DEPTH_LIMIT)
@@ -1425,7 +1519,10 @@ static void host_python_payload_error(const LtJson *payload,
     if (callback_error) {
         const char *message = callbacks && callbacks->last_error
             ? callbacks->last_error : "Python host callback failed";
-        fail("RuntimeError", "python error: %s", message);
+        size_t message_length = callbacks && callbacks->last_error
+            ? callbacks->last_error_length : strlen(message);
+        throw_prefixed_message("RuntimeError", "python error: ",
+                               message, message_length);
     }
     const LtJson *error = lt_json_get(payload, "error");
     if (error) {
@@ -1434,7 +1531,8 @@ static void host_python_payload_error(const LtJson *payload,
         const LtJson *kind = lt_json_get(payload, "error_kind");
         if (host_json_is_string(kind, "int64_overflow"))
             fail("OverflowError", "int64 overflow");
-        fail("RuntimeError", "python error: %s", message);
+        throw_prefixed_message("RuntimeError", "python error: ", message,
+                               lt_json_string_length(error));
     }
 }
 
@@ -1452,7 +1550,7 @@ static LtValue host_java_response_value(LtJson *response) {
     if (error) {
         const char *message = lt_json_as_string(error);
         if (!message) fail("RuntimeError", "invalid Java error response");
-        fail("RuntimeError", "%s", message);
+        throw_message_n("RuntimeError", message, lt_json_string_length(error));
     }
     const LtJson *bound = lt_json_get(response, "bound_method");
     if (bound) {
@@ -1664,12 +1762,14 @@ static LtValue host_java_getattr(LtValue value, const char *attr) {
 
 LtValue lt_pymod(LtValue name) {
     if (name.tag != LT_STR) fail("TypeError", "py module name must be a string");
-    return host_new_handle(LT_HOST_PY_MODULE, 0, name.as.string, NULL, NULL);
+    if (memchr(name.as.string.data, '\0', name.as.string.length)) fail("TypeError", "py module name must not contain NUL");
+    return host_new_handle(LT_HOST_PY_MODULE, 0, name.as.string.data, NULL, NULL);
 }
 
 LtValue lt_jclass(LtValue name) {
     if (name.tag != LT_STR) fail("TypeError", "java class name must be a string");
-    return host_new_handle(LT_HOST_JAVA_CLASS, 0, name.as.string, NULL, NULL);
+    if (memchr(name.as.string.data, '\0', name.as.string.length)) fail("TypeError", "java class name must not contain NUL");
+    return host_new_handle(LT_HOST_JAVA_CLASS, 0, name.as.string.data, NULL, NULL);
 }
 
 static LtValue lt_host_getattr(LtValue value, const char *attr) {
@@ -1811,7 +1911,7 @@ static char *lt_host_repr(LtValue value) {
     LtValue result = handle->kind == LT_HOST_PY_MODULE || handle->kind == LT_HOST_PY_OBJECT
         ? host_python_request_value(request, NULL) : host_java_request_value(request);
     if (result.tag != LT_STR) fail("RuntimeError", "host repr() did not return a string");
-    return lt_strdup(result.as.string);
+    return lt_memdup0(result.as.string.data, result.as.string.length);
 }
 
 static int lt_host_truthy(LtValue value) {

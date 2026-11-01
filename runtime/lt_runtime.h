@@ -17,6 +17,7 @@ typedef struct LtObject LtObject;
 typedef struct LtHostHandle LtHostHandle;
 typedef struct LtMap LtMap;
 typedef struct LtList LtList;
+typedef struct { const char *data; size_t length; } LtString;
 
 typedef enum {
     LT_NIL, LT_BOOL, LT_INT, LT_FLOAT, LT_STR, LT_LIST, LT_MAP,
@@ -43,7 +44,7 @@ typedef struct LtValue {
         int boolean;
         int64_t integer;
         double real;
-        const char *string;
+        LtString string;
         LtList *list;
         LtMap *map;
         LtFunction *function;
@@ -59,8 +60,12 @@ LtValue lt_bool(int value);
 LtValue lt_int(int64_t value);
 LtValue lt_float(double value);
 LtValue lt_str(const char *value);
+/* Length is measured in UTF-8 bytes; the runtime stores a trailing NUL only for C interop. */
+LtValue lt_strn(const char *value, size_t length);
 LtValue lt_list(const LtValue *values, size_t count);
 LtValue lt_map(const char *const *keys, const LtValue *values, size_t count);
+LtValue lt_mapn(const char *const *keys, const size_t *key_lengths,
+                const LtValue *values, size_t count);
 LtValue lt_pymod(LtValue name);
 LtValue lt_jclass(LtValue name);
 int lt_is_missing(LtValue value);
@@ -154,11 +159,13 @@ typedef struct LtHandler {
     jmp_buf buf;
     struct LtHandler *previous;
     const char * volatile message;
+    volatile size_t message_length;
     const char * volatile error_type;
 } LtHandler;
 void lt_handler_push(LtHandler *handler);
 void lt_handler_pop(LtHandler *handler);
 const char *lt_handler_message(const LtHandler *handler);
+size_t lt_handler_message_length(const LtHandler *handler);
 #define LT_TRY(handler) (lt_handler_push(&(handler)), setjmp((handler).buf))
 void lt_throw(LtValue value);
 void lt_report_uncaught(void);
