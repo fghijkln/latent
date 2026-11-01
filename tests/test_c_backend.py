@@ -331,6 +331,72 @@ say mapped["a\0b"][2]
             self.assertEqual(program_output(c), program_output(py))
             self.assertEqual(program_output(c), "3\nb\ntrue\n1\n3\nb\n")
 
+    def test_host_json_values_and_error_responses_are_memory_safe_under_asan(self):
+        if os.name != "posix":
+            self.skipTest("AddressSanitizer/LeakSanitizer host probe requires POSIX")
+        cc = shutil.which(os.environ.get("CC", "cc"))
+        if not cc:
+            self.skipTest("C compiler cc is required")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            if not address_sanitizer_available(cc, root):
+                self.skipTest("AddressSanitizer is unavailable")
+            (root / "ownership_host.py").write_text(
+                "def echo(value):\n"
+                "    return value\n\n"
+                "def fail(value):\n"
+                "    raise ValueError('failure:' + str(value))\n",
+                encoding="utf-8")
+            source = root / "host_ownership.lt"
+            source.write_text(
+                'host = py "ownership_host"\n'
+                'fn local(value):\n'
+                '    return value\n'
+                'data = {"": ["a\\0b", "é😀"], '
+                '"nested": {"items": [1, 2, 3, 4]}}\n'
+                'for i in range(8):\n'
+                '    result = host.echo(data)\n'
+                '    say result[""][0] == "a\\0b"\n'
+                '    say result[""][1] == "é😀"\n'
+                '    say result["nested"]["items"][3]\n'
+                '    try:\n'
+                '        host.fail(i)\n'
+                '    catch message:\n'
+                '        say len(message) > 0\n'
+                '    try:\n'
+                '        host.echo(local, [1, {"nested": [2, local]}])\n'
+                '    catch message:\n'
+                '        say len(message) > 0\n'
+                '    say host.echo(data) == data\n',
+                encoding="utf-8")
+            outdir = root / "out"
+            suppression = root / "lsan.supp"
+            # Latent values intentionally live for the runtime process lifetime;
+            # keep this probe focused on separately-owned host JSON trees.
+            suppression.write_text("leak:lt_alloc\n", encoding="utf-8")
+            env = clean_env(
+                PYTHONPATH=str(root), ASAN_OPTIONS="detect_leaks=1",
+                LSAN_OPTIONS=f"suppressions={suppression}:print_suppressions=0")
+            generated = invoke(source, "c", outdir, run=False, env=env)
+            self.assertEqual(generated.returncode, 0, generated.stderr)
+            executable = outdir / "host_ownership"
+            compiled = subprocess.run(
+                [cc, "-std=c11", "-Wall", "-Wextra", "-O0", "-g",
+                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                 str(outdir / "host_ownership.c"),
+                 str(outdir / "runtime" / "lt_runtime.c"),
+                 str(outdir / "runtime" / "lt_json.c"), "-I", str(outdir),
+                 "-lm", "-o", str(executable)],
+                capture_output=True, text=True, env=env, cwd=outdir,
+                timeout=60, check=False)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run(
+                [str(executable)], capture_output=True, text=True, env=env,
+                cwd=outdir, timeout=60, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "true\ntrue\n4\ntrue\ntrue\ntrue\n" * 8)
+            self.assertEqual(result.stderr, "")
+
     def test_embedded_nul_roundtrips_through_java_host_sidecar(self):
         if not shutil.which("java") or not shutil.which("javac"):
             self.skipTest("Java host interop requires java and javac")

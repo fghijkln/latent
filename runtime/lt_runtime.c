@@ -1095,77 +1095,85 @@ static void host_callbacks_add(LtHostCallbacks *callbacks, LtValue callable,
 
 static LtJson *host_encode_value(LtValue value, int endpoint,
                                  LtHostCallbacks *callbacks, int allow_callback) {
+    LtJson * volatile owned = NULL;
+    LtHandler handler;
+    if (LT_TRY(handler) != 0) {
+        const char *type = handler.error_type ? handler.error_type : "RuntimeError";
+        const char *message = lt_handler_message(&handler);
+        size_t message_length = lt_handler_message_length(&handler);
+        lt_handler_pop(&handler);
+        lt_json_free((LtJson *)owned);
+        throw_message_n(type, message, message_length);
+        return NULL;
+    }
     switch (value.tag) {
-        case LT_NIL: return lt_json_null();
-        case LT_BOOL: return lt_json_bool(value.as.boolean);
-        case LT_INT: return host_json_i64(value.as.integer);
+        case LT_NIL: owned = lt_json_null(); break;
+        case LT_BOOL: owned = lt_json_bool(value.as.boolean); break;
+        case LT_INT: owned = host_json_i64(value.as.integer); break;
         case LT_FLOAT:
             if (!isfinite(value.as.real)) {
-                LtJson *envelope = lt_json_object();
+                owned = lt_json_object();
                 const char *name = isnan(value.as.real) ? "nan" :
                     (signbit(value.as.real) ? "-inf" : "inf");
-                if (!envelope) fail("RuntimeError", "cannot encode host number");
-                host_json_set(envelope, "__num", host_json_text(name));
-                return envelope;
+                if (!owned) fail("RuntimeError", "cannot encode host number");
+                host_json_set((LtJson *)owned, "__num", host_json_text(name));
             } else {
                 char text[64];
                 (void)snprintf(text, sizeof(text), "%.17g", value.as.real);
-                LtJson *number = lt_json_number(text);
-                if (!number) fail("RuntimeError", "cannot encode host number");
-                return number;
+                owned = lt_json_number(text);
+                if (!owned) fail("RuntimeError", "cannot encode host number");
             }
-        case LT_STR: return host_json_text_n(value.as.string.data, value.as.string.length);
+            break;
+        case LT_STR:
+            owned = host_json_text_n(value.as.string.data, value.as.string.length);
+            break;
         case LT_LIST: {
-            LtJson *array = lt_json_array();
-            if (!array) fail("RuntimeError", "cannot encode host list");
+            owned = lt_json_array();
+            if (!owned) fail("RuntimeError", "cannot encode host list");
             for (size_t i = 0; i < value.as.list->count; i++)
-                host_json_push(array, host_encode_value(value.as.list->items[i], endpoint,
-                                                        callbacks, 0));
-            return array;
+                host_json_push((LtJson *)owned,
+                    host_encode_value(value.as.list->items[i], endpoint, callbacks, 0));
+            break;
         }
         case LT_MAP: {
-            LtJson *envelope = lt_json_object();
+            owned = lt_json_object();
+            if (!owned) fail("RuntimeError", "cannot encode host map");
             LtJson *entries = lt_json_array();
-            if (!envelope || !entries) {
-                lt_json_free(envelope); lt_json_free(entries);
-                fail("RuntimeError", "cannot encode host map");
-            }
+            if (!entries) fail("RuntimeError", "cannot encode host map");
+            host_json_set((LtJson *)owned, "__map", entries);
             for (size_t i = 0; i < value.as.map->count; i++) {
                 LtJson *pair = lt_json_array();
-                if (!pair) { lt_json_free(envelope); lt_json_free(entries); fail("RuntimeError", "cannot encode host map"); }
+                if (!pair) fail("RuntimeError", "cannot encode host map");
+                host_json_push(entries, pair);
                 host_json_push(pair, host_json_text_n(value.as.map->items[i].key, value.as.map->items[i].key_length));
                 host_json_push(pair, host_encode_value(value.as.map->items[i].value,
                                                        endpoint, callbacks, 0));
-                host_json_push(entries, pair);
             }
-            host_json_set(envelope, "__map", entries);
-            return envelope;
+            break;
         }
         case LT_HOST: {
             const LtHostHandle *handle = (const LtHostHandle *)value.as.pointer;
             if (!handle) fail("TypeError", "invalid host handle");
-            LtJson *envelope = lt_json_object();
-            if (!envelope) fail("RuntimeError", "cannot encode host handle");
+            owned = lt_json_object();
+            if (!owned) fail("RuntimeError", "cannot encode host handle");
             if (endpoint == LT_HOST_ENDPOINT_PYTHON) {
                 if (handle->kind == LT_HOST_PY_MODULE) {
-                    host_json_set(envelope, "__mod", host_json_text(handle->name));
+                    host_json_set((LtJson *)owned, "__mod", host_json_text(handle->name));
                 } else if (handle->kind == LT_HOST_PY_OBJECT) {
-                    host_json_set(envelope, "__ref", host_json_i64(handle->id));
+                    host_json_set((LtJson *)owned, "__ref", host_json_i64(handle->id));
                 } else {
-                    lt_json_free(envelope);
                     fail("TypeError", "Latent callable values cannot be passed to Python/Java interop calls");
                 }
             } else {
                 if (handle->kind == LT_HOST_JAVA_CLASS) {
-                    host_json_set(envelope, "__jclass", host_json_text(handle->name));
+                    host_json_set((LtJson *)owned, "__jclass", host_json_text(handle->name));
                 } else if (handle->kind == LT_HOST_JAVA_OBJECT) {
-                    host_json_set(envelope, "__jref", host_json_i64(handle->id));
+                    host_json_set((LtJson *)owned, "__jref", host_json_i64(handle->id));
                 } else {
-                    lt_json_free(envelope);
                     fail("TypeError", "Latent callable values cannot be passed to Python/Java interop calls");
                 }
             }
-            return envelope;
+            break;
         }
         case LT_FUNCTION: case LT_BOUND_METHOD: {
             uint64_t token;
@@ -1173,16 +1181,18 @@ static LtJson *host_encode_value(LtValue value, int endpoint,
                 fail("TypeError", "Latent callable values cannot be passed to Python/Java interop calls");
             }
             host_callbacks_add(callbacks, value, &token);
-            LtJson *descriptor = lt_json_object();
-            if (!descriptor) fail("RuntimeError", "cannot encode Python callback");
-            host_json_set(descriptor, "__lt_callback__", host_json_u64(token));
-            return descriptor;
+            owned = lt_json_object();
+            if (!owned) fail("RuntimeError", "cannot encode Python callback");
+            host_json_set((LtJson *)owned, "__lt_callback__", host_json_u64(token));
+            break;
         }
         case LT_CLASS: case LT_OBJECT: case LT_MISSING:
             fail("TypeError", "Latent values cannot be passed to Python/Java interop calls");
     }
-    fail("TypeError", "unsupported host interop value");
-    return lt_json_null();
+    if (!owned) fail("TypeError", "unsupported host interop value");
+    LtJson *result = (LtJson *)owned;
+    lt_handler_pop(&handler);
+    return result;
 }
 
 static LtValue host_new_handle(LtHostKind kind, int64_t id,
@@ -1580,6 +1590,27 @@ static LtValue host_java_response_value(LtJson *response) {
     return host_decode_value(value, LT_HOST_ENDPOINT_JAVA, 0);
 }
 
+static LtValue host_response_value_with_cleanup(LtJson *response,
+                                               LtHostCallbacks *callbacks,
+                                               int endpoint) {
+    LtHandler handler;
+    if (LT_TRY(handler) == 0) {
+        LtValue result = endpoint == LT_HOST_ENDPOINT_PYTHON
+            ? host_python_response_value(response, callbacks)
+            : host_java_response_value(response);
+        lt_handler_pop(&handler);
+        lt_json_free(response);
+        return result;
+    }
+    const char *type = handler.error_type ? handler.error_type : "RuntimeError";
+    const char *message = lt_handler_message(&handler);
+    size_t message_length = lt_handler_message_length(&handler);
+    lt_handler_pop(&handler);
+    lt_json_free(response);
+    throw_message_n(type, message, message_length);
+    return lt_nil();
+}
+
 static void host_callbacks_clear(LtHostCallbacks *callbacks) {
     if (!callbacks) return;
     free(callbacks->items);
@@ -1605,63 +1636,74 @@ static LtJson *host_java_payload(const char *op, const LtHostHandle *handle) {
 
 static void host_add_call_args(LtJson *request, const LtArg *args, size_t count,
                                int endpoint, LtHostCallbacks *callbacks) {
-    LtJson *positional = lt_json_array();
-    LtJson *keywords = lt_json_array();
+    LtJson * volatile positional = NULL;
+    LtJson * volatile keywords = NULL;
+    LtHandler handler;
+    if (LT_TRY(handler) != 0) {
+        const char *type = handler.error_type ? handler.error_type : "RuntimeError";
+        const char *message = lt_handler_message(&handler);
+        size_t message_length = lt_handler_message_length(&handler);
+        lt_handler_pop(&handler);
+        lt_json_free((LtJson *)positional);
+        lt_json_free((LtJson *)keywords);
+        lt_json_free(request);
+        host_callbacks_clear(callbacks);
+        throw_message_n(type, message, message_length);
+        return;
+    }
+    positional = lt_json_array();
+    keywords = lt_json_array();
     if (!positional || !keywords) {
-        lt_json_free(positional); lt_json_free(keywords);
         fail("RuntimeError", "cannot construct host call arguments");
     }
-    if (count && !args) {
-        lt_json_free(positional); lt_json_free(keywords);
+    if (count && !args)
         fail("ArgumentError", "argument array must not be null");
-    }
     for (size_t i = 0; i < count; i++) {
-        if (args[i].kind == LT_ARG_STAR || args[i].kind == LT_ARG_STARSTAR) {
-            lt_json_free(positional); lt_json_free(keywords);
+        if (args[i].kind == LT_ARG_STAR || args[i].kind == LT_ARG_STARSTAR)
             fail("ArgumentError", "argument unpacking is not supported for Python/Java interop calls");
-        }
         if (args[i].kind == LT_ARG_POSITIONAL) {
-            host_json_push(positional, host_encode_value(args[i].value, endpoint,
-                                                         callbacks, 1));
+            host_json_push((LtJson *)positional,
+                           host_encode_value(args[i].value, endpoint, callbacks, 1));
         } else if (args[i].kind == LT_ARG_NAMED) {
-            if (endpoint == LT_HOST_ENDPOINT_JAVA) {
-                lt_json_free(positional); lt_json_free(keywords);
+            if (endpoint == LT_HOST_ENDPOINT_JAVA)
                 fail("ArgumentError", "named arguments are not supported for Python/Java interop calls");
-            }
             LtJson *pair = lt_json_array();
-            if (!pair) {
-                lt_json_free(positional); lt_json_free(keywords);
+            if (!pair)
                 fail("RuntimeError", "cannot construct Python keyword argument");
-            }
+            host_json_push((LtJson *)keywords, pair);
             host_json_push(pair, host_json_text(args[i].name ? args[i].name : ""));
             host_json_push(pair, host_encode_value(args[i].value, endpoint,
                                                    callbacks, 1));
-            host_json_push(keywords, pair);
         } else {
-            lt_json_free(positional); lt_json_free(keywords);
             fail("ArgumentError", "invalid interop argument kind");
         }
     }
-    host_json_set(request, "args", positional);
-    if (endpoint == LT_HOST_ENDPOINT_PYTHON)
-        host_json_set(request, "kwargs", keywords);
-    else
-        lt_json_free(keywords);
+    LtJson *items = (LtJson *)positional;
+    positional = NULL;
+    host_json_set(request, "args", items);
+    if (endpoint == LT_HOST_ENDPOINT_PYTHON) {
+        items = (LtJson *)keywords;
+        keywords = NULL;
+        host_json_set(request, "kwargs", items);
+    } else {
+        items = (LtJson *)keywords;
+        keywords = NULL;
+        lt_json_free(items);
+    }
+    lt_handler_pop(&handler);
 }
 
 static LtValue host_python_request_value(LtJson *request,
                                          LtHostCallbacks *callbacks) {
     LtJson *response = host_python_exchange(request, callbacks);
-    LtValue result = host_python_response_value(response, callbacks);
-    lt_json_free(response);
-    return result;
+    return host_response_value_with_cleanup(response, callbacks,
+                                            LT_HOST_ENDPOINT_PYTHON);
 }
 
 static LtValue host_java_request_value(LtJson *request) {
     LtJson *response = host_java_exchange(request);
-    LtValue result = host_java_response_value(response);
-    lt_json_free(response);
-    return result;
+    return host_response_value_with_cleanup(response, NULL,
+                                            LT_HOST_ENDPOINT_JAVA);
 }
 
 static LtJson *host_python_call_request(const LtHostHandle *handle,
