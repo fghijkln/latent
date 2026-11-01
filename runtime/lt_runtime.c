@@ -1307,10 +1307,15 @@ static LtJson *host_child_read_json(LtHostChild *child, const char *name) {
     }
     const char *error = NULL;
     LtJson *response = lt_json_parse(line, &error);
-    free(line);
-    if (!response)
+    if (!response) {
+        char parse_error[128];
+        (void)snprintf(parse_error, sizeof(parse_error), "%s",
+                       error ? error : "parse error");
+        free(line);
         fail("RuntimeError", "invalid %s host interop JSON: %s",
-             name, error ? error : "parse error");
+             name, parse_error);
+    }
+    free(line);
     return response;
 }
 

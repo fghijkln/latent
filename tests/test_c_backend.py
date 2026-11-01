@@ -59,6 +59,21 @@ def program_output(result: subprocess.CompletedProcess[str]) -> str:
                    if not line.startswith("wrote "))
 
 
+def address_sanitizer_available(cc: str, directory: Path) -> bool:
+    source = directory / "asan_probe.c"
+    executable = directory / "asan_probe"
+    source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+    compiled = subprocess.run([cc, *flags, str(source), "-o", str(executable)],
+                              capture_output=True, text=True, timeout=30, check=False)
+    if compiled.returncode != 0:
+        return False
+    result = subprocess.run([str(executable)], capture_output=True, text=True,
+                            env=clean_env(ASAN_OPTIONS="detect_leaks=0"),
+                            timeout=30, check=False)
+    return result.returncode == 0
+
+
 def run_java_interop_fixture(source: Path, target: str, outdir: Path,
                              java_sources: tuple[Path, ...],
                              pythonpath: str = "") -> subprocess.CompletedProcess[str]:
@@ -124,6 +139,95 @@ class CBackendDifferentialTests(unittest.TestCase):
                              f"C int64 fixture failed:\n{c.stderr}\n{c.stdout}")
             self.assertEqual(program_output(c), program_output(py))
             self.assertEqual(c.stderr, "")
+
+    def test_json_length_apis_reject_truncated_utf8_without_overread(self):
+        if os.name != "posix":
+            self.skipTest("AddressSanitizer C boundary probe requires POSIX")
+        cc = shutil.which(os.environ.get("CC", "cc"))
+        if not cc:
+            self.skipTest("C compiler cc is required")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            if not address_sanitizer_available(cc, root):
+                self.skipTest("AddressSanitizer is unavailable")
+            harness = root / "json_length_boundary.c"
+            harness.write_text(r'''\
+#include "lt_json.h"
+#include <stdlib.h>
+#include <string.h>
+
+static int rejects_string(const unsigned char *bytes, size_t length) {
+    char *copy = (char *)malloc(length);
+    if (!copy) return 0;
+    memcpy(copy, bytes, length);
+    LtJson *value = lt_json_string_n(copy, length);
+    free(copy);
+    if (value) { lt_json_free(value); return 0; }
+    return 1;
+}
+
+int main(void) {
+    static const unsigned char two[] = {0xc2};
+    static const unsigned char three[] = {0xe2, 0x82};
+    static const unsigned char four[] = {0xf0, 0x9f, 0x98};
+    if (!rejects_string(two, sizeof(two)) || !rejects_string(three, sizeof(three))
+        || !rejects_string(four, sizeof(four))) return 1;
+    LtJson *object = lt_json_object();
+    LtJson *item = lt_json_null();
+    if (!object || !item || lt_json_object_set_n(object, (const char *)two,
+                                                  sizeof(two), item)) return 2;
+    lt_json_free(item);
+    lt_json_free(object);
+    return 0;
+}
+''', encoding="utf-8")
+            flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+            compiled = subprocess.run(
+                [cc, "-std=c11", "-Wall", "-Wextra", *flags, str(harness),
+                 str(ROOT / "runtime" / "lt_json.c"), "-I", str(ROOT / "runtime"),
+                 "-o", str(root / "json_length_boundary")],
+                capture_output=True, text=True, timeout=60, check=False)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run(
+                [str(root / "json_length_boundary")], capture_output=True, text=True,
+                env=clean_env(ASAN_OPTIONS="detect_leaks=0"), timeout=30, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_malformed_sidecar_json_error_path_is_memory_safe(self):
+        if os.name != "posix":
+            self.skipTest("C sidecar process management requires POSIX")
+        cc = shutil.which(os.environ.get("CC", "cc"))
+        if not cc:
+            self.skipTest("C compiler cc is required")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            if not address_sanitizer_available(cc, root):
+                self.skipTest("AddressSanitizer is unavailable")
+            source = root / "malformed_sidecar.lt"
+            source.write_text('host = py "math"\nsay host.sqrt(4)\n', encoding="utf-8")
+            outdir = root / "out"
+            generated = invoke(source, "c", outdir, run=False)
+            self.assertEqual(generated.returncode, 0, generated.stderr)
+            bad_sidecar = root / "bad-sidecar.sh"
+            bad_sidecar.write_text("#!/bin/sh\nprintf '{bad\\n'\n", encoding="utf-8")
+            bad_sidecar.chmod(0o755)
+            flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+            compiled = subprocess.run(
+                [cc, "-std=c11", "-Wall", "-Wextra", "-O0", *flags,
+                 str(outdir / "malformed_sidecar.c"),
+                 str(outdir / "runtime" / "lt_runtime.c"),
+                 str(outdir / "runtime" / "lt_json.c"), "-I", str(outdir),
+                 "-lm", "-o", str(outdir / "malformed_sidecar")],
+                capture_output=True, text=True, env=clean_env(), timeout=60, check=False)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run(
+                [str(outdir / "malformed_sidecar")], capture_output=True, text=True,
+                env=clean_env(LATENT_PYTHON=str(bad_sidecar),
+                              ASAN_OPTIONS="detect_leaks=0"),
+                cwd=outdir, timeout=30, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("invalid Python host interop JSON", result.stderr)
+            self.assertNotIn("AddressSanitizer", result.stderr)
 
     def test_embedded_nul_string_semantics_match_python_backend(self):
         source_text = r'''

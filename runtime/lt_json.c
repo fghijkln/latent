@@ -143,6 +143,11 @@ static int valid_utf8_bytes(const char *text, size_t length)
 
     if (text == NULL) return 0;
     while (offset < length) {
+        unsigned char lead = (unsigned char)text[offset];
+        size_t remaining = length - offset;
+        if ((lead >= 0xc2U && lead <= 0xdfU && remaining < 2U)
+            || (lead >= 0xe0U && lead <= 0xefU && remaining < 3U)
+            || (lead >= 0xf0U && lead <= 0xf4U && remaining < 4U)) return 0;
         if (!utf8_decode((const unsigned char *)text + offset, &width, &codepoint)) return 0;
         offset += width;
     }
