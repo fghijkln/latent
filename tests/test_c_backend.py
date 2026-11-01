@@ -209,7 +209,9 @@ int main(void) {
             generated = invoke(source, "c", outdir, run=False)
             self.assertEqual(generated.returncode, 0, generated.stderr)
             bad_sidecar = root / "bad-sidecar.sh"
-            bad_sidecar.write_text("#!/bin/sh\nprintf '{bad\\n'\n", encoding="utf-8")
+            bad_sidecar.write_text(
+                "#!/bin/sh\nIFS= read -r request || exit 1\nprintf '{bad\\n'\n",
+                encoding="utf-8")
             bad_sidecar.chmod(0o755)
             flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
             compiled = subprocess.run(
