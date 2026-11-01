@@ -468,8 +468,10 @@ int lt_json_as_double(const LtJson *value, double *out)
     if (value == NULL || value->type != LT_JSON_NUMBER || out == NULL) return 0;
     errno = 0;
     number = strtod(value->as.text, &end);
-    if (end == value->as.text || *end != '\0' || errno == ERANGE
+    /* ERANGE also reports representable subnormals; finite bounds reject overflow. */
+    if (end == value->as.text || *end != '\0'
         || number > DBL_MAX || number < -DBL_MAX) return 0;
+    errno = 0;
     *out = number;
     return 1;
 }

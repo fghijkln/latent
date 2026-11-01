@@ -144,6 +144,19 @@ class CBackendDifferentialTests(unittest.TestCase):
                                  f"C failed for {fixture}:\n{c.stderr}\n{c.stdout}")
                 self.assertEqual(program_output(c), program_output(py), fixture)
 
+    def test_python_host_smallest_subnormal_float_roundtrips(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "subnormal.lt"
+            source.write_text('math = py "math"\nsay math.ldexp(1.0, -1074)\n',
+                              encoding="utf-8")
+            py = invoke(source, "py", root / "py")
+            c = invoke(source, "c", root / "c")
+            self.assertEqual(py.returncode, 0, py.stderr)
+            self.assertEqual(c.returncode, 0, f"{c.stderr}\n{c.stdout}")
+            self.assertEqual(program_output(c), program_output(py))
+            self.assertEqual(program_output(c), "5e-324\n")
+
     def test_host_sidecars_start_when_parent_stdio_is_closed(self):
         if os.name != "posix":
             self.skipTest("C11 sidecar process management requires POSIX")
