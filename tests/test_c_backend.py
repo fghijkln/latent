@@ -17,7 +17,7 @@ TESTS = ROOT / "tests"
 CORE_CASES = (
     "hello", "fib", "loop", "scope", "data", "truthy", "str_interp", "indexing",
     "class_basic", "inheritance", "p5_shared_capture", "p6_nonlocal_returned",
-    "p8_named_arguments", "p10_variadic_arguments",
+    "p8_named_arguments", "p9_default_parameters", "p10_variadic_arguments",
     "p11_keyword_only_parameters", "p12_override_compatibility",
 )
 MODULE_CASES = (
