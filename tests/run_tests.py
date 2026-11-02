@@ -1071,6 +1071,23 @@ def main():
         fails += max(1, c_failures)
         print(f"  {c_output[-6000:]}")
 
+    print("== restricted Stage1 C11 single-file slice ==")
+    rc, so, se = run([sys.executable, os.path.join(
+        TESTS, "test_stage1_c_backend.py")], timeout=600)
+    stage1_c_output = so + se
+    stage1_c_count_match = re.search(r"Ran (\d+) tests?", stage1_c_output)
+    stage1_c_total = int(stage1_c_count_match.group(1)) if stage1_c_count_match else 1
+    print(("PASS " if rc == 0 else "FAIL ") +
+          f"Stage1 C11 slice ({stage1_c_total} tests)")
+    if rc != 0:
+        stage1_c_failure_match = re.search(
+            r"FAILED \(([^)]+)\)", stage1_c_output)
+        stage1_c_failures = (sum(int(n) for n in re.findall(
+            r"(?:failures|errors)=(\d+)", stage1_c_failure_match.group(1)))
+            if stage1_c_failure_match else stage1_c_total)
+        fails += max(1, stage1_c_failures)
+        print(f"  {stage1_c_output[-6000:]}")
+
     total = (audit_total + repl_total + diagnostic_total + len(POSITIVE) + len(MODULE_POSITIVE) +
              len(NEG_COMPILE) +
              len(P8_NEG_COMPILE) +
@@ -1079,7 +1096,8 @@ def main():
              len(P11_NEG_COMPILE) +
              len(P12_NEG_COMPILE) +
              len(NEG_INHERITANCE_COMPILE) +
-             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 3 + c_total)
+             len(NEG_MODULE_COMPILE) + len(NEG_RUNTIME) + len(COOKBOOK) + 3 +
+             c_total + stage1_c_total)
     print(f"\n{total - fails} passed, {fails} failed")
     return 1 if fails else 0
 

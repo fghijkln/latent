@@ -180,15 +180,18 @@ class ProjectionLedgerTests(unittest.TestCase):
         self.assertIn("p18_callbacks.lt", manifest["inventories"]["tests_lt"])
         self.assertIn("p18_callbacks_host.py", manifest["inventories"]["python_fixture"])
 
-    def test_c_backend_suite_is_classified_outside_python_projection(self):
+    def test_c_only_suites_are_classified_outside_python_projection(self):
         manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
-        path = "test_c_backend.py"
-        self.assertIn(path, manifest["runner_auxiliary_paths"])
-        self.assertIn(path, manifest["inventories"]["test_module"])
-        fixture = manifest["fixture_decisions"]["test_module/" + path]
-        self.assertEqual(fixture["disposition"], "exclude")
-        self.assertIn("C-only", fixture["reason"])
-        self.assertEqual(manifest["auxiliary_tests"][path]["disposition"], "exclude")
+        for path in ("test_c_backend.py", "test_stage1_c_backend.py"):
+            with self.subTest(path=path):
+                self.assertIn(path, manifest["runner_auxiliary_paths"])
+                self.assertIn(path, manifest["inventories"]["test_module"])
+                fixture = manifest["fixture_decisions"]["test_module/" + path]
+                self.assertEqual(fixture["disposition"], "exclude")
+                self.assertIn("C-only", fixture["reason"])
+                auxiliary = manifest["auxiliary_tests"][path]
+                self.assertEqual(auxiliary["disposition"], "exclude")
+                self.assertIn("C-only", auxiliary["reason"])
 
     def test_p18_stage1_inventory_pins_callback_boundaries_and_host_star_cases(self):
         manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))

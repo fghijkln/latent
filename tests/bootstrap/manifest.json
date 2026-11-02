@@ -1486,7 +1486,8 @@
     "test_p18_callbacks.py",
     "test_p19_callback_kwargs.py",
     "test_p19_named_host.py",
-    "test_repl.py"
+    "test_repl.py",
+    "test_stage1_c_backend.py"
   ],
   "p14_protocol_operations": {
     "call_module_function": {
@@ -3156,6 +3157,10 @@
     "test_c_backend.py": {
       "disposition": "exclude",
       "reason": "C-only native C11 backend integration suite runs in the full regression runner but is outside the Python-target Stage1 projection."
+    },
+    "test_stage1_c_backend.py": {
+      "disposition": "exclude",
+      "reason": "C-only restricted Stage1 C11 single-file slice runs in the full regression runner but is outside the Python-target Stage1 projection."
     },
     "test_p18_callbacks.py": {
       "disposition": "include",
