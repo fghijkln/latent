@@ -1119,7 +1119,16 @@ static LtJson *host_encode_value(LtValue value, int endpoint,
                 host_json_set((LtJson *)owned, "__num", host_json_text(name));
             } else {
                 char text[64];
-                (void)snprintf(text, sizeof(text), "%.17g", value.as.real);
+                int length = snprintf(text, sizeof(text), "%.17g", value.as.real);
+                if (length < 0 || (size_t)length >= sizeof(text))
+                    fail("RuntimeError", "cannot encode host number");
+                if (strpbrk(text, ".eE") == NULL) {
+                    if ((size_t)length + 2U >= sizeof(text))
+                        fail("RuntimeError", "cannot encode host number");
+                    text[length++] = '.';
+                    text[length++] = '0';
+                    text[length] = '\0';
+                }
                 owned = lt_json_number(text);
                 if (!owned) fail("RuntimeError", "cannot encode host number");
             }

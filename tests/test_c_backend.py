@@ -27,6 +27,7 @@ MODULE_CASES = (
     "modules/nonlocal/main", "modules/bound_methods/main",
     "modules/variadic/main",
 )
+PYTHON_INTEROP_CASES = ("p18_callbacks",)
 
 
 def clean_env(**updates: str) -> dict[str, str]:
@@ -561,6 +562,25 @@ say host.call_conflicting_kwargs(callback)
                     self.assertIn("multiple values for argument 'value'",
                                   result.stderr)
                     self.assertNotIn("MUST-NOT-RUN", program_output(result))
+
+    def test_python_callback_fixture_matches_all_targets(self):
+        if not shutil.which("java") or not shutil.which("javac"):
+            self.skipTest("Java target requires java and javac")
+        env = clean_env(PYTHONPATH=str(TESTS / "python"))
+        for fixture in PYTHON_INTEROP_CASES:
+            source = TESTS / (fixture + ".lt")
+            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                outputs: dict[str, str] = {}
+                for target in ("py", "java", "c"):
+                    result = invoke(source, target, root / target, env=env)
+                    self.assertEqual(
+                        result.returncode, 0,
+                        f"{target} failed for {fixture}:\n{result.stderr}\n{result.stdout}")
+                    self.assertEqual(result.stderr, "", f"{target}: {fixture}")
+                    outputs[target] = program_output(result)
+                self.assertEqual(outputs["java"], outputs["py"], fixture)
+                self.assertEqual(outputs["c"], outputs["py"], fixture)
 
     def test_extracted_java_bound_method_matches_python_backend(self):
         if not shutil.which("java") or not shutil.which("javac"):
