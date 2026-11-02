@@ -20,7 +20,7 @@ P15 将编译器核心写在 Latent 中，并验证固定的阶段链：
 
 Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱糖、语义分析、模块处理、Python 代码生成和 CLI 策略由 Latent 编译器源码实现。Python 适配层只提供受限的操作系统服务，例如文件、路径与进程 I/O。CI 检查 Stage0/Stage1/Stage2 的 Python 目标行为投影，并验证 Stage2 与 Stage3 的产物在同一构建及不同干净 checkout 根目录下逐字节复现。
 
-这项工作是**运行在 Python 宿主上的自托管自举**，不是 native 或 host-independent bootstrap：生成的编译器仍需 Python 运行时。自举编译器当前只生成 Python；它不替代现有 `latent.py` 编译器，也不实现 Java/C11 目标代码生成、REPL、AST/脱糖诊断或编辑器元数据模式。
+这项工作是**运行在 Python 宿主上的自托管自举**，不是 native 或 host-independent bootstrap：生成的编译器仍需 Python 运行时。固定自举验收仍只覆盖 Python target；Stage1 预览另有受限的单文件 C11 切片，不替代现有 `latent.py` 编译器，也不实现 Java target、REPL、AST/脱糖诊断或编辑器元数据模式。
 
 首期验收覆盖 **243 个投影 case ID、244 次 fixture 调用、505 个固定种子性质案例，零差异**；同根 Stage2==Stage3，两个完整 clean-clone 根目录中的 Stage2/3 产物也逐字节一致；固定 Stage0 的完整双后端基线为 **259/259**。本结论不扩展到 native 或 host-independent bootstrap。CI 另运行 Python/JDK 版本矩阵和 VS Code 扩展检查。请参阅 [P15 设计说明](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) 与 [P15 实施及验收记录](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md)。
 
@@ -29,10 +29,10 @@ Stage0 只负责启动自举；Stage1、Stage2、Stage3 的词法、解析、脱
 仓库检出内可显式试用 Latent 实现的 Stage1：
 
 ```bash
-python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]
+python3 tools/latent_stage1.py prog.lt [-t py | -t c] [-o OUTDIR] [--source-root ROOT] [--run (py only)]
 ```
 
-这是**实验性、非默认入口**。首次调用会使用本机 Git 历史中的固定 Stage0 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` 按需构建 Stage1；不会自动联网取源码或发布预构建产物。Stage1 只生成 Python，默认输出目录为 `build/py`（与 `latent.py` 不同）；Java/C11 target、REPL、AST/脱糖诊断和编辑器元数据仍请使用现有 `latent.py`。包装器只接受仓库根目录或其子目录作为工作目录，构建缓存放在用户级 XDG cache（未设置时为 `~/.cache/latent/stage1/`）；不支持的宿主或 Stage1 错误会明确失败，不会回退到 `latent.py`。
+这是**实验性、非默认入口**。首次调用会使用本机 Git 历史中的固定 Stage0 `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` 按需构建 Stage1；不会自动联网取源码或发布预构建产物。Python target 默认输出到 `build/py`，C target 默认输出到 `build/c`（均与 `latent.py` 不同）。Stage1 的 C11 是明确受限的单文件切片：仅支持 int64/布尔标量、加减乘/取负、比较与布尔取反、`if/else`、`while`，以及直接 `say` 数值/布尔表达式或可打印 ASCII 字符串（含换行、制表、回车、NUL、引号与反斜线转义）；不支持 import、函数/类、for、浮点、Python/Java host interop 或 `--run`，且输出仅依赖 C 标准库。完整 C11 后端仍请使用 `latent.py`。Stage1 也不提供 Java target、REPL、AST/脱糖诊断和编辑器元数据。包装器只接受仓库根目录或其子目录作为工作目录，构建缓存放在用户级 XDG cache（未设置时为 `~/.cache/latent/stage1/`）；不支持的宿主或 Stage1 错误会明确失败，不会回退到 `latent.py`。
 
 若首次构建报告本地检出缺少固定 Stage0，包装器不会自动联网补取。先运行 `git rev-parse --is-shallow-repository`；若结果为 `true`，在仓库根目录手动执行 `git fetch --unshallow origin` 后重试（若远端不叫 `origin`，替换为实际远端名）。若检出不是浅克隆，请确认该固定 commit 已存在于本地 Git 历史。
 
@@ -105,9 +105,9 @@ say items
 
 ### 当前边界
 
-- 自举编译器目前仅生成 Python；Java 与 C11 后端由现有 `latent.py` 编译器提供。
+- 固定 Stage0→Stage3 自举/投影仍只验证 Python target；Stage1 预览另有受限的单文件 C11 切片，完整 C11 后端仍由 `latent.py` 提供。
 - P15 需要 Python 宿主；它不宣称无需 Python、native 或 host-independent。
-- C11 后端由 `latent.py -t c` 提供；当前运行时依赖 POSIX 进程 API，运行需 C11 编译器；使用 Python/Java 互操作时分别需 Python 3/JDK。它支持两种宿主互操作及同步 Python callback。
+- Stage1 C11 切片仅支持单文件 int64/布尔标量、加减乘/取负、比较/布尔取反、`if/else`、`while`，以及直接输出数值/布尔表达式或可打印 ASCII 字符串的 `say`；不支持 import、函数/类、for、浮点、host interop 或 `--run`，且只用 C 标准库；完整 `latent.py -t c` 后端仍依赖 POSIX 进程 API，并支持 Python/Java interop 及同步 Python callback。
 - 模块导入限于显式本地 `.lt` 别名；不支持循环导入、包管理或多继承。
 - Python/Java 互操作 callable 值仅覆盖文档列出的受支持方法与函数；不支持任意 callable 对象或独立 builtin（如 `len`）。Java-host callback 及嵌套或返回的 Python callback 仍不支持。
 - 数值类型为 float64；`java "int"` 等 Java 基本类型名不支持。
@@ -143,7 +143,7 @@ fixed Stage0 (the v0.13.5 Python compiler) → Stage1 → Stage2 → Stage3
 
 Stage0 is used only to seed the bootstrap. The Stage1, Stage2, and Stage3 compiler logic—lexing, parsing, desugaring, semantic analysis, module handling, Python code generation, and CLI policy—is implemented in Latent. A small Python adapter provides operating-system services such as file, path, and process I/O. CI checks the Python-target behavior projection across Stage0/Stage1/Stage2 and verifies byte-for-byte Stage2/Stage3 reproducibility both within one build and across clean checkouts at different absolute paths.
 
-This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The bootstrap compiler currently emits Python only. It does not replace the existing `latent.py` compiler and does not implement Java/C11 code generation, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
+This is a **Python-hosted self-hosting bootstrap**, not a native or host-independent bootstrap: generated compiler stages still require a Python runtime. The fixed bootstrap acceptance remains Python-target only; the Stage1 preview separately includes a restricted single-file C11 slice. Neither replaces the existing `latent.py` compiler, and Stage1 does not implement the Java target, a REPL, AST/desugared-AST diagnostics, or editor-metadata mode.
 
 First-phase acceptance covers **243 projection case IDs, 244 fixture invocations, and 505 fixed-seed property cases with zero mismatches**; Stage2==Stage3 within a root, and Stage2/3 artifacts are byte-identical across two full clean-clone roots. The fixed Stage0 full dual-backend baseline is **259/259**. This does not extend the claim to native or host-independent bootstrap. CI also runs a Python/JDK version matrix and VS Code extension checks. See the [P15 design](P15_SELF_HOSTING_BOOTSTRAP_DESIGN.md) and [P15 implementation and acceptance record](P15_SELF_HOSTING_IMPLEMENTATION_PLAN.md).
 
@@ -152,10 +152,10 @@ First-phase acceptance covers **243 projection case IDs, 244 fixture invocations
 From the repository checkout, explicitly try the Latent-implemented Stage1 compiler:
 
 ```bash
-python3 tools/latent_stage1.py prog.lt [-t py] [-o OUTDIR] [--source-root ROOT] [--run]
+python3 tools/latent_stage1.py prog.lt [-t py | -t c] [-o OUTDIR] [--source-root ROOT] [--run (py only)]
 ```
 
-This is an **experimental, non-default entry point**. On first use it builds Stage1 on demand from the fixed Stage0 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` in the local Git history; it does not fetch source automatically or publish prebuilt artifacts. Stage1 emits Python only and defaults to `build/py` (unlike `latent.py`); continue to use `latent.py` for Java/C11 targets, the REPL, AST/desugared-AST diagnostics, and editor metadata. Run the wrapper from the checkout root or a directory inside the checkout. Its build cache is user-level XDG cache (or `~/.cache/latent/stage1/` when unset); unsupported hosts and Stage1 errors fail explicitly, with no fallback to `latent.py`.
+This is an **experimental, non-default entry point**. On first use it builds Stage1 on demand from the fixed Stage0 commit `9cc060d0a408ea88bd5a0c42cbf8ad5bf61cf9a9` in the local Git history; it does not fetch source automatically or publish prebuilt artifacts. Python output defaults to `build/py` and C output to `build/c` (both differ from `latent.py`). Stage1 C11 is deliberately restricted to one file: int64/bool scalar values, `+`, `-`, `*`, unary `-`, comparisons and boolean `not`, `if/else`, `while`, and `say` of numeric/boolean expressions or direct printable-ASCII string literals (with newline, tab, CR, NUL, quote, and backslash escapes). Imports, functions/classes, `for`, floats, Python/Java host interop, and `--run` are unsupported; generated C uses only the C standard library. Use `latent.py` for the full C11 backend. Stage1 also does not provide Java, the REPL, AST/desugared-AST diagnostics, or editor metadata. Run the wrapper from the checkout root or a directory inside the checkout. Its build cache is user-level XDG cache (or `~/.cache/latent/stage1/` when unset); unsupported hosts and Stage1 errors fail explicitly, with no fallback to `latent.py`.
 
 If the first build reports that the fixed Stage0 commit is missing from the local checkout, the launcher will not fetch it automatically. Run `git rev-parse --is-shallow-repository`; if it prints `true`, manually run `git fetch --unshallow origin` from the checkout root and retry (replace `origin` if your remote has a different name). For a non-shallow checkout, verify that the pinned commit exists in local Git history.
 
@@ -228,9 +228,9 @@ Existing positive cases and Cookbook examples compare Python/Java output; the C1
 
 ### Current limitations
 
-- The bootstrap compiler currently emits Python only; Java and C11 code generation remain available through the existing `latent.py` compiler.
+- The fixed Stage0→Stage3 bootstrap and projection remain Python-target only; the Stage1 preview additionally has a restricted single-file C11 slice. The full C11 backend remains available through `latent.py`.
 - P15 requires a Python host. It does not claim to run without Python or to be native/host-independent.
-- The C11 target is available through `latent.py -t c`; the current runtime relies on POSIX process APIs and requires a C11 compiler, while Python/Java host interop requires Python 3/JDK respectively. Synchronous Python callbacks are supported.
+- The Stage1 C11 slice supports only one file: int64/bool scalars, `+`, `-`, `*`, unary `-`, comparisons and boolean `not`, `if/else`, `while`, and `say` of numeric/boolean expressions or direct printable-ASCII string literals (with newline, tab, CR, NUL, quote, and backslash escapes). It rejects imports, functions/classes, `for`, floats, host interop, and `--run`, and uses only the C standard library. The full `latent.py -t c` backend still relies on POSIX process APIs and supports Python/Java interop and synchronous Python callbacks.
 - Imports are limited to explicitly aliased local `.lt` modules; circular imports, package management, and multiple inheritance are not supported.
 - Python/Java interop callable values are limited to documented supported methods and functions; arbitrary callable objects and standalone built-ins such as `len` are unsupported. Java-host callbacks and nested or returned Python callbacks remain unsupported.
 - Numbers use float64; Java primitive type names such as `java "int"` are unsupported.

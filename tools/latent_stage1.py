@@ -533,10 +533,11 @@ def _launch_stage1(entry: Path, arguments: list[str], cwd: Path) -> int:
 def _print_preview_help_notice() -> None:
     print(
         "latent-stage1 is an experimental preview (not the default compiler).\n"
-        "Python target only; verified on Ubuntu 24.04 with CPython 3.11/UCD "
+        "Python target plus a restricted, single-file C11 target; verified on Ubuntu 24.04 with CPython 3.11/UCD "
         "14.0.0 and CPython 3.12/UCD 15.0.0.\n"
-        "Its default output directory is build/py (latent.py uses a different "
-        "default). No Java target, REPL, diagnostics, or editor metadata.\n"
+        "Default output directories are build/py and build/c (latent.py uses "
+        "different defaults). The C slice has no imports, host interop, or --run. "
+        "No Java target, REPL, diagnostics, or editor metadata.\n"
         "Review this preview within 90 days after its implementation reaches "
         "main, and before any first public release containing it.",
         file=sys.stdout,

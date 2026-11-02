@@ -395,9 +395,12 @@ class Stage1CliIntegrationTests(unittest.TestCase):
     def test_help_marks_preview_and_stage1_specific_limitations(self):
         self.assertEqual(self.help_result.returncode, 0, self.help_result.stderr)
         self.assertIn("latent-stage1 is an experimental preview", self.help_result.stdout)
-        self.assertIn("Python target only", self.help_result.stdout)
+        self.assertIn("Python target plus a restricted, single-file C11 target",
+                      self.help_result.stdout)
         self.assertIn("Ubuntu 24.04", self.help_result.stdout)
         self.assertIn("build/py", self.help_result.stdout)
+        self.assertIn("build/c", self.help_result.stdout)
+        self.assertIn("no imports, host interop, or --run", self.help_result.stdout)
         self.assertIn("90 days", self.help_result.stdout)
         self.assertIn("usage: latent source.lt", self.help_result.stdout)
         self.assertTrue(self.cache_home.exists())

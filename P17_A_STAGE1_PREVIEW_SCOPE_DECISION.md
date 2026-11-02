@@ -53,3 +53,11 @@ P17-B 若获负责人批准，至少应保留 P16-D 的验收要求：
 ## 明确不做
 
 本记录只记录用户已批准的 P17-A 范围决策，不实施任何运行时代码、CLI 包装器、构建/缓存逻辑、CI 工作流、文档入口链接或发布配置变更；不修改 Stage0 pin、P16-A 告警、tag、Release、分支保护或 `latent.py`。启动 P17-B 实现仍须另行明确审阅并授权实现范围；本次批准不构成实现许可。
+
+## 后续范围补充：Stage1 C11 单文件切片
+
+2026-11-02，用户单独授权在最新 `main` 上为 Stage1 增加 `-t c` 的最小纵向切片；该授权仅覆盖本节所列实现，不将 Stage1 或自举编译器等同于完整 C 后端。
+
+- Stage1 继续保留 Python target；新增 C11 emitter 仅支持单文件、无 import、无函数/类/host interop 的 int64/布尔标量子集，覆盖加减乘/取负、比较/布尔取反、`if/else`、`while`，以及直接 `say` 数值/布尔表达式或可打印 ASCII 字符串（含常见控制字符转义）。生成物只依赖 C 标准库，不支持 `--run`。
+- Stage0 pin、243 个 ledger case IDs、244 次 fixture invocations、505 个固定种子 properties/seed、既有 P19-B delta、Stage2==Stage3、Stage1 fixed-point、双根及 pending-source 双根门禁均保持原样；C-only 测试单独分类，不进入 Python-target projection。
+- 该扩展不改变 `latent.py` 默认入口或其完整 C11 后端，不授权完整 C 自举、发布、tag/Release、CI/安全设置变更或其它新平台承诺。

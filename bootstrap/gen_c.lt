@@ -1,0 +1,283 @@
+# Restricted single-file C11 emitter for the Stage1 vertical slice.
+fn success(code):
+    return {"ok": true, "code": code, "error": ""}
+
+fn failure(message):
+    return {"ok": false, "code": "", "error": message}
+
+fn expression_result(code, boolean):
+    return {"ok": true, "code": code, "boolean": boolean, "error": ""}
+
+fn has_name(names, wanted):
+    for name in names:
+        if name == wanted:
+            return true
+    return false
+
+fn append_name(names, name):
+    if has_name(names, name):
+        return names
+    return names + [name]
+
+fn collect_variables(statements, names):
+    for statement in statements:
+        kind = statement["type"]
+        if kind == "Assign":
+            if statement["target"]["type"] == "Name":
+                names = append_name(names, statement["target"]["id"])
+        elif kind == "If":
+            names = collect_variables(statement["then_body"], names)
+            if statement["else_body"] != nil:
+                names = collect_variables(statement["else_body"], names)
+        elif kind == "While":
+            names = collect_variables(statement["body"], names)
+    return names
+
+fn variable_index(names, wanted):
+    index = 0
+    for name in names:
+        if name == wanted:
+            return index
+        index = index + 1
+    return -1
+
+fn variable_name(names, wanted):
+    index = variable_index(names, wanted)
+    if index < 0:
+        return failure("name is not a local C-slice variable: " + wanted)
+    return success("_lt_v" + str(index))
+
+fn variable_boolean_name(names, wanted):
+    index = variable_index(names, wanted)
+    if index < 0:
+        return failure("name is not a local C-slice variable: " + wanted)
+    return success("_lt_b" + str(index))
+
+fn variable_initialized_name(names, wanted):
+    index = variable_index(names, wanted)
+    if index < 0:
+        return failure("name is not a local C-slice variable: " + wanted)
+    return success("_lt_i" + str(index))
+
+fn quote_c_string(value):
+    output = "\""
+    printable = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+    for ch in value:
+        if ch == "\\":
+            output = output + "\\\\"
+        elif ch == "\"":
+            output = output + "\\\""
+        elif ch == "\n":
+            output = output + "\\n"
+        elif ch == "\t":
+            output = output + "\\t"
+        elif ch == "\r":
+            output = output + "\\r"
+        elif ch == "\0":
+            output = output + "\\000"
+        else:
+            allowed = false
+            for safe in printable:
+                if safe == ch:
+                    allowed = true
+            if not allowed:
+                return failure("C slice string literals support printable ASCII and escaped NUL, tab, CR, or newline only")
+            output = output + ch
+    return success(output + "\"")
+
+fn emit_expression(node, variables):
+    kind = node["type"]
+    if kind == "Num":
+        if not node["is_int"]:
+            return failure("floating-point literals are outside the Stage1 C11 slice")
+        if node["value"] == -9223372036854775808:
+            return expression_result("INT64_MIN", "0")
+        return expression_result(str(node["value"]) + "LL", "0")
+    if kind == "Bool":
+        if node["value"]:
+            return expression_result("1LL", "1")
+        return expression_result("0LL", "1")
+    if kind == "Name":
+        value = variable_name(variables, node["id"])
+        if not value["ok"]:
+            return value
+        boolean = variable_boolean_name(variables, node["id"])
+        if not boolean["ok"]:
+            return boolean
+        initialized = variable_initialized_name(variables, node["id"])
+        if not initialized["ok"]:
+            return initialized
+        return expression_result("_lt_read(" + value["code"] + ", " + initialized["code"] + ")", boolean["code"])
+    if kind == "PyImport" or kind == "JavaImport":
+        return failure("Python/Java host interop is not supported by the Stage1 C11 target")
+    if kind == "UnOp":
+        operand = emit_expression(node["operand"], variables)
+        if not operand["ok"]:
+            return operand
+        if node["op"] == "-":
+            return expression_result("_lt_neg(" + operand["code"] + ")", "0")
+        if node["op"] == "not":
+            return expression_result("(!(" + operand["code"] + "))", "1")
+        return failure("unsupported unary operator in Stage1 C11 slice: " + node["op"])
+    if kind == "BinOp":
+        left = emit_expression(node["left"], variables)
+        if not left["ok"]:
+            return left
+        right = emit_expression(node["right"], variables)
+        if not right["ok"]:
+            return right
+        op = node["op"]
+        if op == "+":
+            return expression_result("_lt_add(" + left["code"] + ", " + right["code"] + ")", "0")
+        if op == "-":
+            return expression_result("_lt_sub(" + left["code"] + ", " + right["code"] + ")", "0")
+        if op == "*":
+            return expression_result("_lt_mul(" + left["code"] + ", " + right["code"] + ")", "0")
+        if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">=":
+            return expression_result("(" + left["code"] + " " + op + " " + right["code"] + ")", "1")
+        return failure("unsupported binary operator in Stage1 C11 slice: " + op)
+    return failure("unsupported expression in Stage1 C11 slice: " + kind)
+
+fn spaces(level):
+    output = ""
+    count = 0
+    while count < level * 4:
+        output = output + " "
+        count = count + 1
+    return output
+
+fn emit_block(statements, variables, level):
+    output = ""
+    for statement in statements:
+        emitted = emit_statement(statement, variables, level)
+        if not emitted["ok"]:
+            return emitted
+        output = output + emitted["code"]
+    if output == "":
+        output = spaces(level) + ";\n"
+    return success(output)
+
+fn emit_say(value, variables, indent):
+    if value["type"] == "Str":
+        literal = quote_c_string(value["value"])
+        if not literal["ok"]:
+            return literal
+        return success(indent + "fwrite(" + literal["code"] + ", 1, sizeof(" + literal["code"] + ") - 1, stdout);\n" + indent + "putchar('\\n');\n")
+    expression = emit_expression(value, variables)
+    if not expression["ok"]:
+        return expression
+    output = indent + "{\n"
+    output = output + indent + "    int64_t _lt_say_value = " + expression["code"] + ";\n"
+    output = output + indent + "    if (" + expression["boolean"] + ") {\n"
+    output = output + indent + "        fputs((_lt_say_value != 0) ? \"true\\n\" : \"false\\n\", stdout);\n"
+    output = output + indent + "    } else {\n"
+    output = output + indent + "        printf(\"%lld\\n\", (long long)_lt_say_value);\n"
+    output = output + indent + "    }\n"
+    return success(output + indent + "}\n")
+
+fn emit_statement(statement, variables, level):
+    kind = statement["type"]
+    indent = spaces(level)
+    if kind == "Pass":
+        return success(indent + ";\n")
+    if kind == "Assign":
+        if statement["target"]["type"] != "Name":
+            return failure("C slice assignments must target a local variable")
+        target = variable_name(variables, statement["target"]["id"])
+        if not target["ok"]:
+            return target
+        target_boolean = variable_boolean_name(variables, statement["target"]["id"])
+        if not target_boolean["ok"]:
+            return target_boolean
+        target_initialized = variable_initialized_name(variables, statement["target"]["id"])
+        if not target_initialized["ok"]:
+            return target_initialized
+        value = emit_expression(statement["value"], variables)
+        if not value["ok"]:
+            return value
+        output = indent + "{\n"
+        output = output + indent + "    int64_t _lt_assign_value = " + value["code"] + ";\n"
+        output = output + indent + "    int _lt_assign_boolean = " + value["boolean"] + ";\n"
+        output = output + indent + "    " + target["code"] + " = _lt_assign_value;\n"
+        output = output + indent + "    " + target_boolean["code"] + " = _lt_assign_boolean;\n"
+        output = output + indent + "    " + target_initialized["code"] + " = 1;\n"
+        return success(output + indent + "}\n")
+    if kind == "Say":
+        return emit_say(statement["value"], variables, indent)
+    if kind == "ExprStmt":
+        expression = statement["expr"]
+        if expression["type"] == "Call" and expression["func"]["type"] == "Name" and expression["func"]["id"] == "__say" and len(expression["args"]) == 1:
+            return emit_say(expression["args"][0], variables, indent)
+        return failure("unsupported expression statement in Stage1 C11 slice")
+    if kind == "If":
+        condition = emit_expression(statement["cond"], variables)
+        if not condition["ok"]:
+            return condition
+        then_body = emit_block(statement["then_body"], variables, level + 1)
+        if not then_body["ok"]:
+            return then_body
+        output = indent + "if (" + condition["code"] + ") {\n" + then_body["code"] + indent + "}"
+        if statement["else_body"] != nil:
+            else_body = emit_block(statement["else_body"], variables, level + 1)
+            if not else_body["ok"]:
+                return else_body
+            output = output + " else {\n" + else_body["code"] + indent + "}"
+        return success(output + "\n")
+    if kind == "While":
+        condition = emit_expression(statement["cond"], variables)
+        if not condition["ok"]:
+            return condition
+        body = emit_block(statement["body"], variables, level + 1)
+        if not body["ok"]:
+            return body
+        return success(indent + "while (" + condition["code"] + ") {\n" + body["code"] + indent + "}\n")
+    if kind == "ImportStmt":
+        return failure("imports are not supported by the Stage1 C11 target")
+    return failure("unsupported statement in Stage1 C11 slice: " + kind)
+
+fn runtime_prelude():
+    output = "#include <stdint.h>\n#include <stdio.h>\n#include <stdlib.h>\n\n"
+    output = output + "static void _lt_fail_overflow(void) {\n"
+    output = output + "    fputs(\"Latent runtime error: OverflowError: int64 overflow\\n\", stderr);\n"
+    output = output + "    exit(EXIT_FAILURE);\n}\n\n"
+    output = output + "static int64_t _lt_read(int64_t value, int initialized) {\n"
+    output = output + "    if (!initialized) {\n"
+    output = output + "        fputs(\"Latent runtime error: NameError: local variable read before assignment\\n\", stderr);\n"
+    output = output + "        exit(EXIT_FAILURE);\n"
+    output = output + "    }\n"
+    output = output + "    return value;\n}\n\n"
+    output = output + "static int64_t _lt_add(int64_t a, int64_t b) {\n"
+    output = output + "    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b)) _lt_fail_overflow();\n"
+    output = output + "    return a + b;\n}\n\n"
+    output = output + "static int64_t _lt_sub(int64_t a, int64_t b) {\n"
+    output = output + "    if ((b < 0 && a > INT64_MAX + b) || (b > 0 && a < INT64_MIN + b)) _lt_fail_overflow();\n"
+    output = output + "    return a - b;\n}\n\n"
+    output = output + "static int64_t _lt_mul(int64_t a, int64_t b) {\n"
+    output = output + "    if (a > 0) {\n"
+    output = output + "        if ((b > 0 && a > INT64_MAX / b) || (b < 0 && b < INT64_MIN / a)) _lt_fail_overflow();\n"
+    output = output + "    } else if (a < 0) {\n"
+    output = output + "        if ((b > 0 && a < INT64_MIN / b) || (b < 0 && a < INT64_MAX / b)) _lt_fail_overflow();\n"
+    output = output + "    }\n"
+    output = output + "    return a * b;\n}\n\n"
+    output = output + "static int64_t _lt_neg(int64_t value) {\n"
+    output = output + "    if (value == INT64_MIN) _lt_fail_overflow();\n"
+    output = output + "    return -value;\n}\n\n"
+    return output
+
+fn generate(tree):
+    if tree["type"] != "Program":
+        return failure("C emitter expected a Program node")
+    variables = collect_variables(tree["stmts"], [])
+    body = emit_block(tree["stmts"], variables, 1)
+    if not body["ok"]:
+        return body
+    output = runtime_prelude() + "int main(void) {\n"
+    index = 0
+    for name in variables:
+        output = output + "    int64_t _lt_v" + str(index) + " = INT64_C(0);\n"
+        output = output + "    int _lt_b" + str(index) + " = 0;\n"
+        output = output + "    int _lt_i" + str(index) + " = 0;\n"
+        index = index + 1
+    output = output + body["code"]
+    output = output + "    return 0;\n}\n"
+    return success(output)

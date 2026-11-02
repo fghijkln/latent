@@ -509,9 +509,9 @@ class BootstrapEmitterTests(unittest.TestCase):
                 self.assertFalse(stage1_semantic_out.exists())
 
             expected_usage = (
-                "usage: latent source.lt [-t py | --target py] "
+                "usage: latent source.lt [-t py | -t c] "
                 "[-o OUTDIR | --outdir OUTDIR] [--source-root ROOT] "
-                "[--run] [-h | --help]\n")
+                "[--run (py only)] [-h | --help]\n")
             help_result = subprocess.run(
                 [sys.executable, str(compiler_a), "--help"], cwd=root,
                 env=clean_env, text=True, encoding="utf-8",
