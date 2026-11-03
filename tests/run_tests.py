@@ -10,6 +10,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 from tests._safe_test_env import clean_test_environment, isolate_test_environment
+from tools.latent_stage1 import STAGE0_COMMIT as STAGE1_C_STAGE0_COMMIT
 
 TEST_ENV = isolate_test_environment()
 LATENTC = os.path.join(ROOT, "latent.py")
@@ -589,6 +590,44 @@ COOKBOOK_INTEROP_FUNCTION_VALUES_STDOUT = (
     "<static method java.lang.Math.pow>\n8\n8\n")
 
 
+def ensure_stage1_c_stage0(root=ROOT):
+    """Fetch only the pinned Stage0 commit when a shallow checkout lacks it."""
+    root = os.fspath(root)
+    git = ["git", "-C", root]
+    object_ref = f"{STAGE1_C_STAGE0_COMMIT}^{{commit}}"
+    check = [*git, "cat-file", "-e", object_ref]
+    git_env = {**TEST_ENV, "GIT_TERMINAL_PROMPT": "0"}
+
+    def has_commit():
+        try:
+            result = subprocess.run(
+                check, check=False, env=git_env, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0
+
+    if has_commit():
+        return True, ""
+
+    fetch = [*git, "fetch", "--no-tags", "--no-recurse-submodules",
+             "--depth=1", "origin", STAGE1_C_STAGE0_COMMIT]
+    try:
+        result = subprocess.run(
+            fetch, check=False, env=git_env, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return False, f"could not fetch fixed Stage0 commit {STAGE1_C_STAGE0_COMMIT}."
+    if result.returncode != 0:
+        return False, (f"fixed Stage0 fetch exited with status {result.returncode} "
+                       f"for {STAGE1_C_STAGE0_COMMIT}.")
+    if not has_commit():
+        return False, (f"fixed Stage0 commit {STAGE1_C_STAGE0_COMMIT} remains "
+                       "unavailable after fetch.")
+    return True, (f"fetched fixed Stage0 commit {STAGE1_C_STAGE0_COMMIT} "
+                  "with --depth=1.")
+
+
 def run(cmd, cwd=None, timeout=60, env=None):
     try:
         r = subprocess.run(cmd, check=False, cwd=cwd, capture_output=True, text=True,
@@ -1072,6 +1111,10 @@ def main():
         print(f"  {c_output[-6000:]}")
 
     print("== restricted Stage1 C11 single-file slice ==")
+    stage0_available, stage0_note = ensure_stage1_c_stage0()
+    if stage0_note:
+        status = "available" if stage0_available else "unavailable"
+        print(f"Stage1 C11 Stage0 prerequisite {status}: {stage0_note}")
     rc, so, se = run([sys.executable, os.path.join(
         TESTS, "test_stage1_c_backend.py")], timeout=600)
     stage1_c_output = so + se

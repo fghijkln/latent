@@ -12,9 +12,15 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent.parent))
 import checker
 import pending_snapshot_gate
 import project_stage0
+
+import tests._safe_test_env as safe_test_env
+with patch.object(safe_test_env, "isolate_test_environment",
+                  side_effect=safe_test_env.clean_test_environment):
+    from tests import run_tests
 
 
 class ProjectionLedgerTests(unittest.TestCase):
@@ -539,6 +545,51 @@ class ProjectionLedgerTests(unittest.TestCase):
                       manifest["p14_protocol_operations"])
         self.assertIn("call_static_method",
                       manifest["p14_protocol_operations"])
+
+
+class Stage1RunnerFetchTests(unittest.TestCase):
+    def test_present_fixed_stage0_commit_does_not_fetch(self):
+        completed = subprocess.CompletedProcess([], 0)
+        with patch.object(run_tests.subprocess, "run",
+                          return_value=completed) as run_process:
+            available, note = run_tests.ensure_stage1_c_stage0("checkout")
+        self.assertTrue(available)
+        self.assertEqual(note, "")
+        self.assertEqual(run_process.call_count, 1)
+        self.assertEqual(run_process.call_args.args[0], [
+            "git", "-C", "checkout", "cat-file", "-e",
+            f"{run_tests.STAGE1_C_STAGE0_COMMIT}^{{commit}}"])
+
+    def test_missing_fixed_stage0_fetches_only_that_sha_at_depth_one(self):
+        results = [subprocess.CompletedProcess([], 1),
+                   subprocess.CompletedProcess([], 0),
+                   subprocess.CompletedProcess([], 0)]
+        with patch.object(run_tests.subprocess, "run",
+                          side_effect=results) as run_process:
+            available, note = run_tests.ensure_stage1_c_stage0("checkout")
+        self.assertTrue(available)
+        self.assertEqual(note,
+                         f"fetched fixed Stage0 commit "
+                         f"{run_tests.STAGE1_C_STAGE0_COMMIT} with --depth=1.")
+        self.assertEqual(run_process.call_count, 3)
+        self.assertEqual(run_process.call_args_list[1].args[0], [
+            "git", "-C", "checkout", "fetch", "--no-tags",
+            "--no-recurse-submodules", "--depth=1", "origin",
+            run_tests.STAGE1_C_STAGE0_COMMIT])
+        self.assertEqual(
+            run_process.call_args_list[1].kwargs["env"]["GIT_TERMINAL_PROMPT"],
+            "0")
+
+    def test_failed_fixed_stage0_fetch_does_not_expose_git_output(self):
+        results = [subprocess.CompletedProcess([], 1),
+                   subprocess.CompletedProcess([], 128)]
+        with patch.object(run_tests.subprocess, "run",
+                          side_effect=results) as run_process:
+            available, note = run_tests.ensure_stage1_c_stage0("checkout")
+        self.assertFalse(available)
+        self.assertIn(run_tests.STAGE1_C_STAGE0_COMMIT, note)
+        self.assertNotIn("credential", note.lower())
+        self.assertEqual(run_process.call_count, 2)
 
 
 if __name__ == "__main__":
